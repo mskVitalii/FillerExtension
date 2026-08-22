@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Assistant",
+  "version": "0.1.0",
+  "description": "Extract job postings, generate tailored cover letters with your own OpenAI key, and autofill applications — without leaving the page.",
+  "action": {
+    "default_title": "Job Application Assistant"
+  },
+  "icons": {
+    "16": "public/icons/icon16.png",
+    "48": "public/icons/icon48.png",
+    "128": "public/icons/icon128.png"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "sidePanel",
+    "tabs",
+    "downloads",
+    "identity"
+  ],
+  "host_permissions": ["https://www.googleapis.com/*", "https://api.openai.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "oauth2": {
+    "client_id": "168797524296-ufe0uh7ulsbsujqoqs34e9tt6vsqnd4n.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/drive.appdata"]
+  },
+  "options_ui": {
+    "page": "src/sidepanel/index.html",
+    "open_in_tab": true
+  }
+}

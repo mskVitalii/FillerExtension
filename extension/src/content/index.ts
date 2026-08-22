@@ -1,0 +1,58 @@
+import type { RuntimeMessage } from "@/types/messages";
+import { extractJob, isExtractionSufficient } from "@/features/job-extraction/extractor";
+import { autofillDocument } from "@/features/autofill/engine";
+import { fillElement } from "@/features/autofill/native-setter";
+import { getInsertTarget, initFocusTracker } from "@/features/autofill/focus-tracker";
+import { injectFileIntoPage } from "@/features/file-upload/inject-file";
+import { base64ToFile } from "@/lib/base64";
+
+initFocusTracker();
+
+/**
+ * Single message entry point for this content script (spec section 21-22).
+ * Background routes Side Panel requests here; this script owns all DOM
+ * access — extraction, autofill, context-menu inserts, file injection.
+ */
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+  switch (message.type) {
+    case "GET_JOB": {
+      const job = extractJob(document, location.href);
+      const sufficient = isExtractionSufficient(job);
+      const response: RuntimeMessage = sufficient
+        ? { type: "JOB_DATA", job, sufficient: true }
+        : {
+            type: "JOB_DATA",
+            job,
+            sufficient: false,
+            visibleText: (document.body.innerText || "").slice(0, 20000),
+          };
+      sendResponse(response);
+      return false;
+    }
+
+    case "AUTOFILL": {
+      const result = autofillDocument(message.profile);
+      const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
+      sendResponse(response);
+      return false;
+    }
+
+    case "INSERT_VALUE": {
+      const target = getInsertTarget();
+      if (target) fillElement(target, message.value);
+      sendResponse();
+      return false;
+    }
+
+    case "UPLOAD_FILE": {
+      const file = base64ToFile(message.base64Data, message.fileName, message.mimeType);
+      const result = injectFileIntoPage(file);
+      const response: RuntimeMessage = { type: "UPLOAD_FILE_RESULT", ...result };
+      sendResponse(response);
+      return false;
+    }
+
+    default:
+      return false;
+  }
+});

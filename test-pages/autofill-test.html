@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Autofill Test Page</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 640px;
+        margin: 40px auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      fieldset {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 16px;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 14px;
+      }
+      input,
+      textarea,
+      select {
+        padding: 6px 8px;
+        font-size: 14px;
+      }
+      [contenteditable] {
+        border: 1px solid #ccc;
+        padding: 8px;
+        min-height: 60px;
+      }
+      #combobox-list {
+        border: 1px solid #ccc;
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 0;
+        max-width: 200px;
+      }
+      #dropzone {
+        border: 2px dashed #999;
+        padding: 24px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Job Application Assistant — manual test page</h1>
+    <p>Covers spec section 28: plain inputs, aria-label, placeholder, autocomplete, contenteditable, custom combobox, file input, drag/drop.</p>
+
+    <fieldset>
+      <legend>Plain HTML inputs (name attribute)</legend>
+      <label>First name <input name="first_name" /></label>
+      <label>Last name <input name="last_name" /></label>
+      <label>Email <input name="email" type="email" /></label>
+      <label>Phone <input name="phone" /></label>
+      <label>LinkedIn <input name="linkedin" /></label>
+      <label>Cover message <textarea name="message"></textarea></label>
+      <label>
+        Country
+        <select name="country">
+          <option value="">Select…</option>
+          <option value="DE">Germany</option>
+          <option value="US">United States</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>aria-label / placeholder only (no name/id)</legend>
+      <input aria-label="Given name" placeholder="Your first name" />
+      <input placeholder="Family name" />
+      <input aria-label="E-mail address" />
+    </fieldset>
+
+    <fieldset>
+      <legend>autocomplete tokens</legend>
+      <input autocomplete="given-name" />
+      <input autocomplete="family-name" />
+      <input autocomplete="email" />
+      <input autocomplete="tel" />
+      <input autocomplete="postal-code" />
+    </fieldset>
+
+    <fieldset>
+      <legend>contenteditable</legend>
+      <div contenteditable="true" aria-label="Full name" data-testid="fullname-editable"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Custom combobox (role="combobox")</legend>
+      <div role="combobox" aria-label="Country" tabindex="0" contenteditable="true"></div>
+      <ul id="combobox-list"></ul>
+    </fieldset>
+
+    <fieldset>
+      <legend>File input</legend>
+      <input type="file" accept="application/pdf" />
+    </fieldset>
+
+    <fieldset>
+      <legend>Drag &amp; drop upload zone</legend>
+      <div id="dropzone" class="dropzone">Drop your CV here</div>
+    </fieldset>
+
+    <script>
+      const zone = document.getElementById("dropzone");
+      ["dragenter", "dragover"].forEach((type) =>
+        zone.addEventListener(type, (e) => {
+          e.preventDefault();
+          zone.style.background = "#eef";
+        }),
+      );
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer?.files?.[0];
+        zone.textContent = file ? `Received: ${file.name}` : "Drop event fired (no file)";
+      });
+    </script>
+  </body>
+</html>
