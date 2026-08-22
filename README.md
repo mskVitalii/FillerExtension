@@ -1,4 +1,4 @@
-# Job Application Assistant
+# Filler
 
 Chrome Extension (Manifest V3) that extracts job postings from the current tab, generates a
 tailored cover letter with your own OpenAI key, and autofills the application form — all from

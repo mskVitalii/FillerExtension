@@ -23,7 +23,7 @@ export function ApiKeyStep({ onSaved }: ApiKeyStepProps) {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        <h1 className="text-base font-semibold">Job Application Assistant</h1>
+        <h1 className="text-base font-semibold">Filler</h1>
         <p className="mt-1 text-sm text-muted-foreground">Welcome</p>
       </div>
 

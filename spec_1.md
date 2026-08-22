@@ -1,4 +1,4 @@
-# Job Application Assistant
+# Filler
 
 ## 1. Цель проекта
 
@@ -39,7 +39,7 @@ Submit manually
 Первый запуск:
 
 ```text
-Job Application Assistant
+Filler
 
 Welcome
 
@@ -72,7 +72,7 @@ Google connected ✓
 Side Panel:
 
 ```text
-Job Application Assistant
+Filler
 
 Company
 Example GmbH
@@ -968,7 +968,7 @@ Delete API Key
 Предпочтительная структура:
 
 ```text
-job-application-assistant/
+filler/
 ├── extension/
 │   ├── src/
 │   │   ├── background/

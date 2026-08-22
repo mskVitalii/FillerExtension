@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Job Application Assistant",
+  "name": "Filler",
   "version": "0.1.0",
-  "description": "Extract job postings, generate tailored cover letters with your own OpenAI key, and autofill applications — without leaving the page.",
+  "description": "Extract job postings, draft tailored cover letters with your OpenAI key, and autofill applications.",
   "action": {
-    "default_title": "Job Application Assistant"
+    "default_title": "Filler"
   },
   "icons": {
     "16": "public/icons/icon16.png",

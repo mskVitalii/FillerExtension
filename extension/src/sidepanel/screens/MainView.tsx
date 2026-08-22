@@ -259,7 +259,7 @@ export function MainView({ tabId, tabUrl, profile, cvMeta, onOpenSettings }: Mai
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-semibold">Job Application Assistant</h1>
+        <h1 className="text-base font-semibold">Filler</h1>
         <button onClick={onOpenSettings} aria-label="Settings">
           <Settings className="h-4 w-4 text-muted-foreground" />
         </button>
