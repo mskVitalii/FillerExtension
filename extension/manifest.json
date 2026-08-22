@@ -29,7 +29,6 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting",
     "contextMenus",
     "sidePanel",
     "tabs",
