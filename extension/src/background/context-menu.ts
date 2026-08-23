@@ -1,5 +1,6 @@
 import type { ProfileFieldKey } from "@/types/profile";
 import type { RuntimeMessage } from "@/types/messages";
+import { ensureContentScript } from "./inject-content-script";
 
 const INSERT_PARENT_ID = "job-app-assistant-insert";
 
@@ -56,8 +57,15 @@ export async function handleContextMenuClick(
   const value = await resolveInsertValue(field);
   if (!value) return;
 
+  // Runs inside this click's activeTab grant. On a tab that's never had
+  // the content script loaded before, this injects it too late to have
+  // caught the contextmenu event that opened this very menu — insert
+  // then silently no-ops (getInsertTarget() finds nothing) — but it's
+  // ready for every use after this one on the same tab.
+  await ensureContentScript(tab.id);
+
   const message: RuntimeMessage = { type: "INSERT_VALUE", field, value };
   chrome.tabs.sendMessage(tab.id, message).catch(() => {
-    // Content script may not be injected on this page (e.g. chrome:// pages).
+    // Restricted page (e.g. chrome:// pages) — nothing to do.
   });
 }

@@ -3,6 +3,7 @@ import { getProfile } from "@/features/profile/repository";
 import { setLocal } from "@/features/storage/local";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { extractJobWithAi } from "@/features/job-extraction/ai-fallback";
+import { ensureContentScript } from "./inject-content-script";
 
 /**
  * Background owns message routing between Side Panel and Content Script
@@ -20,6 +21,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "GET_JOB": {
+      await ensureContentScript(message.tabId);
       const result = (await chrome.tabs.sendMessage(message.tabId, message)) as RuntimeMessage | undefined;
       if (!result || result.type !== "JOB_DATA") return result;
       if (result.sufficient) return result;
@@ -40,6 +42,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "AUTOFILL": {
+      await ensureContentScript(message.tabId);
       return (await chrome.tabs.sendMessage(message.tabId, message)) as RuntimeMessage;
     }
 
@@ -55,6 +58,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "UPLOAD_FILE": {
+      await ensureContentScript(message.tabId);
       return (await chrome.tabs.sendMessage(message.tabId, message)) as RuntimeMessage;
     }
 

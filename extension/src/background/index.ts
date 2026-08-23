@@ -1,6 +1,7 @@
 import type { RuntimeMessage } from "@/types/messages";
 import { handleContextMenuClick, registerContextMenu } from "./context-menu";
 import { routeMessage } from "./router";
+import { ensureContentScript } from "./inject-content-script";
 import { clearTabState } from "@/features/storage/session";
 
 const SIDE_PANEL_PATH = "src/sidepanel/index.html";
@@ -30,6 +31,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (tab.id === undefined) return;
+  // Runs inside the click's activeTab grant — injects now so the content
+  // script (and its focus-tracker) is already listening before the user
+  // does anything else on this tab, e.g. right-clicking a field.
+  await ensureContentScript(tab.id);
   await chrome.sidePanel.setOptions({ tabId: tab.id, path: SIDE_PANEL_PATH, enabled: true });
   await chrome.sidePanel.open({ tabId: tab.id });
 });
