@@ -9,6 +9,8 @@ export interface Application {
   url: string;
   job: Job;
   coverLetter: string;
+  /** Kept in sync with `coverLetter` (spec_2 item 3) — always the latest translation, not a snapshot. */
+  translation?: { language: string; content: string };
   createdAt: string;
   updatedAt: string;
   status: ApplicationStatus;

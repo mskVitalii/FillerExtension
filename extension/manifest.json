@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Filler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Extract job postings, draft tailored cover letters with your OpenAI key, and autofill applications.",
   "action": {
     "default_title": "Filler"

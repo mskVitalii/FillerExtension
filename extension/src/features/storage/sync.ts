@@ -5,11 +5,14 @@
 export interface Preferences {
   autofillOnOpen: boolean;
   pdfFontSize: number;
+  /** Remembered choice for the Cover Letter "Translate" tab (spec_2 item 3). */
+  translateLanguage: string;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
   autofillOnOpen: true,
   pdfFontSize: 11,
+  translateLanguage: "Russian",
 };
 
 export async function getPreferences(): Promise<Preferences> {

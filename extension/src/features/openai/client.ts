@@ -1,7 +1,12 @@
 import { getOpenAiApiKey } from "@/features/storage/local";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-5.6-terra";
+
+/** High-quality model — used for text that goes straight into the application (spec_2 item 4). */
+export const MODEL_TERRA = "gpt-5.6-terra";
+/** Smaller/faster model — used for support tasks (analysis, translation) where latency matters more than nuance. */
+export const MODEL_LUNA = "gpt-5.6-luna";
+const DEFAULT_MODEL = MODEL_TERRA;
 
 export class OpenAiError extends Error {
   constructor(

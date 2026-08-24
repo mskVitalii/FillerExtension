@@ -1,4 +1,4 @@
-import type { CvMeta, PersonalLegend, Profile } from "@/types/profile";
+import type { CustomField, CvMeta, LanguageLevel, PersonalLegend, Profile } from "@/types/profile";
 
 /**
  * chrome.storage.local — small local-only data: the user's OpenAI API key
@@ -11,6 +11,8 @@ interface LocalStorageSchema {
   profileCache: Profile;
   cvMetaCache: CvMeta;
   legendCache: PersonalLegend;
+  customFieldsCache: CustomField[];
+  languageLevelsCache: LanguageLevel[];
   /** Most recently generated/edited cover letter, so the context menu can insert it. */
   lastCoverLetter: string;
 }

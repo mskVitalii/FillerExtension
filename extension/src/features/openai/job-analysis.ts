@@ -1,5 +1,5 @@
 import type { Job } from "@/types/job";
-import { requestStructured } from "./client";
+import { MODEL_LUNA, requestStructured } from "./client";
 
 export interface JobAnalysis {
   keyRequirements: string[];
@@ -29,6 +29,9 @@ export async function analyzeJob(job: Job): Promise<JobAnalysis> {
   return requestStructured<JobAnalysis>({
     schemaName: "job_analysis",
     schema: SCHEMA,
+    // Slow step in the pipeline (spec_2 item 4) — a smaller model is plenty for
+    // structured extraction/analysis, unlike the actual cover-letter prose.
+    model: MODEL_LUNA,
     systemPrompt:
       "You analyze job postings for a job-application assistant. Identify the most " +
       "important requirements and what an applicant should emphasize. Do not invent " +

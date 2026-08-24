@@ -4,8 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EMPTY_PROFILE, SALUTATION_OPTIONS, type CvMeta, type Profile } from "@/types/profile";
-import { deleteCv, saveProfile, savePersonalLegend, uploadCv } from "@/features/profile/repository";
+import {
+  EMPTY_PROFILE,
+  SALUTATION_OPTIONS,
+  type CustomField,
+  type CvMeta,
+  type LanguageLevel,
+  type Profile,
+} from "@/types/profile";
+import { CEFR_LEVELS } from "@/lib/language-level";
+import {
+  deleteCv,
+  saveCustomFields,
+  saveLanguageLevels,
+  saveProfile,
+  savePersonalLegend,
+  uploadCv,
+} from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { deleteOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
@@ -16,10 +31,14 @@ interface SettingsPanelProps {
   profile: Profile;
   cvMeta: CvMeta | null;
   legendContent: string;
+  customFields: CustomField[];
+  languageLevels: LanguageLevel[];
   onBack: () => void;
   onProfileChange: (profile: Profile) => void;
   onCvChange: (cvMeta: CvMeta | null) => void;
   onLegendChange: (content: string) => void;
+  onCustomFieldsChange: (fields: CustomField[]) => void;
+  onLanguageLevelsChange: (levels: LanguageLevel[]) => void;
   onApiKeyDeleted: () => void;
 }
 
@@ -27,10 +46,14 @@ export function SettingsPanel({
   profile,
   cvMeta,
   legendContent,
+  customFields,
+  languageLevels,
   onBack,
   onProfileChange,
   onCvChange,
   onLegendChange,
+  onCustomFieldsChange,
+  onLanguageLevelsChange,
   onApiKeyDeleted,
 }: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,6 +61,10 @@ export function SettingsPanel({
   const [legendDraft, setLegendDraft] = useState(legendContent);
   const [savingLegend, setSavingLegend] = useState(false);
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
+  const [fieldsDraft, setFieldsDraft] = useState(customFields);
+  const [savingFields, setSavingFields] = useState(false);
+  const [languagesDraft, setLanguagesDraft] = useState(languageLevels);
+  const [savingLanguages, setSavingLanguages] = useState(false);
 
   useEffect(() => {
     void getPreferences().then((prefs) => setAutofillOnOpen(prefs.autofillOnOpen));
@@ -77,6 +104,50 @@ export function SettingsPanel({
 
   async function handleSaveProfile() {
     await saveProfile(profile);
+  }
+
+  function handleAddCustomField() {
+    setFieldsDraft((fields) => [...fields, { id: crypto.randomUUID(), label: "", value: "" }]);
+  }
+
+  function handleCustomFieldChange(id: string, patch: Partial<Omit<CustomField, "id">>) {
+    setFieldsDraft((fields) => fields.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  }
+
+  function handleRemoveCustomField(id: string) {
+    setFieldsDraft((fields) => fields.filter((f) => f.id !== id));
+  }
+
+  async function handleSaveCustomFields() {
+    setSavingFields(true);
+    try {
+      await saveCustomFields(fieldsDraft);
+      onCustomFieldsChange(fieldsDraft);
+    } finally {
+      setSavingFields(false);
+    }
+  }
+
+  function handleAddLanguageLevel() {
+    setLanguagesDraft((levels) => [...levels, { language: "", level: "B1" }]);
+  }
+
+  function handleLanguageLevelChange(index: number, patch: Partial<LanguageLevel>) {
+    setLanguagesDraft((levels) => levels.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+
+  function handleRemoveLanguageLevel(index: number) {
+    setLanguagesDraft((levels) => levels.filter((_, i) => i !== index));
+  }
+
+  async function handleSaveLanguageLevels() {
+    setSavingLanguages(true);
+    try {
+      await saveLanguageLevels(languagesDraft);
+      onLanguageLevelsChange(languagesDraft);
+    } finally {
+      setSavingLanguages(false);
+    }
   }
 
   return (
@@ -185,6 +256,94 @@ export function SettingsPanel({
           <Button size="sm" variant="outline" onClick={handleSaveProfile}>
             Save Profile
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Custom Fields</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            Extra values you can drag onto a page — kept separate from Profile so they're never
+            picked up by Autofill Application.
+          </p>
+          {fieldsDraft.map((field) => (
+            <div key={field.id} className="flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Label</label>
+                <Input
+                  value={field.label}
+                  onChange={(e) => handleCustomFieldChange(field.id, { label: e.target.value })}
+                />
+              </div>
+              <div className="flex flex-1 flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Value</label>
+                <Input
+                  value={field.value}
+                  onChange={(e) => handleCustomFieldChange(field.id, { value: e.target.value })}
+                />
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => handleRemoveCustomField(field.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleAddCustomField}>
+              Add field
+            </Button>
+            <Button size="sm" onClick={handleSaveCustomFields} disabled={savingFields}>
+              {savingFields ? "Saving…" : "Save Custom Fields"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My Languages</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            Your own proficiency, compared against a posting's language requirements so you can
+            tell at a glance whether it's worth your time.
+          </p>
+          {languagesDraft.map((entry, index) => (
+            <div key={index} className="flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Language</label>
+                <Input
+                  value={entry.language}
+                  onChange={(e) => handleLanguageLevelChange(index, { language: e.target.value })}
+                />
+              </div>
+              <div className="flex w-24 flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Level</label>
+                <Select
+                  value={entry.level}
+                  onChange={(e) => handleLanguageLevelChange(index, { level: e.target.value as LanguageLevel["level"] })}
+                >
+                  {CEFR_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => handleRemoveLanguageLevel(index)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleAddLanguageLevel}>
+              Add language
+            </Button>
+            <Button size="sm" onClick={handleSaveLanguageLevels} disabled={savingLanguages}>
+              {savingLanguages ? "Saving…" : "Save Languages"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

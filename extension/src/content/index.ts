@@ -3,6 +3,7 @@ import { extractJob, isExtractionSufficient } from "@/features/job-extraction/ex
 import { autofillDocument } from "@/features/autofill/engine";
 import { fillElement } from "@/features/autofill/native-setter";
 import { getInsertTarget, initFocusTracker } from "@/features/autofill/focus-tracker";
+import { detectCustomQuestions } from "@/features/autofill/custom-questions";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
 import { base64ToFile } from "@/lib/base64";
 
@@ -46,6 +47,13 @@ function registerMessageListener(): void {
         const target = getInsertTarget();
         if (target) fillElement(target, message.value);
         sendResponse();
+        return false;
+      }
+
+      case "DETECT_CUSTOM_QUESTIONS": {
+        const questions = detectCustomQuestions();
+        const response: RuntimeMessage = { type: "CUSTOM_QUESTIONS_DATA", questions };
+        sendResponse(response);
         return false;
       }
 

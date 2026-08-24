@@ -1,4 +1,5 @@
-import type { Job } from "@/types/job";
+import type { Job, JobLanguageInfo } from "@/types/job";
+import type { CustomQuestion } from "@/features/autofill/custom-questions";
 
 /**
  * chrome.storage.session — per-tab UI state (current job + cover-letter
@@ -13,6 +14,14 @@ export interface TabState {
   url: string;
   job: Job;
   coverLetter: string;
+  /** An unsent paste shouldn't vanish on tab switch either (spec_2 item 2). */
+  pasteMode: boolean;
+  pasteText: string;
+  translation: { language: string; content: string } | null;
+  customQuestions: CustomQuestion[];
+  /** Keyed by question text — avoids re-generating an answer already fetched for this job. */
+  customQuestionAnswers: Record<string, string>;
+  jobLanguage: JobLanguageInfo | null;
 }
 
 function key(tabId: number): string {

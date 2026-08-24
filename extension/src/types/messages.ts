@@ -1,6 +1,7 @@
-import type { Job } from "./job";
+import type { Job, JobLanguageInfo } from "./job";
 import type { Profile, ProfileFieldKey } from "./profile";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
+import type { CustomQuestion } from "@/features/autofill/custom-questions";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -27,7 +28,17 @@ export type RuntimeMessage =
       base64Data: string;
     }
   | { type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }
-  | { type: "EXPORT_PDF"; content: string; fileName: string };
+  | { type: "EXPORT_PDF"; content: string; fileName: string }
+  | { type: "REVISE_COVER_LETTER"; job: Job; content: string; instructions: string }
+  | { type: "REVISE_COVER_LETTER_RESULT"; content: string }
+  | { type: "TRANSLATE_COVER_LETTER"; content: string; targetLanguage: string }
+  | { type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }
+  | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
+  | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
+  | { type: "ANSWER_CUSTOM_QUESTION"; question: string; job: Job }
+  | { type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }
+  | { type: "DETECT_JOB_LANGUAGE"; job: Job }
+  | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo };
 
 export type RuntimeMessageType = RuntimeMessage["type"];
 

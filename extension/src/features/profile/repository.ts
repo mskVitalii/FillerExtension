@@ -1,4 +1,11 @@
-import { EMPTY_PROFILE, type CvMeta, type PersonalLegend, type Profile } from "@/types/profile";
+import {
+  EMPTY_PROFILE,
+  type CustomField,
+  type CvMeta,
+  type LanguageLevel,
+  type PersonalLegend,
+  type Profile,
+} from "@/types/profile";
 import { getLocal, setLocal } from "@/features/storage/local";
 import * as drive from "@/features/google-drive/client";
 
@@ -78,4 +85,52 @@ export async function getCvFile(): Promise<File | null> {
 export async function deleteCv(): Promise<void> {
   await drive.deleteFile("cv.pdf");
   await chrome.storage.local.remove("cvMetaCache");
+}
+
+/**
+ * Custom fields (spec_2 item 1) — same cache-then-Drive pattern as Profile,
+ * but stored separately since they're drag-only and never fed into autofill.
+ */
+export async function getCustomFields(): Promise<CustomField[]> {
+  const cached = await getLocal("customFieldsCache");
+  if (cached) return cached;
+  try {
+    const remote = await drive.readJsonFile<CustomField[]>("customFields.json");
+    if (remote) {
+      await setLocal("customFieldsCache", remote);
+      return remote;
+    }
+  } catch {
+    // Google not connected yet — fall through to empty list.
+  }
+  return [];
+}
+
+export async function saveCustomFields(fields: CustomField[]): Promise<void> {
+  await setLocal("customFieldsCache", fields);
+  await drive.writeJsonFile("customFields.json", fields);
+}
+
+/**
+ * The user's own language levels (spec_3 item 2) — same cache-then-Drive pattern as
+ * Custom Fields, compared against a posting's detected language requirements.
+ */
+export async function getLanguageLevels(): Promise<LanguageLevel[]> {
+  const cached = await getLocal("languageLevelsCache");
+  if (cached) return cached;
+  try {
+    const remote = await drive.readJsonFile<LanguageLevel[]>("languageLevels.json");
+    if (remote) {
+      await setLocal("languageLevelsCache", remote);
+      return remote;
+    }
+  } catch {
+    // Google not connected yet — fall through to empty list.
+  }
+  return [];
+}
+
+export async function saveLanguageLevels(levels: LanguageLevel[]): Promise<void> {
+  await setLocal("languageLevelsCache", levels);
+  await drive.writeJsonFile("languageLevels.json", levels);
 }

@@ -3,6 +3,10 @@ import { getProfile } from "@/features/profile/repository";
 import { setLocal } from "@/features/storage/local";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { extractJobWithAi } from "@/features/job-extraction/ai-fallback";
+import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
+import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
+import { answerCustomQuestion } from "@/features/openai/answer-question";
+import { detectJobLanguage } from "@/features/openai/detect-job-language";
 import { ensureContentScript } from "./inject-content-script";
 
 /**
@@ -60,6 +64,32 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "UPLOAD_FILE": {
       await ensureContentScript(message.tabId);
       return (await chrome.tabs.sendMessage(message.tabId, message)) as RuntimeMessage;
+    }
+
+    case "REVISE_COVER_LETTER": {
+      const content = await reviseCoverLetter(message.content, message.instructions, message.job);
+      await setLocal("lastCoverLetter", content);
+      return { type: "REVISE_COVER_LETTER_RESULT", content };
+    }
+
+    case "TRANSLATE_COVER_LETTER": {
+      const content = await translateCoverLetter(message.content, message.targetLanguage);
+      return { type: "TRANSLATE_COVER_LETTER_RESULT", content };
+    }
+
+    case "DETECT_CUSTOM_QUESTIONS": {
+      await ensureContentScript(message.tabId);
+      return (await chrome.tabs.sendMessage(message.tabId, message)) as RuntimeMessage;
+    }
+
+    case "ANSWER_CUSTOM_QUESTION": {
+      const answer = await answerCustomQuestion(message.question, message.job);
+      return { type: "CUSTOM_QUESTION_ANSWER", question: message.question, answer };
+    }
+
+    case "DETECT_JOB_LANGUAGE": {
+      const info = await detectJobLanguage(message.job);
+      return { type: "JOB_LANGUAGE_DATA", info };
     }
 
     default:
