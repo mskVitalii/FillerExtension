@@ -100,6 +100,7 @@ export function App() {
         onCustomFieldsChange={setCustomFields}
         onLanguageLevelsChange={setLanguageLevels}
         onApiKeyDeleted={() => setStep("api-key")}
+        onGoogleDisconnected={() => setStep("connect-google")}
       />
     );
   }

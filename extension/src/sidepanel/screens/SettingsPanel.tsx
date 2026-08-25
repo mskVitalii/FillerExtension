@@ -22,6 +22,7 @@ import {
   uploadCv,
 } from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
+import { disconnectGoogle } from "@/features/google-drive/auth";
 import { deleteOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { extractPdfText } from "@/lib/pdf-text";
@@ -40,6 +41,7 @@ interface SettingsPanelProps {
   onCustomFieldsChange: (fields: CustomField[]) => void;
   onLanguageLevelsChange: (levels: LanguageLevel[]) => void;
   onApiKeyDeleted: () => void;
+  onGoogleDisconnected: () => void;
 }
 
 export function SettingsPanel({
@@ -55,6 +57,7 @@ export function SettingsPanel({
   onCustomFieldsChange,
   onLanguageLevelsChange,
   onApiKeyDeleted,
+  onGoogleDisconnected,
 }: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -361,6 +364,24 @@ export function SettingsPanel({
             }}
           >
             Delete API Key
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Google Account</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={async () => {
+              await disconnectGoogle();
+              onGoogleDisconnected();
+            }}
+          >
+            Disconnect Google
           </Button>
         </CardContent>
       </Card>

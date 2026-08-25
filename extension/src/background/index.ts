@@ -29,14 +29,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   void handleContextMenuClick(info, tab);
 });
 
-chrome.action.onClicked.addListener(async (tab) => {
+chrome.action.onClicked.addListener((tab) => {
   if (tab.id === undefined) return;
-  // Runs inside the click's activeTab grant — injects now so the content
+  const tabId = tab.id;
+  // `sidePanel.open()` is only honored as a direct response to the click's
+  // user gesture — any `await` before it (even a fast one) risks Chrome no
+  // longer treating it as gesture-triggered, so nothing async may precede
+  // it in this listener. `setOptions` must be issued first for `open` to
+  // find the panel enabled, but neither call is awaited here — awaiting
+  // would yield control back to the event loop between them.
+  void chrome.sidePanel.setOptions({ tabId, path: SIDE_PANEL_PATH, enabled: true });
+  void chrome.sidePanel.open({ tabId }).catch((error) => console.error("sidePanel.open failed", error));
+  // Runs inside the same activeTab grant — injects now so the content
   // script (and its focus-tracker) is already listening before the user
-  // does anything else on this tab, e.g. right-clicking a field.
-  await ensureContentScript(tab.id);
-  await chrome.sidePanel.setOptions({ tabId: tab.id, path: SIDE_PANEL_PATH, enabled: true });
-  await chrome.sidePanel.open({ tabId: tab.id });
+  // does anything else on this tab, e.g. right-clicking a field. Not
+  // awaited: it doesn't need to precede `open`, and blocking on it here is
+  // exactly what broke the gesture chain above.
+  void ensureContentScript(tabId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
