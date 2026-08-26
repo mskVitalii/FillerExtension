@@ -26,6 +26,8 @@ export function App() {
   const [legend, setLegend] = useState("");
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [languageLevels, setLanguageLevels] = useState<LanguageLevel[]>([]);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
 
   useEffect(() => {
@@ -34,17 +36,15 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Job extraction (DOM/JSON-LD, in MainView) needs neither an OpenAI key nor
+  // a Drive connection, so bootstrap no longer blocks on either — it only
+  // records their state so MainView can prompt for them when an action that
+  // actually needs them (cover letter generation, Drive save) is used.
   async function bootstrap() {
     const apiKey = await getOpenAiApiKey();
-    if (!apiKey) {
-      setStep("api-key");
-      return;
-    }
+    setHasApiKey(Boolean(apiKey));
     const connected = await isGoogleConnected();
-    if (!connected) {
-      setStep("connect-google");
-      return;
-    }
+    setGoogleConnected(connected);
     await loadUserData();
     setStep("main");
   }
@@ -67,13 +67,21 @@ export function App() {
   if (step === "loading") return null;
 
   if (step === "api-key") {
-    return <ApiKeyStep onSaved={() => setStep("connect-google")} />;
+    return (
+      <ApiKeyStep
+        onSaved={() => {
+          setHasApiKey(true);
+          setStep("main");
+        }}
+      />
+    );
   }
 
   if (step === "connect-google") {
     return (
       <ConnectGoogleStep
         onConnected={() => {
+          setGoogleConnected(true);
           void loadUserData();
           setStep("main");
         }}
@@ -99,8 +107,14 @@ export function App() {
         onLegendChange={setLegend}
         onCustomFieldsChange={setCustomFields}
         onLanguageLevelsChange={setLanguageLevels}
-        onApiKeyDeleted={() => setStep("api-key")}
-        onGoogleDisconnected={() => setStep("connect-google")}
+        onApiKeyDeleted={() => {
+          setHasApiKey(false);
+          setStep("api-key");
+        }}
+        onGoogleDisconnected={() => {
+          setGoogleConnected(false);
+          setStep("connect-google");
+        }}
       />
     );
   }
@@ -116,8 +130,12 @@ export function App() {
       cvMeta={cvMeta}
       customFields={customFields}
       languageLevels={languageLevels}
+      hasApiKey={hasApiKey}
+      googleConnected={googleConnected}
       onOpenSettings={() => setStep("settings")}
       onOpenApplications={() => setStep("applications")}
+      onRequestApiKey={() => setStep("api-key")}
+      onRequestGoogleConnect={() => setStep("connect-google")}
     />
   );
 }

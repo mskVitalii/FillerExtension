@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { GripVertical, ListChecks, Settings } from "lucide-react";
+import { GripVertical, ListChecks, RotateCcw, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
@@ -14,7 +14,7 @@ import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
 import { fileToBase64 } from "@/lib/base64";
 import { setLocal } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
-import { getTabState, setTabState } from "@/features/storage/session";
+import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { saveCoverLetterDraft } from "@/features/applications/repository";
 import { getCvFile } from "@/features/profile/repository";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
@@ -28,8 +28,12 @@ interface MainViewProps {
   cvMeta: CvMeta | null;
   customFields: CustomField[];
   languageLevels: LanguageLevel[];
+  hasApiKey: boolean;
+  googleConnected: boolean;
   onOpenSettings: () => void;
   onOpenApplications: () => void;
+  onRequestApiKey: () => void;
+  onRequestGoogleConnect: () => void;
 }
 
 const PROFILE_FIELDS = Object.keys(PROFILE_FIELD_LABELS) as (keyof Profile)[];
@@ -49,8 +53,12 @@ export function MainView({
   cvMeta,
   customFields,
   languageLevels,
+  hasApiKey,
+  googleConnected,
   onOpenSettings,
   onOpenApplications,
+  onRequestApiKey,
+  onRequestGoogleConnect,
 }: MainViewProps) {
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [loadingJob, setLoadingJob] = useState(true);
@@ -113,12 +121,52 @@ export function MainView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // In-tab navigation (e.g. clicking through to a different job posting in
-  // the same tab) doesn't remount this component — `tabId` stays the same
-  // — so a stale draft for the old URL would otherwise stick around.
+  // In-tab navigation doesn't remount this component — `tabId` stays the
+  // same — so without this a stale draft for the old URL would stick
+  // around. But navigation is also how many sites move from a job's
+  // description page to that same job's application form (e.g. clicking
+  // "Apply"), and that next page frequently has no extractable job data of
+  // its own. Only replace the current draft when the new page actually
+  // yields a *different* job; otherwise treat it as still the same
+  // application and keep what's already there (the user can always clear it
+  // with the Reset button).
   useEffect(() => {
     if (tabUrl === knownUrlRef.current) return;
     knownUrlRef.current = tabUrl;
+    void handleNavigation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabUrl]);
+
+  async function handleNavigation() {
+    let newJob: Job | undefined;
+    try {
+      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId });
+      newJob = response?.job;
+    } catch {
+      // No content script on the new page (e.g. a chrome:// page reached mid-flow) — keep the current draft.
+    }
+
+    const isDifferentJob =
+      Boolean(newJob?.position) && (newJob?.position !== job.position || newJob?.company !== job.company);
+
+    if (newJob && isDifferentJob) {
+      setError(null);
+      setJob(newJob);
+      setCoverLetter("");
+      setCleanedNotice(null);
+      setTranslation(null);
+      setCustomQuestions([]);
+      setQuestionAnswers({});
+      setJobLanguage(null);
+      void handleDetectJobLanguage(newJob);
+      const prefs = await getPreferences();
+      if (prefs.autofillOnOpen) await runAutofill();
+    }
+    void handleDetectQuestions();
+  }
+
+  async function handleReset() {
+    await clearTabState(tabId);
     setJob(EMPTY_JOB);
     setCoverLetter("");
     setCleanedNotice(null);
@@ -126,9 +174,12 @@ export function MainView({
     setCustomQuestions([]);
     setQuestionAnswers({});
     setJobLanguage(null);
+    setPasteMode(false);
+    setPasteText("");
+    setError(null);
+    setAutofillStatus(null);
     void bootstrapJob();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabUrl]);
+  }
 
   // Persist this tab's content so switching away and back restores it
   // (spec_2 item 2) — covers everything a user would consider "what I was
@@ -426,6 +477,9 @@ export function MainView({
       <div className="flex items-center justify-between">
         <h1 className="text-base font-semibold">Filler</h1>
         <div className="flex items-center gap-3">
+          <button onClick={() => void handleReset()} aria-label="Reset">
+            <RotateCcw className="h-4 w-4 text-muted-foreground" />
+          </button>
           <button onClick={onOpenApplications} aria-label="Applications">
             <ListChecks className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -434,6 +488,25 @@ export function MainView({
           </button>
         </div>
       </div>
+
+      {!hasApiKey && (
+        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+          Extraction works without it, but generating a cover letter needs your OpenAI key —{" "}
+          <button onClick={onRequestApiKey} className="underline underline-offset-2">
+            add it
+          </button>
+          .
+        </p>
+      )}
+      {hasApiKey && !googleConnected && (
+        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+          Connect Google Drive to save your profile, CV and cover letters —{" "}
+          <button onClick={onRequestGoogleConnect} className="underline underline-offset-2">
+            connect
+          </button>
+          .
+        </p>
+      )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
