@@ -5,8 +5,13 @@ import type { CefrLevel } from "@/lib/language-level";
 export const SALUTATION_OPTIONS = ["Mr", "Mrs", "Ms", "Mx", "Herr", "Frau"] as const;
 export type Salutation = (typeof SALUTATION_OPTIONS)[number];
 
+/** Pronoun choices offered in Settings — a `<select>`, matched against the page's own radio/select options. */
+export const PRONOUN_OPTIONS = ["he/him", "she/her", "they/them", "prefer not to say"] as const;
+
 export interface Profile {
   salutation: string;
+  /** e.g. "he/him", "she/her", "they/them" — asked by many application forms, often as a radio group. */
+  pronouns: string;
   firstName: string;
   lastName: string;
   fullName: string;
@@ -25,6 +30,7 @@ export interface Profile {
 
 export const EMPTY_PROFILE: Profile = {
   salutation: "",
+  pronouns: "",
   firstName: "",
   lastName: "",
   fullName: "",

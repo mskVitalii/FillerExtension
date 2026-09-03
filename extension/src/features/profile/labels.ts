@@ -2,6 +2,7 @@ import type { ProfileFieldKey } from "@/types/profile";
 
 export const PROFILE_FIELD_LABELS: Record<ProfileFieldKey, string> = {
   salutation: "Salutation",
+  pronouns: "Pronouns",
   firstName: "First name",
   lastName: "Last name",
   fullName: "Full name",

@@ -15,13 +15,16 @@ import * as drive from "@/features/google-drive/client";
  * Script (spec sections 7-9, 20).
  */
 export async function getProfile(): Promise<Profile> {
+  // Merge over EMPTY_PROFILE so a profile saved before a new field existed
+  // (e.g. `pronouns`) still comes back with every key defined.
   const cached = await getLocal("profileCache");
-  if (cached) return cached;
+  if (cached) return { ...EMPTY_PROFILE, ...cached };
   try {
     const remote = await drive.readJsonFile<Profile>("profile.json");
     if (remote) {
-      await setLocal("profileCache", remote);
-      return remote;
+      const merged = { ...EMPTY_PROFILE, ...remote };
+      await setLocal("profileCache", merged);
+      return merged;
     }
   } catch {
     // Google not connected yet — fall through to empty profile.

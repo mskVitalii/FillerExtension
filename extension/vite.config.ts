@@ -24,6 +24,13 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       emptyOutDir: true,
+      // The initial Side Panel chunk is ~210 kB. What's left above the
+      // default 500 kB warning is `@react-pdf/renderer` (~1.3 MB) and the
+      // pdfjs worker (~2.2 MB) — both third-party, both already split into
+      // their own chunks that load only when the user exports a PDF or
+      // parses a CV. Nothing more to carve there, so lift the ceiling above
+      // react-pdf while still catching a real regression in our own code.
+      chunkSizeWarningLimit: 1400,
       rollupOptions: {
         input: {
           sidepanel: "src/sidepanel/index.html",

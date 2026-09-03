@@ -1,14 +1,18 @@
-import * as pdfjsLib from "pdfjs-dist";
-// @ts-expect-error -- vite exposes the worker as a URL via ?url
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
 /**
  * Extracts plain text from a PDF entirely client-side (spec section 9) so
  * the raw file never has to be sent to OpenAI just to get its contents.
+ *
+ * `pdfjs-dist` is loaded on demand — CV upload is the only path that needs
+ * it, so it stays out of the Side Panel's initial bundle.
  */
 export async function extractPdfText(file: File): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
+  const { default: pdfWorkerUrl } = await import(
+    // @ts-expect-error -- vite exposes the worker as a URL via ?url
+    "pdfjs-dist/build/pdf.worker.mjs?url"
+  );
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
   const buffer = await file.arrayBuffer();
   const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
   const pageTexts: string[] = [];

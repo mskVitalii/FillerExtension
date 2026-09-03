@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   EMPTY_PROFILE,
   SALUTATION_OPTIONS,
+  PRONOUN_OPTIONS,
   type CustomField,
   type CvMeta,
   type LanguageLevel,
@@ -27,6 +28,7 @@ import { deleteOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { extractPdfText } from "@/lib/pdf-text";
 import { COUNTRIES } from "@/lib/countries";
+import { formatSalaryForStorage } from "@/lib/salary";
 
 interface SettingsPanelProps {
   profile: Profile;
@@ -104,6 +106,22 @@ export function SettingsPanel({
   function updateField(field: keyof Profile, value: string) {
     onProfileChange({ ...profile, [field]: value });
   }
+
+  /** Canonicalize phone/salary once, on blur, so autofill always parses the same shape. */
+  async function normalizeField(field: keyof Profile) {
+    if (field === "phone" && profile.phone) {
+      // libphonenumber-js (~110 kB) only for this one blur — load it lazily.
+      const { canonicalPhone } = await import("@/lib/phone");
+      updateField("phone", canonicalPhone(profile.phone, profile.country));
+    } else if (field === "expectedSalary" && profile.expectedSalary) {
+      updateField("expectedSalary", formatSalaryForStorage(profile.expectedSalary));
+    }
+  }
+
+  const FIELD_HINTS: Partial<Record<keyof Profile, string>> = {
+    phone: "Any format — it's stored as +49… and reshaped per form (0170…, separate country code, …).",
+    expectedSalary: "A number or a range (e.g. 65000 - 75000). Number-only fields get the range midpoint, rounded.",
+  };
 
   async function handleSaveProfile() {
     await saveProfile(profile);
@@ -242,6 +260,15 @@ export function SettingsPanel({
                     </option>
                   ))}
                 </Select>
+              ) : field === "pronouns" ? (
+                <Select value={profile.pronouns} onChange={(e) => updateField(field, e.target.value)}>
+                  <option value="">Select…</option>
+                  {PRONOUN_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </Select>
               ) : field === "country" ? (
                 <Select value={profile.country} onChange={(e) => updateField(field, e.target.value)}>
                   <option value="">Select…</option>
@@ -252,7 +279,14 @@ export function SettingsPanel({
                   ))}
                 </Select>
               ) : (
-                <Input value={profile[field]} onChange={(e) => updateField(field, e.target.value)} />
+                <Input
+                  value={profile[field]}
+                  onChange={(e) => updateField(field, e.target.value)}
+                  onBlur={() => void normalizeField(field)}
+                />
+              )}
+              {FIELD_HINTS[field] && (
+                <p className="text-[11px] text-muted-foreground">{FIELD_HINTS[field]}</p>
               )}
             </div>
           ))}

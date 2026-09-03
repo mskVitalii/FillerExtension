@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Backend Engineer — Nimbus Robotics (Filler demo)</title>
+    <!--
+      Self-contained demo page for reviewing the "Filler" extension.
+      It is a FICTIONAL job posting ("Nimbus Robotics" does not exist) plus a
+      matching application form, so a reviewer can verify the whole flow on
+      one stable URL:
+        1. schema.org JobPosting JSON-LD below  -> "extract job posting"
+        2. the <form>                            -> autofill / attach / questions
+      No data is submitted anywhere: the form's action is a no-op.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org/",
+        "@type": "JobPosting",
+        "title": "Backend Engineer",
+        "hiringOrganization": { "@type": "Organization", "name": "Nimbus Robotics" },
+        "jobLocation": {
+          "@type": "Place",
+          "address": {
+            "@type": "PostalAddress",
+            "addressLocality": "Munich",
+            "addressCountry": "DE"
+          }
+        },
+        "employmentType": "FULL_TIME",
+        "baseSalary": {
+          "@type": "MonetaryAmount",
+          "currency": "EUR",
+          "value": { "@type": "QuantitativeValue", "minValue": 70000, "maxValue": 95000 }
+        },
+        "description": "Nimbus Robotics builds autonomous warehouse robots. We are hiring a Backend Engineer to own the fleet-coordination service that assigns tasks to several hundred robots in real time. You will design APIs consumed by the robot firmware and the operations dashboard, harden the system against partial network failures, and keep p99 latency predictable as the fleet grows. Our stack is TypeScript and Go on Kubernetes, with PostgreSQL and NATS. We care about clear writing, small reversible changes, and on-call humaneness. This role is hybrid from our Munich office."
+      }
+    </script>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #1f2937;
+        background: #f8fafc;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+      header.posting h1 { margin: 0 0 4px; font-size: 26px; }
+      .meta { color: #6b7280; margin-bottom: 20px; }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      h2 { font-size: 18px; margin: 0 0 12px; }
+      label { display: block; font-weight: 600; margin: 14px 0 4px; }
+      .hint { font-weight: 400; color: #6b7280; font-size: 13px; }
+      input[type="text"], input[type="email"], input[type="tel"], input[type="url"], textarea, select {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font: inherit;
+      }
+      textarea { min-height: 92px; resize: vertical; }
+      .row { display: flex; gap: 14px; }
+      .row > div { flex: 1; }
+      fieldset { border: 1px solid #e5e7eb; border-radius: 8px; margin: 14px 0 0; padding: 12px 14px; }
+      legend { font-weight: 600; padding: 0 6px; }
+      .option { display: flex; align-items: center; gap: 8px; font-weight: 400; margin: 6px 0; }
+      .option label { display: inline; font-weight: 400; margin: 0; }
+      .dropzone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 22px;
+        text-align: center;
+        color: #6b7280;
+      }
+      .consent { display: flex; gap: 8px; margin: 10px 0; font-weight: 400; }
+      button[type="submit"] {
+        margin-top: 20px;
+        padding: 11px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: #4f46e5;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .note { font-size: 13px; color: #6b7280; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="posting">
+        <h1>Backend Engineer</h1>
+        <p class="meta">Nimbus Robotics · Munich, Germany · Hybrid · €70,000–€95,000</p>
+      </header>
+
+      <section class="card">
+        <h2>About the role</h2>
+        <p>
+          Nimbus Robotics builds autonomous warehouse robots. We are hiring a Backend Engineer to own the
+          fleet-coordination service that assigns tasks to several hundred robots in real time.
+        </p>
+        <p>
+          You will design APIs consumed by the robot firmware and the operations dashboard, harden the
+          system against partial network failures, and keep p99 latency predictable as the fleet grows.
+          Our stack is TypeScript and Go on Kubernetes, with PostgreSQL and NATS.
+        </p>
+        <h2>Requirements</h2>
+        <ul>
+          <li>Strong experience building and operating production backend services</li>
+          <li>Comfortable with distributed systems failure modes</li>
+          <li>Clear technical writing; English C1 or above</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Apply for this role</h2>
+        <form action="javascript:void 0" onsubmit="document.getElementById('done').hidden=false;return false;">
+          <div class="row">
+            <div>
+              <label for="fn">First name</label>
+              <input type="text" id="fn" name="given-name" autocomplete="given-name" />
+            </div>
+            <div>
+              <label for="ln">Last name</label>
+              <input type="text" id="ln" name="family-name" autocomplete="family-name" />
+            </div>
+          </div>
+
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" autocomplete="email" />
+
+          <label for="phone">Phone</label>
+          <input type="tel" id="phone" name="phone" autocomplete="tel" />
+
+          <div class="row">
+            <div>
+              <label for="city">City</label>
+              <input type="text" id="city" name="city" autocomplete="address-level2" />
+            </div>
+            <div>
+              <label for="zip">Postal code</label>
+              <input type="text" id="zip" name="postal-code" autocomplete="postal-code" />
+            </div>
+          </div>
+
+          <label for="country">Country</label>
+          <select id="country" name="country" autocomplete="country-name">
+            <option value="">Select…</option>
+            <option>Germany</option>
+            <option>Austria</option>
+            <option>Switzerland</option>
+            <option>United Kingdom</option>
+            <option>United States</option>
+          </select>
+
+          <label for="linkedin">LinkedIn profile</label>
+          <input type="url" id="linkedin" name="linkedin" />
+
+          <label for="website">Personal website / portfolio</label>
+          <input type="url" id="website" name="website" />
+
+          <fieldset>
+            <legend>Preferred pronouns (optional)</legend>
+            <div class="option"><input type="radio" id="p-he" name="pronouns" /><label for="p-he">he/him</label></div>
+            <div class="option"><input type="radio" id="p-she" name="pronouns" /><label for="p-she">she/her</label></div>
+            <div class="option"><input type="radio" id="p-they" name="pronouns" /><label for="p-they">they/them</label></div>
+            <div class="option"><input type="radio" id="p-other" name="pronouns" /><label for="p-other">prefer not to say</label></div>
+          </fieldset>
+
+          <label for="cover">Cover letter</label>
+          <textarea id="cover" name="cover_letter" placeholder="Type or drop your cover letter here…"></textarea>
+
+          <label>Resume / CV</label>
+          <div class="dropzone" id="cv-dropzone">
+            Drag &amp; drop a PDF here, or
+            <input type="file" id="cv" name="resume" accept=".pdf,.doc,.docx" />
+          </div>
+
+          <label for="q1">Why do you want to work at Nimbus Robotics, and what draws you to fleet coordination?</label>
+          <textarea id="q1" name="q1" placeholder="Type your answer here…"></textarea>
+
+          <label for="q2">Describe a production system you built or owned. What did it do, what were the hard parts, and what broke?</label>
+          <textarea id="q2" name="q2" placeholder="Type your answer here…"></textarea>
+
+          <label for="notice">What is your notice period, and when could you start?</label>
+          <input type="text" id="notice" name="notice" />
+
+          <div style="margin-top: 18px">
+            <label class="consent"><input type="checkbox" name="privacy" required /> I have read and accept the privacy policy and consent to processing of my application data.</label>
+            <label class="consent"><input type="checkbox" name="newsletter" /> Send me Nimbus Robotics career news and event invitations.</label>
+          </div>
+
+          <button type="submit">Submit application</button>
+          <p class="note" id="done" hidden>Thanks — this is a demo, nothing was submitted.</p>
+        </form>
+      </section>
+    </div>
+  </body>
+</html>

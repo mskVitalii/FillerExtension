@@ -1,6 +1,6 @@
 import type { RuntimeMessage } from "@/types/messages";
 import { handleContextMenuClick, registerContextMenu } from "./context-menu";
-import { routeMessage } from "./router";
+import { cancelElementPicker, routeMessage } from "./router";
 import { ensureContentScript } from "./inject-content-script";
 import { clearTabState } from "@/features/storage/session";
 
@@ -55,4 +55,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   routeMessage(message).then(sendResponse);
   return true;
+});
+
+// The Side Panel opens a `picker-<tabId>` port while element-picker mode is
+// active. If the panel closes (or the window is shut) the port disconnects
+// and we tear down the on-page overlay, which no message could otherwise do.
+chrome.runtime.onConnect.addListener((port) => {
+  const match = /^picker-(\d+)$/.exec(port.name);
+  if (!match) return;
+  const tabId = Number(match[1]);
+  port.onDisconnect.addListener(() => {
+    void cancelElementPicker(tabId);
+  });
 });

@@ -72,6 +72,53 @@
     </fieldset>
 
     <fieldset>
+      <legend>Format-specific phone / salary / country</legend>
+
+      <label>Salary expectation (numeric validator)
+        <input name="salary_num" type="text" size="10"
+               onblur="return validateNumeric(this);"
+               aria-label="Gross salary expectation based on a 40 hour-week" /></label>
+      <label>Salary expectation (free text)
+        <input aria-label="Salary expectation / Gehaltsvorstellung" /></label>
+      <label>Salary (number input)
+        <input type="number" aria-label="Desired salary" min="0" step="1000" /></label>
+
+      <label>Phone — expects +country code
+        <input aria-label="Phone number" placeholder="+49 170 1234567" /></label>
+      <label>Phone — expects leading 0
+        <input aria-label="Telefon" placeholder="0170 1234567" /></label>
+      <label>Phone — numeric only, no +
+        <input aria-label="Phone" inputmode="numeric" pattern="[0-9]+" /></label>
+
+      <label>Country code (separate select) + national number
+        <select aria-label="Country code">
+          <option value="">--</option>
+          <option value="+1">USA (+1)</option>
+          <option value="+44">UK (+44)</option>
+          <option value="+49">Germany (+49)</option>
+        </select>
+        <input aria-label="Phone" placeholder="170 1234567" />
+      </label>
+
+      <label>Country as native-language select
+        <select name="land">
+          <option value="">Bitte wählen…</option>
+          <option value="DE">Deutschland</option>
+          <option value="FR">Frankreich</option>
+          <option value="US">Vereinigte Staaten</option>
+        </select>
+      </label>
+
+      <script>
+        function validateNumeric(el) {
+          const ok = /^\d*$/.test(el.value);
+          el.style.background = ok ? "" : "#fdd";
+          return ok;
+        }
+      </script>
+    </fieldset>
+
+    <fieldset>
       <legend>aria-label / placeholder only (no name/id)</legend>
       <input aria-label="Given name" placeholder="Your first name" />
       <input placeholder="Family name" />
@@ -106,6 +153,118 @@
     <fieldset>
       <legend>Drag &amp; drop upload zone</legend>
       <div id="dropzone" class="dropzone">Drop your CV here</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Application questions — answered + filled automatically on panel open</legend>
+      <label>Waren Sie bereits bei der AVL Gruppe beschäftigt?
+        <input aria-label="Waren Sie bereits bei der AVL Gruppe beschäftigt?" /></label>
+      <label>Aktueller oder letzter Arbeitgeber
+        <input aria-label="Aktueller oder letzter Arbeitgeber" /></label>
+      <label>Bei Mitarbeiterempfehlung bitte den/die Namen angeben
+        <input aria-label="Bei Mitarbeiterempfehlung bitte den/die Namen angeben" /></label>
+      <label>Preferred entry date / period of notice
+        <textarea aria-label="Bitte nennen Sie uns Ihr gewünschtes Start-Datum bzw. die Kündigungsfrist Ihrer aktuellen Tätigkeit. / Please tell us your period of notice or preferred entry date."></textarea></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Consent checkboxes — AI ticks mandatory, leaves marketing off</legend>
+      <form>
+        <label>First name <input name="cb_first" /></label>
+        <label><input type="checkbox" name="privacy" required />
+          Ich habe die Datenschutzerklärung gelesen und stimme der Verarbeitung meiner Daten für dieses Bewerbungsverfahren zu.</label>
+        <label><input type="checkbox" name="terms" required /> I accept the terms and conditions</label>
+        <label><input type="checkbox" name="job_alerts" />
+          Benachrichtigungen über neue Stellenausschreibungen erhalten</label>
+        <label><input type="checkbox" name="marketing" checked />
+          Ich bin damit einverstanden, E-Mails zu Karriere-News und Veranstaltungen zu erhalten.</label>
+        <label><input type="checkbox" name="talent_pool" />
+          Meine Daten für zukünftige Stellen im Bewerberpool speichern (optional)</label>
+      </form>
+    </fieldset>
+
+    <fieldset>
+      <legend>Custom question cards — no &lt;label&gt;, question in a sibling &lt;p&gt;, generic placeholder (use "Pick fields on page")</legend>
+      <div style="max-width: 640px">
+        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 10px">
+          <div style="display: flex; gap: 8px; align-items: flex-start">
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #eef; text-align: center">1</div>
+            <div style="flex: 1">
+              <p>Are you able to work from the Munich office five days a week? If you would need to relocate, when could you start?<span style="color: red"> *</span></p>
+            </div>
+          </div>
+          <div style="margin-top: 8px">
+            <textarea id="question-field-1596056" placeholder="Type your answer here..." rows="3" style="width: 100%"></textarea>
+          </div>
+        </div>
+        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 12px">
+          <div style="display: flex; gap: 8px; align-items: flex-start">
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #eef; text-align: center">2</div>
+            <div style="flex: 1">
+              <p>Describe a production system you built or substantially owned. What did it do, what were the hard parts, and what broke?<span style="color: red"> *</span></p>
+            </div>
+          </div>
+          <div style="margin-top: 8px">
+            <textarea id="question-field-1596057" placeholder="Type your answer here..." rows="3" style="width: 100%"></textarea>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Radio-group questions (use "Pick fields on page" — AI picks one option, incl. pronouns)</legend>
+      <div style="max-width: 640px">
+        <div data-field-path="pronouns-demo">
+          <fieldset style="border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 10px">
+            <label class="question-title" for="pronouns-demo">Preferred pronouns (Optional)</label>
+            <div class="option"><span><input type="radio" id="pron-0" name="pron_demo" /></span><label for="pron-0">he/him</label></div>
+            <div class="option"><span><input type="radio" id="pron-1" name="pron_demo" /></span><label for="pron-1">she/her</label></div>
+            <div class="option"><span><input type="radio" id="pron-2" name="pron_demo" /></span><label for="pron-2">they/them</label></div>
+            <div class="option"><span><input type="radio" id="pron-3" name="pron_demo" /></span><label for="pron-3">I prefer to use different pronouns</label></div>
+          </fieldset>
+        </div>
+        <div data-field-path="hybrid-demo">
+          <fieldset style="border: 1px solid #ccc; border-radius: 8px; padding: 12px">
+            <label class="question-title" for="hybrid-demo">Hybrid working commitment *</label>
+            <div class="description">
+              <p>How many days in the office would you be comfortable committing to each week?</p>
+              <p><strong>PLEASE NOTE:</strong> depending on the role there may be more or less flexibility.</p>
+            </div>
+            <div class="option"><span><input type="radio" id="hyb-0" name="hyb_demo" /></span><label for="hyb-0">3+ days per week in the office</label></div>
+            <div class="option"><span><input type="radio" id="hyb-1" name="hyb_demo" /></span><label for="hyb-1">2 days per week in the office</label></div>
+            <div class="option"><span><input type="radio" id="hyb-2" name="hyb_demo" /></span><label for="hyb-2">1 day per week in the office</label></div>
+            <div class="option"><span><input type="radio" id="hyb-3" name="hyb_demo" /></span><label for="hyb-3">Fully remote only</label></div>
+            <div class="option"><span><input type="radio" id="hyb-4" name="hyb_demo" /></span><label for="hyb-4">Other (see 'Other considerations' below)</label></div>
+          </fieldset>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Password fields — generated password should fill create/confirm, never login</legend>
+
+      <form>
+        <p><strong>Registration (autocomplete=new-password)</strong></p>
+        <label>Password <input type="password" autocomplete="new-password" name="reg_pw" /></label>
+        <label>Confirm <input type="password" autocomplete="new-password" name="reg_pw_confirm" /></label>
+      </form>
+
+      <form>
+        <p><strong>ATS create-password (no autocomplete, policy handler + strength bar)</strong></p>
+        <label>Kennwort
+          <input type="password" name="fbclc_pwd" id="fbclc_pwd" autocomplete="off" maxlength="99"
+                 onkeyup="checkPasswordPolicy(event, fbclc_pwdConf, true)"
+                 aria-describedby="fbclc_pwd_error rcmPwdPolicyProgressBar" aria-required="true" /></label>
+        <label>Kennwort bestätigen
+          <input type="password" name="fbclc_pwdConf" id="fbclc_pwdConf" autocomplete="off" maxlength="99" /></label>
+        <div id="rcmPwdPolicyProgressBar">Password strength: —</div>
+      </form>
+
+      <form>
+        <p><strong>Login (must stay empty)</strong></p>
+        <label>Email <input type="email" name="login_email" autocomplete="username" /></label>
+        <label>Password <input type="password" name="login_pw" autocomplete="current-password" /></label>
+      </form>
     </fieldset>
 
     <script>

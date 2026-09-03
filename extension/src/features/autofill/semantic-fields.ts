@@ -7,13 +7,21 @@ import type { ProfileFieldKey } from "@/types/profile";
  */
 export const FIELD_PATTERNS: Record<ProfileFieldKey, RegExp[]> = {
   salutation: [/salutation/i, /anrede/i, /^title$/i],
+  pronouns: [/pronoun/i],
   firstName: [/first[\s_-]?name/i, /given[\s_-]?name/i, /vorname/i, /\bfname\b/i, /^first$/i],
   lastName: [/last[\s_-]?name/i, /family[\s_-]?name/i, /surname/i, /nachname/i, /\blname\b/i, /^last$/i],
   fullName: [/^full[\s_-]?name/i, /^name$/i, /your[\s_-]?name/i, /applicant[\s_-]?name/i],
   email: [/e-?mail/i],
   phone: [/phone/i, /mobile/i, /telefon/i, /tel\.?number/i, /\btel\b/i],
   address: [/address(?!.*email)/i, /street/i, /adresse/i, /strasse|straße/i],
-  city: [/\bcity\b/i, /town/i, /stadt/i, /ort\b/i],
+  // `(?<!w)ort\b` (not `\bort\b`) deliberately still matches compounds like
+  // "Wohnort"/"Geburtsort" (residence/birthplace) that legitimately mean
+  // "place" — but the negative lookbehind excludes anything ending in
+  // "-wort" ("Kennwort", "Passwort", "Stichwort" = password/keyword), which
+  // a plain `ort\b` used to false-positive on and (confirmed live against a
+  // real SAP SuccessFactors form) was stuffing the profile's city into
+  // password fields.
+  city: [/\bcity\b/i, /town/i, /stadt/i, /(?<!w)ort\b/i],
   postalCode: [/postal[\s_-]?code/i, /zip/i, /plz/i],
   country: [/country/i, /land\b/i, /nation/i],
   linkedin: [/linkedin/i],

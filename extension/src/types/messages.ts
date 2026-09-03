@@ -1,7 +1,12 @@
 import type { Job, JobLanguageInfo } from "./job";
-import type { Profile, ProfileFieldKey } from "./profile";
+import type { Profile } from "./profile";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
+import type { PickedField, FieldDescriptor } from "@/features/autofill/pick-questions";
+import type { ElementLocator } from "@/features/autofill/element-locator";
+import type { PageCheckbox, CheckboxDecisionInput } from "@/features/autofill/checkboxes";
+import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
+import type { InsertField } from "@/features/autofill/insert-field-labels";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -15,8 +20,8 @@ export type RuntimeMessage =
   | { type: "GET_PROFILE" }
   | { type: "PROFILE_DATA"; profile: Profile }
   | { type: "AUTOFILL"; tabId: number; profile: Profile }
-  | { type: "AUTOFILL_RESULT"; filled: number; total: number }
-  | { type: "INSERT_VALUE"; field: ProfileFieldKey | "cv" | "coverLetter"; value: string }
+  | { type: "AUTOFILL_RESULT"; filled: number; total: number; generatedPassword: string | null }
+  | { type: "INSERT_VALUE"; field: InsertField; value: string }
   | { type: "GENERATE_COVER_LETTER"; job: Job }
   | { type: "COVER_LETTER_RESULT"; content: string; slopFindings: SlopFinding[]; cleaned: boolean }
   | {
@@ -26,8 +31,11 @@ export type RuntimeMessage =
       fileName: string;
       mimeType: string;
       base64Data: string;
+      /** When set, inject only into this element (a field the user dropped onto) instead of scanning the whole page. */
+      targetLocator?: ElementLocator | null;
     }
   | { type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }
+  | { type: "ATTACH_FILE_AT"; kind: "cv" | "coverLetter"; locator: ElementLocator | null }
   | { type: "EXPORT_PDF"; content: string; fileName: string }
   | { type: "REVISE_COVER_LETTER"; job: Job; content: string; instructions: string }
   | { type: "REVISE_COVER_LETTER_RESULT"; content: string }
@@ -35,8 +43,28 @@ export type RuntimeMessage =
   | { type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }
   | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
   | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
-  | { type: "ANSWER_CUSTOM_QUESTION"; question: string; job: Job }
+  | { type: "ANSWER_CUSTOM_QUESTION"; question: string; job: Job; options?: string[] }
   | { type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }
+  | { type: "FILL_CUSTOM_QUESTION_ANSWERS"; tabId: number; answers: Record<string, string> }
+  | { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number }
+  | { type: "START_ELEMENT_PICKER"; tabId: number }
+  | { type: "CANCEL_ELEMENT_PICKER"; tabId: number }
+  | {
+      type: "ELEMENT_PICKER_RESULT";
+      cancelled: boolean;
+      picked: PickedField[];
+      blockText: string;
+      semanticCount: number;
+    }
+  | { type: "DECOMPOSE_BLOCK"; blockText: string; fields: FieldDescriptor[] }
+  | { type: "BLOCK_QUESTIONS"; questions: Record<number, string> }
+  | { type: "FILL_QUESTION_ANSWERS_BY_LOCATOR"; tabId: number; items: { locator: ElementLocator; answer: string }[] }
+  | { type: "DETECT_CHECKBOXES"; tabId: number }
+  | { type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }
+  | { type: "DECIDE_CHECKBOXES"; checkboxes: PageCheckbox[] }
+  | { type: "CHECKBOX_DECISIONS"; decisions: CheckboxDecision[] }
+  | { type: "APPLY_CHECKBOX_DECISIONS"; tabId: number; decisions: CheckboxDecisionInput[] }
+  | { type: "CHECKBOX_APPLY_RESULT"; changed: number }
   | { type: "DETECT_JOB_LANGUAGE"; job: Job }
   | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo };
 

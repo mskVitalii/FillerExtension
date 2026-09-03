@@ -1,13 +1,35 @@
 import { detectSemanticField } from "./field-detector";
+import { queryFillableDeep } from "./engine";
+import { fillElement } from "./native-setter";
+import type { ElementLocator } from "./element-locator";
 
 const FILLABLE_SELECTOR = 'input, textarea, [contenteditable="true"]';
-const EXCLUDED_INPUT_TYPES = new Set(["hidden", "submit", "button", "reset", "checkbox", "radio", "file", "image"]);
+const EXCLUDED_INPUT_TYPES = new Set([
+  "hidden",
+  "submit",
+  "button",
+  "reset",
+  "checkbox",
+  "radio",
+  "file",
+  "image",
+  "password",
+]);
 
 const MIN_QUESTION_WORDS = 4;
 
 export interface CustomQuestion {
   id: string;
   question: string;
+  /**
+   * Present only for questions added via the visual element picker
+   * (`element-picker.ts`). The automatic scan omits it — it re-scans and
+   * matches by `question` text; picked fields often have no such text, so
+   * their answer is written back by locator instead.
+   */
+  locator?: ElementLocator;
+  /** Choice labels when the picked field is a radio-group / `<select>` — the answer must be one of these. */
+  options?: string[];
 }
 
 function isFillable(el: Element): el is HTMLElement {
@@ -55,24 +77,59 @@ function questionSignal(el: HTMLElement): string {
   );
 }
 
+interface QuestionField {
+  question: string;
+  el: HTMLElement;
+}
+
 /**
- * Detects free-text fields the semantic autofill engine (field-detector.ts)
- * doesn't recognize as a known profile field, but whose label reads like an
- * actual application question (spec_2 item 5) — e.g. "Why do you want to
- * work here?" — rather than an unmatched but ordinary field. Read-only: no
- * DOM writes, since the answer is inserted by drag-and-drop like every other
- * value in this app, not by targeting the element found here.
+ * Free-text fields the semantic autofill engine (field-detector.ts) doesn't
+ * recognize as a known profile field, but whose label reads like an actual
+ * application question (spec_2 item 5) — e.g. "Why do you want to work
+ * here?" — rather than an unmatched but ordinary field. Deterministic: the
+ * question *text* is the field's own label/aria/placeholder, so re-scanning
+ * later and matching by that text finds the same element again (used by
+ * `fillCustomQuestionAnswers`).
  */
-export function detectCustomQuestions(): CustomQuestion[] {
-  const elements = Array.from(document.querySelectorAll(FILLABLE_SELECTOR)).filter(isFillable);
+function scanQuestionFields(): QuestionField[] {
+  const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
 
-  const questions: CustomQuestion[] = [];
-  elements.forEach((el, index) => {
-    if (detectSemanticField(el)) return;
+  const fields: QuestionField[] = [];
+  for (const el of elements) {
+    if (detectSemanticField(el)) continue;
     const signal = questionSignal(el);
-    if (!isQuestionShaped(signal)) return;
-    questions.push({ id: `question-${index}`, question: signal.trim() });
-  });
+    if (!isQuestionShaped(signal)) continue;
+    fields.push({ question: signal.trim(), el });
+  }
+  return fields;
+}
 
-  return questions;
+export function detectCustomQuestions(): CustomQuestion[] {
+  return scanQuestionFields().map((field, index) => ({
+    id: `question-${index}`,
+    question: field.question,
+  }));
+}
+
+function isEmptyField(el: HTMLElement): boolean {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.trim() === "";
+  return (el.textContent ?? "").trim() === "";
+}
+
+/**
+ * Writes AI-generated answers back into their fields. Re-scans rather than
+ * holding element references from an earlier `detectCustomQuestions` call —
+ * keeps this stateless across the detect → answer → fill round-trip and
+ * resilient to the form re-rendering in between. Skips any field the user
+ * has already typed into (this runs automatically, so it must never clobber
+ * a manual answer). Returns how many fields were filled.
+ */
+export function fillCustomQuestionAnswers(answers: Record<string, string>): number {
+  let filled = 0;
+  for (const { question, el } of scanQuestionFields()) {
+    const answer = answers[question];
+    if (!answer || !isEmptyField(el)) continue;
+    if (fillElement(el, answer)) filled++;
+  }
+  return filled;
 }
