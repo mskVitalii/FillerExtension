@@ -83,14 +83,12 @@
       <label>Salary (number input)
         <input type="number" aria-label="Desired salary" min="0" step="1000" /></label>
 
-      <label>Phone — expects +country code
+      <label>Phone — single field, expects full number incl. country code
         <input aria-label="Phone number" placeholder="+49 170 1234567" /></label>
-      <label>Phone — expects leading 0
-        <input aria-label="Telefon" placeholder="0170 1234567" /></label>
-      <label>Phone — numeric only, no +
+      <label>Phone — numeric only, no "+" possible, still expects country code
         <input aria-label="Phone" inputmode="numeric" pattern="[0-9]+" /></label>
 
-      <label>Country code (separate select) + national number
+      <label>Country code (separate select) — the input below expects the national number only, no country code
         <select aria-label="Country code">
           <option value="">--</option>
           <option value="+1">USA (+1)</option>

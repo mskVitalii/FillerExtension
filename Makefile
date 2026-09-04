@@ -6,7 +6,7 @@ MANIFEST_JSON := $(EXT_DIR)/manifest.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev build typecheck lint lint-fix clean zip package \
+.PHONY: help install dev build typecheck lint lint-fix test clean zip package \
         version version-patch version-minor version-major release rebuild
 
 help: ## Show this help
@@ -30,6 +30,9 @@ lint: ## Run ESLint
 
 lint-fix: ## Run ESLint with --fix
 	cd $(EXT_DIR) && npm run lint -- --fix
+
+test: ## Run the autofill-engine regression suite (Vitest, jsdom — no browser/extension load needed)
+	cd $(EXT_DIR) && npm test
 
 clean: ## Remove build output and packaged zip
 	rm -rf $(DIST_DIR) $(ZIP_FILE)

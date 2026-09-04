@@ -74,9 +74,6 @@ export function formatSalaryForField(el: HTMLElement, raw: string): string {
 
 const DIAL_CODE_SIGNAL_RE =
   /(country|phone|tel|telephone|mobile|international|dial(?:l?ing)?|calling|area)[\s_-]*(code|prefix)|country[\s_-]?code|vorwahl|l[aä]ndervorwahl|landesvorwahl|indicatif|prefij|prefiss|kod\s*kraju/i;
-const INTERNATIONAL_HINT_RE =
-  /e\.?\s?164|country\s*code|with\s*country|international|mit\s*(?:landes)?vorwahl|internationale/i;
-const NATIONAL_HINT_RE = /national|ohne\s*(?:landes)?vorwahl|without\s*country|local\s*format|inl[aä]nd/i;
 
 function signalText(el: HTMLElement): string {
   return [
@@ -98,39 +95,46 @@ function isFieldElement(el: Element): el is HTMLElement {
   );
 }
 
-/** Nearest form, or a bounded ancestor if the field isn't in a `<form>`. */
-function fieldGroup(el: HTMLElement): ParentNode {
-  const form = (el as HTMLInputElement).form ?? el.closest("form");
-  if (form) return form;
-  let node: HTMLElement | null = el;
-  for (let i = 0; i < 4 && node?.parentElement; i++) node = node.parentElement;
-  return node ?? document;
-}
-
 function optionStrings(select: HTMLSelectElement): string[] {
   return Array.from(select.options).map((o) => `${o.value} ${o.textContent ?? ""}`.trim());
 }
 
+const MAX_GROUP_LEVELS = 6;
+/** A "phone row" is the field itself plus a couple of companions (dial code, extension) — not a whole section. */
+const MAX_GROUP_SIZE = 3;
+
 /**
  * A sibling field that takes the country calling code on its own — either
  * labelled as one, or a `<select>` whose options are mostly `+49` / `0049` /
- * `Germany (+49)` shaped.
+ * `Germany (+49)` shaped. Climbs from `phoneEl` one ancestor at a time and
+ * stops at the *first* ancestor that only wraps a handful of fields — a
+ * `<form>` or a whole fieldset routinely wraps several unrelated phone-shaped
+ * demo/example fields too, and blindly scanning that far pairs a phone field
+ * with a dial-code select that actually belongs to a different field
+ * entirely (confirmed against `test-pages/autofill-test.html`, which has
+ * several standalone phone inputs sharing a fieldset with the one real
+ * dial-code select).
  */
 export function findDialCodeField(phoneEl: HTMLElement): HTMLElement | null {
-  const group = fieldGroup(phoneEl);
-  const candidates = Array.from(group.querySelectorAll("input, select")).filter(
-    (el): el is HTMLElement => isFieldElement(el) && el !== phoneEl,
-  );
+  let node: HTMLElement | null = phoneEl.parentElement;
+  for (let level = 0; node && level < MAX_GROUP_LEVELS; level++, node = node.parentElement) {
+    const candidates = Array.from(node.querySelectorAll("input, select")).filter(
+      (el): el is HTMLElement => isFieldElement(el) && el !== phoneEl,
+    );
+    if (candidates.length === 0 || candidates.length > MAX_GROUP_SIZE) continue;
 
-  for (const el of candidates) {
-    if (DIAL_CODE_SIGNAL_RE.test(signalText(el))) return el;
-  }
+    const bySignal = candidates.find((el) => DIAL_CODE_SIGNAL_RE.test(signalText(el)));
+    if (bySignal) return bySignal;
 
-  for (const el of candidates) {
-    if (!(el instanceof HTMLSelectElement) || el.options.length < 2) continue;
-    const opts = optionStrings(el).filter((s) => s);
-    const dialShaped = opts.filter((s) => /(\+\d{1,4})|^00\d{1,4}$|^\+?\d{1,4}$/.test(s));
-    if (dialShaped.length / opts.length >= 0.6 && opts.some((s) => s.includes("+"))) return el;
+    const byShape = candidates.find((el) => {
+      if (!(el instanceof HTMLSelectElement) || el.options.length < 2) return false;
+      const opts = optionStrings(el).filter((s) => s);
+      const dialShaped = opts.filter((s) => /(\+\d{1,4})|^00\d{1,4}$|^\+?\d{1,4}$/.test(s));
+      return dialShaped.length / opts.length >= 0.6 && opts.some((s) => s.includes("+"));
+    });
+    if (byShape) return byShape;
+
+    if (node.tagName === "FORM") break;
   }
 
   return null;
@@ -180,6 +184,14 @@ export interface PhoneFill {
  * Chooses which rendering of the number to type into `el`, and whether a
  * separate dial-code field should be filled alongside it. Returns null when
  * the stored phone couldn't be parsed (caller falls back to the raw value).
+ *
+ * Deliberately a two-way choice, not three: whether the country code is
+ * *separate or not* is the one thing the page actually tells us for sure (a
+ * sibling dial-code field, or none). Guessing a bare "leading 0" national
+ * form from placeholder text for a lone field used to misfire on unrelated
+ * demo/example fields — a single field always gets the full number with its
+ * country code; a country code only ever gets dropped when a dedicated
+ * dial-code field is taking it instead.
  */
 export function resolvePhoneFill(el: HTMLElement, raw: string, regionHint?: string): PhoneFill | null {
   const phone = resolvePhone(raw, regionHint);
@@ -188,31 +200,17 @@ export function resolvePhoneFill(el: HTMLElement, raw: string, regionHint?: stri
   const dialCodeField = findDialCodeField(el);
   if (dialCodeField) {
     // The country code lives in its own box — this field takes just the
-    // national significant number.
+    // national significant number (no leading 0, no country code).
     return { value: phone.significant, dialCodeField, phone };
   }
 
-  const signal = signalText(el);
-  const placeholder = el.getAttribute("placeholder") ?? "";
-
   if (wantsNumericValue(el)) {
-    // Can't type a "+" — leading-0 national digits are the only safe shape.
-    return { value: phone.nationalDigits, dialCodeField: null, phone };
+    // Can't type a "+" — digits only, but still with the country code
+    // (e.g. "491701234567"), since there's no separate field taking it.
+    return { value: `${phone.callingCode}${phone.significant}`, dialCodeField: null, phone };
   }
 
-  let value: string;
-  if (/\+/.test(signal) || INTERNATIONAL_HINT_RE.test(signal) || /^\s*\\?\+|00/.test(el.getAttribute("pattern") ?? "")) {
-    value = /\s/.test(placeholder) ? phone.international : phone.e164;
-  } else if (/^\s*0/.test(placeholder) || NATIONAL_HINT_RE.test(signal)) {
-    value = /\s/.test(placeholder) ? phone.national : phone.nationalDigits;
-  } else {
-    const maxLength = Number(el.getAttribute("maxlength"));
-    if (maxLength && maxLength <= phone.significant.length + 2) {
-      value = phone.nationalDigits;
-    } else {
-      value = phone.e164;
-    }
-  }
-
+  const placeholder = el.getAttribute("placeholder") ?? "";
+  const value = /\s/.test(placeholder) ? phone.international : phone.e164;
   return { value, dialCodeField: null, phone };
 }

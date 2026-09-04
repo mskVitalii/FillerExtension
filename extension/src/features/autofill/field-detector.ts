@@ -55,6 +55,17 @@ function nearbyText(el: FillableElement): string {
   return "";
 }
 
+/**
+ * Every label-ish signal attached to `el` (name, id, aria-label, label text,
+ * placeholder, nearby text) — exported so other features that need to
+ * classify an element by what it's labelled (e.g. `file-upload/inject-file.ts`
+ * picking a CV-shaped file input) can reuse the same signal gathering instead
+ * of re-deriving it.
+ */
+export function elementSignalParts(el: FillableElement): string[] {
+  return signalParts(el);
+}
+
 /** Signals in descending order of authority — a match on an earlier signal wins outright. */
 function signalParts(el: FillableElement): string[] {
   return [

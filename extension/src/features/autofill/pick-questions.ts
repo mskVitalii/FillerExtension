@@ -130,9 +130,19 @@ function radioGroupQuestion(groupEl: HTMLElement, radios: HTMLInputElement[], co
 
 /** Radio groups inside `container`, grouped by `name` (falling back to the enclosing fieldset). */
 function radioGroupsIn(container: HTMLElement): { groupEl: HTMLElement; radios: HTMLInputElement[] }[] {
-  const radios = queryFillableDeep('input[type="radio"]', container).filter(
-    (el): el is HTMLInputElement => el instanceof HTMLInputElement && !el.disabled,
-  );
+  const radiosOf = (scope: HTMLElement) =>
+    queryFillableDeep('input[type="radio"]', scope).filter(
+      (el): el is HTMLInputElement => el instanceof HTMLInputElement && !el.disabled,
+    );
+
+  let radios = radiosOf(container);
+  if (radios.length < 2) {
+    // The user often lands on a node *inside* one option (the styled circle,
+    // the label) rather than the whole group — widen to the enclosing
+    // radio-group / fieldset so the group is still detected.
+    const wider = container.closest('fieldset, [role="radiogroup"], [role="group"]');
+    if (wider instanceof HTMLElement && wider !== container) radios = radiosOf(wider);
+  }
   const byKey = new Map<string, HTMLInputElement[]>();
   const anonKeys = new WeakMap<Element, string>();
   let anon = 0;
@@ -239,21 +249,47 @@ function radiosForGroup(el: HTMLElement): HTMLInputElement[] {
   return Array.from(el.querySelectorAll<HTMLInputElement>('input[type="radio"]')).filter((r) => !r.disabled);
 }
 
-function selectRadioOption(radios: HTMLInputElement[], answer: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  const a = norm(answer);
-  const target =
-    radios.find((r) => norm(radioOptionLabel(r)) === a) ||
-    radios.find((r) => {
-      const label = norm(radioOptionLabel(r));
-      return label.length > 0 && (label.includes(a) || a.includes(label));
-    });
-  if (!target) return false;
+const normText = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
+/** The `<label>` that activates radio `r` — its `for=` label, or a wrapping one. */
+function radioLabelElement(r: HTMLInputElement): HTMLElement | null {
+  if (r.id) {
+    const root = r.getRootNode() as Document | ShadowRoot;
+    const forLabel = root.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(r.id)}"]`);
+    if (forLabel) return forLabel;
+  }
+  return r.closest("label");
+}
+
+export function radioOptionMatches(r: HTMLInputElement, answer: string): number {
+  const a = normText(answer);
+  const label = normText(radioOptionLabel(r));
+  const value = normText(r.value);
+  if (label === a || value === a) return 2;
+  if (label.length > 0 && (label.includes(a) || a.includes(label))) return 1;
+  return 0;
+}
+
+function selectRadioOption(radios: HTMLInputElement[], answer: string): boolean {
+  const target = radios
+    .map((r) => ({ r, score: radioOptionMatches(r, answer) }))
+    .filter((x) => x.score > 0)
+    .sort((x, y) => y.score - x.score)[0]?.r;
+  if (!target) return false;
+  if (target.checked) return true;
+
+  const label = radioLabelElement(target);
   target.focus?.();
   target.click();
+  // Many custom radios (Ashby, Greenhouse) visually hide the <input> and
+  // wire the handler to the <label> / option row — click that too.
+  if (!target.checked && label) label.click();
   if (!target.checked) {
+    // Last resort for a controlled group: set `.checked` through the native
+    // prototype setter and desync React's value tracker so its own change
+    // handler still fires.
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set?.call(target, true);
+    (target as unknown as { _valueTracker?: { setValue(v: string): void } })._valueTracker?.setValue("");
   }
   // Fire these unconditionally — `.click()` may have set `.checked` without
   // the framework's controlled-input handler noticing.
@@ -278,7 +314,11 @@ export function fillAnswersByLocator(items: { locator: ElementLocator; answer: s
 
     const radios = radiosForGroup(el);
     if (radios.length > 0) {
-      if (radios.some((r) => r.checked)) continue;
+      // This is an explicitly picked field, so set the requested option even
+      // when the form pre-selected a default — skip only when the option
+      // already checked is the one we'd choose anyway.
+      const current = radios.find((r) => r.checked);
+      if (current && radioOptionMatches(current, answer) >= 2) continue;
       if (selectRadioOption(radios, answer)) filled++;
       continue;
     }

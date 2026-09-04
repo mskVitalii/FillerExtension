@@ -53,7 +53,21 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
-  routeMessage(message).then(sendResponse);
+  // A rejected `routeMessage` (an OpenAI call throwing, a quota/verification
+  // error, a network failure…) must not leave `sendResponse` uncalled —
+  // that closes the port with no reply and the caller's `sendMessage`
+  // silently resolves to `undefined`, so every AI failure looks like "no
+  // answer" instead of surfacing its reason. Reply with a typed ERROR
+  // envelope that `sendMessage` turns back into a thrown Error.
+  routeMessage(message)
+    .then(sendResponse)
+    .catch((error: unknown) => {
+      sendResponse({
+        type: "ERROR",
+        error: error instanceof Error ? error.message : String(error),
+        code: error instanceof Error ? error.name : undefined,
+      });
+    });
   return true;
 });
 

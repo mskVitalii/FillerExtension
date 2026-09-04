@@ -1,6 +1,7 @@
 import { detectSemanticField } from "./field-detector";
 import { queryFillableDeep } from "./engine";
 import { fillElement } from "./native-setter";
+import { fieldQuestionText, isQuestionShaped } from "./field-signal";
 import type { ElementLocator } from "./element-locator";
 
 const FILLABLE_SELECTOR = 'input, textarea, [contenteditable="true"]';
@@ -15,8 +16,6 @@ const EXCLUDED_INPUT_TYPES = new Set([
   "image",
   "password",
 ]);
-
-const MIN_QUESTION_WORDS = 4;
 
 export interface CustomQuestion {
   id: string;
@@ -40,43 +39,6 @@ function isFillable(el: Element): el is HTMLElement {
   return true;
 }
 
-function labelForElement(el: HTMLElement): string {
-  const id = el.getAttribute("id");
-  if (id) {
-    const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
-    if (label?.textContent) return label.textContent;
-  }
-  const wrappingLabel = el.closest("label");
-  if (wrappingLabel?.textContent) return wrappingLabel.textContent;
-
-  const labelledBy = el.getAttribute("aria-labelledby");
-  if (labelledBy) {
-    const text = labelledBy
-      .split(/\s+/)
-      .map((refId) => document.getElementById(refId)?.textContent ?? "")
-      .join(" ");
-    if (text.trim()) return text;
-  }
-  return "";
-}
-
-/** A signal counts as "question-shaped" if it reads like a real prompt, not a short field name. */
-function isQuestionShaped(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  if (trimmed.includes("?")) return true;
-  return trimmed.split(/\s+/).length >= MIN_QUESTION_WORDS;
-}
-
-function questionSignal(el: HTMLElement): string {
-  return (
-    labelForElement(el).trim() ||
-    el.getAttribute("aria-label")?.trim() ||
-    el.getAttribute("placeholder")?.trim() ||
-    ""
-  );
-}
-
 interface QuestionField {
   question: string;
   el: HTMLElement;
@@ -87,9 +49,21 @@ interface QuestionField {
  * recognize as a known profile field, but whose label reads like an actual
  * application question (spec_2 item 5) — e.g. "Why do you want to work
  * here?" — rather than an unmatched but ordinary field. Deterministic: the
- * question *text* is the field's own label/aria/placeholder, so re-scanning
- * later and matching by that text finds the same element again (used by
- * `fillCustomQuestionAnswers`).
+ * question *text* is `field-signal.ts#fieldQuestionText` (shared with the
+ * visual picker — label → aria → nearby preceding text → placeholder), so
+ * re-scanning later and matching by that text finds the same element again
+ * (used by `fillCustomQuestionAnswers`). Using the same richer signal here
+ * (rather than a simpler label/aria/placeholder-only lookup this module used
+ * to have of its own) matters concretely: a field with no real label whose
+ * question lives in a sibling `<p>` above it — e.g. a custom question card
+ * with nothing but a generic "Type your answer here…" placeholder — used to
+ * be misdetected as *that placeholder itself* being the question, so the AI
+ * was asked to answer "Type your answer here…" and correctly replied with a
+ * "please provide the actual question" non-answer, which still got written
+ * into the field. `fieldQuestionText`'s nearby-text climb finds the real `<p>`
+ * instead; `isQuestionShaped` additionally rejects a signal that's nothing
+ * but that generic placeholder text, so a field with truly no findable
+ * question is skipped here rather than faked into one.
  */
 function scanQuestionFields(): QuestionField[] {
   const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
@@ -97,9 +71,9 @@ function scanQuestionFields(): QuestionField[] {
   const fields: QuestionField[] = [];
   for (const el of elements) {
     if (detectSemanticField(el)) continue;
-    const signal = questionSignal(el);
-    if (!isQuestionShaped(signal)) continue;
-    fields.push({ question: signal.trim(), el });
+    const question = fieldQuestionText(el).trim();
+    if (!isQuestionShaped(question)) continue;
+    fields.push({ question, el });
   }
   return fields;
 }
@@ -109,6 +83,21 @@ export function detectCustomQuestions(): CustomQuestion[] {
     id: `question-${index}`,
     question: field.question,
   }));
+}
+
+/**
+ * The key `answerAndFillQuestions` (Side Panel) uses to store/look up one
+ * question's answer. Picker-added questions must key off their `locator`,
+ * not `question` text: several fields on the *same* custom-built form
+ * routinely share an identical generic prompt — e.g. two "Type your answer
+ * here…" textareas whose real question lives in a sibling `<p>` the
+ * deterministic pass didn't attach — and text-keying would silently
+ * collapse them into one answer slot, leaving one field unanswered/wrong.
+ * The automatic scan has no locator and must stay text-keyed: it re-matches
+ * elements by that same text on every re-scan (`fillCustomQuestionAnswers`).
+ */
+export function questionAnswerKey(q: Pick<CustomQuestion, "question" | "locator">): string {
+  return q.locator ? `loc:${q.locator.tag}` : q.question;
 }
 
 function isEmptyField(el: HTMLElement): boolean {

@@ -12,7 +12,6 @@ import { cancelActivePicker, startElementPicker } from "@/features/autofill/elem
 import { applyCheckboxDecisions, detectCheckboxes } from "@/features/autofill/checkboxes";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
 import { initFileDropCatcher } from "@/features/file-upload/drop-catcher";
-import { announceGeneratedPassword } from "@/features/autofill/password-toast";
 import { showPageToast } from "@/features/autofill/page-toast";
 import { INSERT_FIELD_LABELS } from "@/features/autofill/insert-field-labels";
 import { base64ToFile } from "@/lib/base64";
@@ -74,7 +73,6 @@ function registerMessageListener(): void {
 
       case "AUTOFILL": {
         const result = autofillDocument(message.profile);
-        if (result.generatedPassword) void announceGeneratedPassword(result.generatedPassword);
         const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
         sendResponse(response);
         return false;
@@ -112,10 +110,6 @@ function registerMessageListener(): void {
               fillElement(confirmField, message.value);
             }
           }
-          // Still hand back/copy the password even if the field itself
-          // couldn't be filled (unsupported element) — it's the one value
-          // with no other record, so losing it silently would be worse.
-          void announceGeneratedPassword(message.value);
         } else if (!filled) {
           // A successful insert is its own feedback — the value now sits
           // right there in the field. A toast only earns its place when
@@ -186,7 +180,7 @@ function registerMessageListener(): void {
 
       case "UPLOAD_FILE": {
         const file = base64ToFile(message.base64Data, message.fileName, message.mimeType);
-        const result = injectFileIntoPage(file, message.targetLocator);
+        const result = injectFileIntoPage(file, message.targetLocator, message.kind);
         const response: RuntimeMessage = { type: "UPLOAD_FILE_RESULT", ...result };
         sendResponse(response);
         return false;

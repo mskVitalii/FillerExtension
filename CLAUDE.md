@@ -24,6 +24,7 @@ make build             # tsc --noEmit + vite build (sidepanel) + vite build (con
 make typecheck        # tsc --noEmit only
 make lint              # eslint .
 make lint-fix          # eslint . --fix
+make test              # vitest run — the autofill-engine regression suite (jsdom, no browser needed)
 make clean             # remove extension/dist and extension.zip
 make zip               # build, then package extension/dist into extension.zip (repo root) — alias: make package
 make version           # print current version (extension/package.json)
@@ -33,10 +34,27 @@ make version-major     # bump major version
 make release            # clean + install + build + zip
 ```
 
-There is no test suite/runner configured in this repo. Manual autofill testing page:
-[test-pages/autofill-test.html](./test-pages/autofill-test.html) — covers plain inputs,
-`aria-label`/`placeholder`-only fields, `autocomplete` tokens, `contenteditable`, a custom
-combobox, a file input and a drag/drop zone.
+### Automated regression suite (`make test`)
+
+`extension/test/*.test.ts` (Vitest + jsdom) drives the real content-script modules —
+`autofillDocument`, `injectFileIntoPage`, `decomposeContainer`/`fillAnswersByLocator`,
+`detectCustomQuestions`/`fillCustomQuestionAnswers`, `detectCheckboxes`/`applyCheckboxDecisions`,
+`resolvePhoneFill` — directly against `test-pages/autofill-test.html` (`test/load-fixture.ts`
+loads it verbatim into jsdom's `document`, so a fix verified here is verified against exactly
+what a manual click-through in Chrome also exercises) or small synthetic DOM fragments. No
+Chrome, no OpenAI key, no Google Drive login — nothing that reaches the network. `test/setup.ts`
+stubs the handful of browser APIs jsdom doesn't implement (`offsetParent`/layout,
+`isContentEditable`, `DataTransfer`/`DragEvent`, `input.files`); read its comments before adding
+a test that hits a new one. `make test` (or `cd extension && npm test`) runs it; `npm run
+test:watch` for a watch loop. This is deliberately narrower than the manual test page: it covers
+the DOM/engine layer where the label-detection/phone-format/file-targeting/radio-group bugs
+actually live, not the React Side Panel UI itself (message-passing plumbing, AI calls, Drive/OAuth)
+— that still needs a manual run through `test-pages/autofill-test.html` per the note below.
+
+Manual autofill testing page: [test-pages/autofill-test.html](./test-pages/autofill-test.html) —
+covers plain inputs, `aria-label`/`placeholder`-only fields, `autocomplete` tokens,
+`contenteditable`, a custom combobox, a file input and a drag/drop zone, application questions,
+consent checkboxes, and radio-group questions (via "Pick fields on page").
 
 Loading the built extension: `chrome://extensions` → enable Developer Mode → "Load unpacked" →
 select `extension/dist`.

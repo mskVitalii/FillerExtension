@@ -57,15 +57,28 @@ function fromLabelElement(el: HTMLElement): string {
 }
 
 /**
- * Walks up from the field and, at each ancestor up to `container`, looks at
- * the text of the immediately preceding sibling — the visual "label above
- * the input" pattern. Stops at `container` so a pick of one question card
- * never borrows the text of the card before it.
+ * Walks up from the field and, at each ancestor up to and including
+ * `container`, looks at the text of the immediately preceding sibling — the
+ * visual "label above the input" pattern (spec: a numbered card with the
+ * real question in a `<p>` above a plain `<textarea>`, no `<label>` at
+ * all). Never climbs *past* `container`, so a pick of one question card
+ * can't borrow the text of the card before it — but it must still check
+ * `container`'s own level: the visual picker regularly lands the pick
+ * exactly on the field itself, or on its immediate wrapper, when the user
+ * clicks without widening the selection first (`↑`), and that field/wrapper
+ * *is* `container` in that case.
+ *
+ * A `container` equal to `el` itself carries no real containment
+ * information — the user picked exactly this field, narrower than any
+ * actual visual "block" — so that case climbs the same fixed number of
+ * levels as when no container is given at all (`element-locator.ts` already
+ * relies on that unrestricted climb, calling this with no container). Only
+ * a container that is a genuine wider ancestor acts as a hard stop.
  */
 function fromPrecedingText(el: HTMLElement, container: HTMLElement | null): string {
   let node: HTMLElement | null = el;
-  const boundary = container ?? el.ownerDocument.body;
-  for (let depth = 0; node && node !== boundary && depth < 5; depth++, node = node.parentElement) {
+  const boundary = container && container !== el ? container : el.ownerDocument.body;
+  for (let depth = 0; node && depth < 5; depth++) {
     let sibling = node.previousElementSibling;
     while (sibling) {
       if (sibling instanceof HTMLElement && !sibling.matches("input, textarea, select, script, style")) {
@@ -74,6 +87,8 @@ function fromPrecedingText(el: HTMLElement, container: HTMLElement | null): stri
       }
       sibling = sibling.previousElementSibling;
     }
+    if (node === boundary) break;
+    node = node.parentElement;
   }
   return "";
 }
@@ -100,10 +115,21 @@ export function fieldQuestionText(el: HTMLElement, container: HTMLElement | null
   return placeholder || preceding || "";
 }
 
-/** A prompt reads like a real question if it has a "?" or is more than a two-word field name. */
+/**
+ * A prompt reads like a real question if it has a "?" or is more than a
+ * two-word field name — but never when the text is nothing but a generic
+ * "type here" instruction (spec: a field whose only findable signal is its
+ * own placeholder like "Type your answer here…" has no real question
+ * attached at all; asking the AI to answer *that* just produces a "please
+ * provide the actual question" non-answer, which then gets filled in as if
+ * it were a real one). Checked first, and unconditionally — a generic
+ * placeholder passing the plain word-count/`?` heuristic is exactly the
+ * false positive this exists to catch.
+ */
 export function isQuestionShaped(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  if (GENERIC_PLACEHOLDER_RE.test(trimmed)) return false;
   if (trimmed.includes("?")) return true;
   return trimmed.split(/\s+/).length >= 3;
 }

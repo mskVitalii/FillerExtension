@@ -24,7 +24,7 @@ import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { saveCoverLetterDraft } from "@/features/applications/repository";
 import { getCvFile } from "@/features/profile/repository";
-import type { CustomQuestion } from "@/features/autofill/custom-questions";
+import { questionAnswerKey, type CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField } from "@/features/autofill/pick-questions";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
@@ -101,8 +101,11 @@ export function MainView({
   const [answeringAllQuestions, setAnsweringAllQuestions] = useState(false);
   const [detectingQuestions, setDetectingQuestions] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Not rendered in the UI (spec: checkboxes are decided and ticked directly
+  // on the page — the applicant reviews/changes them there like any other
+  // field), but still persisted to the per-tab cache so a re-open doesn't
+  // re-run `handleDecideCheckboxes` needlessly.
   const [checkboxDecisions, setCheckboxDecisions] = useState<CheckboxDecision[]>([]);
-  const [decidingCheckboxes, setDecidingCheckboxes] = useState(false);
 
   const [showJobText, setShowJobText] = useState(false);
   const [jobLanguage, setJobLanguage] = useState<JobLanguageInfo | null>(null);
@@ -117,6 +120,11 @@ export function MainView({
   // `pickerPortRef` is a disconnect-on-close channel to the background.
   const pickingRef = useRef(false);
   const pickerPortRef = useRef<chrome.runtime.Port | null>(null);
+  // Locator tags of picker-added questions already ingested. The picker loop
+  // needs a *synchronous* dedup: `setCustomQuestions`'s functional updater
+  // runs too late (React 18 flushes it after this async tick), so its result
+  // can't gate whether we answer a freshly picked field.
+  const ingestedTagsRef = useRef<Set<string>>(new Set());
 
   // Mirrors *Ref.current as actual state so the UI can tell "not draggable
   // yet" apart from "draggable" — a plain ref wouldn't re-render the icon.
@@ -168,6 +176,9 @@ export function MainView({
         setTranslations(cached.translations);
         setActiveTranslationLanguage(cached.activeTranslationLanguage);
         setCustomQuestions(cached.customQuestions);
+        ingestedTagsRef.current = new Set(
+          cached.customQuestions.map((q) => q.locator?.tag).filter((t): t is string => Boolean(t)),
+        );
         setQuestionAnswers(cached.customQuestionAnswers);
         setCheckboxDecisions(cached.checkboxDecisions ?? []);
         setJobLanguage(cached.jobLanguage);
@@ -225,6 +236,7 @@ export function MainView({
       setTranslations({});
       setActiveTranslationLanguage("");
       setCustomQuestions([]);
+      ingestedTagsRef.current.clear();
       setQuestionAnswers({});
       setCheckboxDecisions([]);
       setJobLanguage(null);
@@ -244,6 +256,7 @@ export function MainView({
     setTranslations({});
     setActiveTranslationLanguage("");
     setCustomQuestions([]);
+    ingestedTagsRef.current.clear();
     setQuestionAnswers({});
     setCheckboxDecisions([]);
     setJobLanguage(null);
@@ -441,8 +454,14 @@ export function MainView({
     // `seed` carries answers known without asking the model (e.g. a pronoun
     // group answered straight from the profile) — `questionAnswers` state
     // hasn't flushed yet when this is called right after `setQuestionAnswers`.
+    // Keyed by `questionAnswerKey`, not raw `question` text: several
+    // picker-added fields on the same custom form routinely share an
+    // identical generic prompt (e.g. two "Type your answer here…" textareas
+    // whose real question lives in a sibling `<p>` the deterministic pass
+    // missed), and text-keying would collapse them into one answer slot —
+    // one field silently gets no answer, or the other field's answer.
     const answersByQuestion = { ...questionAnswers, ...seed };
-    const pending = questions.filter((q) => !answersByQuestion[q.question]);
+    const pending = questions.filter((q) => !answersByQuestion[questionAnswerKey(q)]);
 
     setAnsweringAllQuestions(true);
     try {
@@ -457,12 +476,24 @@ export function MainView({
             }),
           ),
         );
+        const failures: string[] = [];
         results.forEach((result, i) => {
           if (result.status === "fulfilled" && result.value?.answer) {
-            answersByQuestion[pending[i].question] = result.value.answer;
+            answersByQuestion[questionAnswerKey(pending[i])] = result.value.answer;
+          } else if (result.status === "rejected") {
+            failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
           }
         });
-        setQuestionAnswers({ ...answersByQuestion });
+        // Merge over the latest state, not the closure's snapshot — the
+        // picker fires this concurrently across picks without a re-render in
+        // between, so a plain replace would drop a sibling pick's answers.
+        setQuestionAnswers((prev) => ({ ...prev, ...answersByQuestion }));
+        // Every question failed the same way (no API key, quota, org not
+        // verified for the model, network) — surface that instead of
+        // leaving the cards on a misleading "add your key" hint.
+        if (failures.length > 0 && failures.length === pending.length) {
+          setError(`Couldn't answer the application questions: ${failures[0]}`);
+        }
       }
 
       // Auto-detected questions are written back by matching their label
@@ -471,7 +502,7 @@ export function MainView({
       const textAnswers: Record<string, string> = {};
       const locatorItems: { locator: ElementLocator; answer: string }[] = [];
       for (const q of questions) {
-        const answer = answersByQuestion[q.question];
+        const answer = answersByQuestion[questionAnswerKey(q)];
         if (!answer) continue;
         if (q.locator) locatorItems.push({ locator: q.locator, answer });
         else textAnswers[q.question] = answer;
@@ -533,18 +564,26 @@ export function MainView({
       return;
     }
 
-    let fresh: CustomQuestion[] = [];
-    setCustomQuestions((prev) => {
-      const seen = new Set(prev.map((q) => q.locator?.tag).filter(Boolean));
-      fresh = additions.filter((q) => !seen.has(q.locator?.tag));
-      return [...prev, ...fresh];
+    // Compute `fresh` synchronously against a ref — reading it back from the
+    // `setCustomQuestions` updater below saw a stale `[]` (the updater is
+    // flushed after this tick), so the early return skipped answering
+    // entirely: cards appeared, but no model call was ever made.
+    const fresh = additions.filter((q) => {
+      const tag = q.locator?.tag;
+      if (tag && ingestedTagsRef.current.has(tag)) return false;
+      if (tag) ingestedTagsRef.current.add(tag);
+      return true;
     });
     if (fresh.length === 0) return;
+    setCustomQuestions((prev) => {
+      const prevTags = new Set(prev.map((q) => q.locator?.tag).filter(Boolean));
+      return [...prev, ...fresh.filter((q) => !q.locator?.tag || !prevTags.has(q.locator.tag))];
+    });
 
     // A pronoun choice is answered straight from the profile — no model call.
     const seed: Record<string, string> = {};
     for (const q of fresh) {
-      if (profile.pronouns && /\bpronoun/i.test(q.question)) seed[q.question] = profile.pronouns;
+      if (profile.pronouns && /\bpronoun/i.test(q.question)) seed[questionAnswerKey(q)] = profile.pronouns;
     }
     if (Object.keys(seed).length > 0) setQuestionAnswers((prev) => ({ ...prev, ...seed }));
     void answerAndFillQuestions(fresh, job, seed);
@@ -633,7 +672,6 @@ export function MainView({
       return;
     }
 
-    setDecidingCheckboxes(true);
     try {
       const response = await sendMessage<{ type: "CHECKBOX_DECISIONS"; decisions: CheckboxDecision[] }>({
         type: "DECIDE_CHECKBOXES",
@@ -650,8 +688,6 @@ export function MainView({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not decide on the form's checkboxes.");
-    } finally {
-      setDecidingCheckboxes(false);
     }
   }
 
@@ -1184,54 +1220,40 @@ export function MainView({
                 : "Answered automatically and filled into the form — edit and re-drag to change one."}
             </p>
             <ul className="mt-1 flex flex-col gap-2">
-              {customQuestions.map(({ id, question, options }) => (
-                <li key={id} className="flex flex-col gap-1 rounded-md border border-border p-2">
-                  <p className="text-sm">{question}</p>
-                  {options && options.length > 0 && (
-                    <p className="text-xs text-muted-foreground">Choose one: {options.join(" · ")}</p>
-                  )}
-                  {questionAnswers[question] ? (
-                    <DraggableValue value={questionAnswers[question]} className="text-sm text-muted-foreground">
-                      <span>{questionAnswers[question]}</span>
-                    </DraggableValue>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {answeringAllQuestions
-                        ? "Generating…"
-                        : "No answer yet — add your OpenAI key in Settings, then pick again."}
-                    </p>
-                  )}
-                </li>
-              ))}
+              {customQuestions.map((q) => {
+                const { id, question, options } = q;
+                const answer = questionAnswers[questionAnswerKey(q)];
+                return (
+                  <li key={id} className="flex flex-col gap-1 rounded-md border border-border p-2">
+                    <p className="text-sm">{question}</p>
+                    {options && options.length > 0 && (
+                      <p className="text-xs text-muted-foreground">Choose one: {options.join(" · ")}</p>
+                    )}
+                    {answer ? (
+                      <DraggableValue value={answer} className="text-sm text-muted-foreground">
+                        <span>{answer}</span>
+                      </DraggableValue>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {answeringAllQuestions
+                          ? "Generating…"
+                          : hasApiKey
+                            ? "No answer yet — see the error above, or check the OpenAI request in this panel's devtools Network tab."
+                            : "No answer yet — add your OpenAI key in Settings, then pick again."}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}
       </div>
       {detectingQuestions && <p className="text-xs text-muted-foreground">Scanning page for questions…</p>}
 
-      {(decidingCheckboxes || checkboxDecisions.length > 0) && (
-        <div>
-          <p className="text-sm font-medium">Consent checkboxes</p>
-          <p className="text-xs text-muted-foreground">
-            {decidingCheckboxes
-              ? "Reviewing the form's checkboxes…"
-              : "Required consents ticked, marketing opt-ins left off. Change any directly on the page."}
-          </p>
-          <ul className="mt-1 flex flex-col gap-1">
-            {checkboxDecisions.map((decision, i) => (
-              <li key={`${decision.name}-${i}`} className="flex items-start gap-2 text-xs">
-                <span className={cn("shrink-0 font-medium", decision.check ? "text-foreground" : "text-muted-foreground")}>
-                  {decision.check ? "✓" : "—"}
-                </span>
-                <span className="text-muted-foreground">
-                  <span className="line-clamp-2">{decision.label || decision.name || "(unlabelled checkbox)"}</span>
-                  <span className="opacity-70"> · {decision.check ? "ticked" : "left off"} ({decision.category})</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Consent checkboxes are decided and ticked on the page automatically
+          (handleDecideCheckboxes) — no need to also list them here; the user
+          reviews/changes them directly on the form like any other field. */}
 
       <div>
         <p className="text-sm font-medium">Profile</p>

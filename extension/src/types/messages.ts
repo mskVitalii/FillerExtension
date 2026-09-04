@@ -66,7 +66,9 @@ export type RuntimeMessage =
   | { type: "APPLY_CHECKBOX_DECISIONS"; tabId: number; decisions: CheckboxDecisionInput[] }
   | { type: "CHECKBOX_APPLY_RESULT"; changed: number }
   | { type: "DETECT_JOB_LANGUAGE"; job: Job }
-  | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo };
+  | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo }
+  /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */
+  | { type: "ERROR"; error: string; code?: string };
 
 export type RuntimeMessageType = RuntimeMessage["type"];
 
@@ -74,6 +76,13 @@ export function sendMessageToTab<T = unknown>(tabId: number, message: RuntimeMes
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-export function sendMessage<T = unknown>(message: RuntimeMessage): Promise<T> {
-  return chrome.runtime.sendMessage(message);
+export async function sendMessage<T = unknown>(message: RuntimeMessage): Promise<T> {
+  const response = (await chrome.runtime.sendMessage(message)) as T | Extract<RuntimeMessage, { type: "ERROR" }>;
+  if (response && typeof response === "object" && (response as { type?: string }).type === "ERROR") {
+    const { error, code } = response as Extract<RuntimeMessage, { type: "ERROR" }>;
+    const err = new Error(error || "Background request failed.");
+    if (code) err.name = code;
+    throw err;
+  }
+  return response as T;
 }
