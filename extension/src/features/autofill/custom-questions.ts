@@ -2,9 +2,11 @@ import { detectSemanticField } from "./field-detector";
 import { queryFillableDeep } from "./engine";
 import { fillElement } from "./native-setter";
 import { fieldQuestionText, isQuestionShaped } from "./field-signal";
+import { wantsNumericValue, dateInputKind } from "./field-format";
+import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 
-const FILLABLE_SELECTOR = 'input, textarea, [contenteditable="true"]';
+const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
 const EXCLUDED_INPUT_TYPES = new Set([
   "hidden",
   "submit",
@@ -29,6 +31,10 @@ export interface CustomQuestion {
   locator?: ElementLocator;
   /** Choice labels when the picked field is a radio-group / `<select>` — the answer must be one of these. */
   options?: string[];
+  /** True when the field only accepts a bare number — the AI must answer with digits only, no currency/units/prose. */
+  numeric?: boolean;
+  /** Present when the field is a `date`/`month`/`week`/`time`/`datetime-local` input — the answer must be in that exact format. */
+  dateKind?: DateInputKind;
 }
 
 function isFillable(el: Element): el is HTMLElement {
@@ -42,6 +48,21 @@ function isFillable(el: Element): el is HTMLElement {
 interface QuestionField {
   question: string;
   el: HTMLElement;
+  /** Choice labels when `el` is a `<select>` — the answer must be one of these (mirrors the picker's `options`). */
+  options?: string[];
+  /** `el` only accepts a bare number (e.g. `<input type="number">` — a salary/years-of-experience question). */
+  numeric?: boolean;
+  /** `el`'s required date/time format, e.g. `<input type="date">` — an available-from/start-date question. */
+  dateKind?: DateInputKind;
+}
+
+/** A `<select>`'s option labels, minus a blank placeholder option — `undefined` for anything else. */
+function selectOptions(el: HTMLElement): string[] | undefined {
+  if (!(el instanceof HTMLSelectElement)) return undefined;
+  const labels = Array.from(el.options)
+    .map((opt) => opt.textContent?.trim() ?? "")
+    .filter((text) => text.length > 0);
+  return labels.length > 0 ? labels : undefined;
 }
 
 /**
@@ -73,7 +94,13 @@ function scanQuestionFields(): QuestionField[] {
     if (detectSemanticField(el)) continue;
     const question = fieldQuestionText(el).trim();
     if (!isQuestionShaped(question)) continue;
-    fields.push({ question, el });
+    fields.push({
+      question,
+      el,
+      options: selectOptions(el),
+      numeric: wantsNumericValue(el) || undefined,
+      dateKind: dateInputKind(el) ?? undefined,
+    });
   }
   return fields;
 }
@@ -82,6 +109,9 @@ export function detectCustomQuestions(): CustomQuestion[] {
   return scanQuestionFields().map((field, index) => ({
     id: `question-${index}`,
     question: field.question,
+    options: field.options,
+    numeric: field.numeric,
+    dateKind: field.dateKind,
   }));
 }
 
@@ -101,7 +131,9 @@ export function questionAnswerKey(q: Pick<CustomQuestion, "question" | "locator"
 }
 
 function isEmptyField(el: HTMLElement): boolean {
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.trim() === "";
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    return el.value.trim() === "";
+  }
   return (el.textContent ?? "").trim() === "";
 }
 

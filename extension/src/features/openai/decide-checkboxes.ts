@@ -47,6 +47,13 @@ normally expected to accept:
 - confirming the entered information is accurate / truthful
 - consent to process and store the application data for THIS hiring process
 - storing the data in a talent pool ONLY when the checkbox is marked required
+- eligibility self-declarations that hold for any ordinary adult applying
+  for a real job (e.g. "I am at least 18 years old", "I am legally
+  entitled to work in [country]", "I have no undisclosed conflicts of
+  interest") — assume true unless the profile/CV explicitly states
+  otherwise; a genuine job applicant submitting this form is virtually
+  always eligible, and leaving a required declaration like this unticked
+  blocks submission for no real reason
 
 DO NOT TICK (check: false) — optional and promotional:
 - newsletters, marketing e-mails, "career news", event invitations

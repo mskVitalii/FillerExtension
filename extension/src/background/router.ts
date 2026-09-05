@@ -163,7 +163,13 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "ANSWER_CUSTOM_QUESTION": {
-      const answer = await answerCustomQuestion(message.question, message.job, message.options);
+      const answer = await answerCustomQuestion(
+        message.question,
+        message.job,
+        message.options,
+        message.numeric,
+        message.dateKind,
+      );
       return { type: "CUSTOM_QUESTION_ANSWER", question: message.question, answer };
     }
 

@@ -2,6 +2,8 @@ import { queryFillableDeep } from "./engine";
 import { fillElement } from "./native-setter";
 import { detectSemanticField } from "./field-detector";
 import { fieldQuestionText, isQuestionShaped } from "./field-signal";
+import { wantsNumericValue, dateInputKind } from "./field-format";
+import type { DateInputKind } from "@/lib/date-format";
 import { buildLocator, resolveLocator, type ElementLocator } from "./element-locator";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
@@ -39,6 +41,10 @@ export interface PickedField {
   descriptor: FieldDescriptor;
   /** Present for radio-groups / `<select>` — the AI answer must be exactly one of these. */
   options?: string[];
+  /** True when the field only accepts a bare number — the AI must answer with digits only, no currency/units/prose. */
+  numeric?: boolean;
+  /** Present when the field is a `date`/`month`/`week`/`time`/`datetime-local` input — the answer must be in that exact format. */
+  dateKind?: DateInputKind;
 }
 
 export interface DecomposeResult {
@@ -196,6 +202,8 @@ export function decomposeContainer(container: HTMLElement): DecomposeResult {
       question,
       confident: isQuestionShaped(question),
       options,
+      numeric: wantsNumericValue(el) || undefined,
+      dateKind: dateInputKind(el) ?? undefined,
       descriptor: {
         index: picked.length,
         tag: el.tagName.toLowerCase(),

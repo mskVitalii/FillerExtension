@@ -7,7 +7,7 @@ describe("automatic custom-question detection and fill (Application questions se
     loadFixture();
   });
 
-  it("detects the 4 question-shaped fields and none of the plain profile fields", () => {
+  it("detects the 7 question-shaped fields and none of the plain profile fields", () => {
     const questions = detectCustomQuestions().map((q) => q.question);
     expect(questions).toEqual(
       expect.arrayContaining([
@@ -18,11 +18,65 @@ describe("automatic custom-question detection and fill (Application questions se
         // same label-beats-aria-label priority as everywhere else in the
         // codebase (field-detector.ts, field-signal.ts).
         "Preferred entry date / period of notice",
+        "Select your level",
+        "Wie viele Jahre Berufserfahrung haben Sie?",
+        "Wann wäre Ihr frühestmöglicher Startdatum?",
       ]),
     );
     // A plain profile field (e.g. "First name") must never show up here —
     // that's Autofill's job, not the question-answer pipeline's.
     expect(questions.some((q) => /first name/i.test(q))).toBe(false);
+  });
+
+  it("detects a required <select> question with its option labels (Stepstone-style dropdown, e.g. language level) and fills it by matching an option's text", () => {
+    const detected = detectCustomQuestions().find((q) => q.question === "Select your level");
+    expect(detected?.options).toEqual(["Beginner", "Intermediate", "Advanced", "Fluent", "Native"]);
+
+    const filled = fillCustomQuestionAnswers({ "Select your level": "Advanced" });
+    expect(filled).toBe(1);
+    expect(qs<HTMLSelectElement>("#lang-level").value).toBe("2");
+  });
+
+  it("flags a required <input type=\"number\"> question as numeric, and coerces a messy AI answer into a value the browser actually accepts", () => {
+    const detected = detectCustomQuestions().find((q) => q.question === "Wie viele Jahre Berufserfahrung haben Sie?");
+    expect(detected?.numeric).toBe(true);
+
+    // The model was told to answer with a bare number, but even a stray
+    // unit/prose it slips in anyway must not leave the required field
+    // empty — `<input type="number">`'s native value setter would otherwise
+    // silently reset a non-numeric string to "".
+    const filled = fillCustomQuestionAnswers({ "Wie viele Jahre Berufserfahrung haben Sie?": "ca. 5 Jahre" });
+    expect(filled).toBe(1);
+    expect(qs<HTMLInputElement>('[aria-label="Wie viele Jahre Berufserfahrung haben Sie?"]').value).toBe("5");
+  });
+
+  it("flags a required <input type=\"date\"> question with its date kind, and coerces a notice-period-shaped AI answer into yyyy-MM-dd", () => {
+    const detected = detectCustomQuestions().find((q) => q.question === "Wann wäre Ihr frühestmöglicher Startdatum?");
+    expect(detected?.dateKind).toBe("date");
+
+    // Reported live on Stepstone: the model answered with a description of
+    // the notice period instead of a computed calendar date. Even that
+    // must not leave the required field empty — `<input type="date">`'s
+    // native value setter silently resets anything not in "yyyy-MM-dd" to
+    // "". This exercises the fill-time safety net specifically (the
+    // generation-side DATE_RULE in answer-question.ts is what should stop
+    // the model from doing this in the first place, but isn't reachable
+    // from a unit test that doesn't call the OpenAI API) — a value this
+    // deterministic parser genuinely can't resolve is expected to fail,
+    // which is exactly what happens here since no date is even implied.
+    const filled = fillCustomQuestionAnswers({
+      "Wann wäre Ihr frühestmöglicher Startdatum?": "Mit einer Kündigungsfrist von einem Monat.",
+    });
+    expect(filled).toBe(0);
+    expect(qs<HTMLInputElement>('[aria-label="Wann wäre Ihr frühestmöglicher Startdatum?"]').value).toBe("");
+
+    // An answer that does resolve to a real date, in the German shape the
+    // model tends to fall back to on a German-language form, still fills.
+    const filledDe = fillCustomQuestionAnswers({ "Wann wäre Ihr frühestmöglicher Startdatum?": "01.03.2026" });
+    expect(filledDe).toBe(1);
+    expect(qs<HTMLInputElement>('[aria-label="Wann wäre Ihr frühestmöglicher Startdatum?"]').value).toBe(
+      "2026-03-01",
+    );
   });
 
   it("writes each answer into its own field, matched by question text", () => {

@@ -163,6 +163,24 @@
         <input aria-label="Bei Mitarbeiterempfehlung bitte den/die Namen angeben" /></label>
       <label>Preferred entry date / period of notice
         <textarea aria-label="Bitte nennen Sie uns Ihr gewünschtes Start-Datum bzw. die Kündigungsfrist Ihrer aktuellen Tätigkeit. / Please tell us your period of notice or preferred entry date."></textarea></label>
+      <!-- Stepstone-style required <select> custom question (e.g. a per-language proficiency dropdown) -->
+      <label>Select your level
+        <select id="lang-level" required>
+          <option></option>
+          <option value="0">Beginner</option>
+          <option value="1">Intermediate</option>
+          <option value="2">Advanced</option>
+          <option value="3">Fluent</option>
+          <option value="4">Native</option>
+        </select></label>
+      <!-- Stepstone-style required <input type="number"> custom question — not a known semantic field,
+           so the AI-generated answer must be coerced to a bare number or the browser silently blanks it. -->
+      <label>Wie viele Jahre Berufserfahrung haben Sie?
+        <input type="number" step="1" aria-label="Wie viele Jahre Berufserfahrung haben Sie?" required /></label>
+      <!-- Stepstone-style required <input type="date"> custom question — a notice-period-shaped answer
+           ("Mit einer Kündigungsfrist von einem Monat.") must be coerced to yyyy-MM-dd or the browser silently blanks it. -->
+      <label>Wann wäre Ihr frühestmöglicher Startdatum?
+        <input type="date" aria-label="Wann wäre Ihr frühestmöglicher Startdatum?" required /></label>
     </fieldset>
 
     <fieldset>

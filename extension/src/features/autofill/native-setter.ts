@@ -1,3 +1,5 @@
+import { dateInputKindForType, coerceDateInputValue } from "@/lib/date-format";
+
 /**
  * Sets a value the way a real user typing would, so React/Vue/Angular
  * controlled inputs pick it up (spec section 13). Plain `el.value = x`
@@ -104,11 +106,62 @@ function withoutBlockingDialogs<T>(run: () => T): T {
   }
 }
 
+/**
+ * `<input type="number">` follows the HTML value-sanitization algorithm: if
+ * the string being set isn't a bare floating-point number, the browser
+ * silently resets `.value` to `""` instead of throwing — so a free-text
+ * answer like "€65.000" or "ca. 65,000 EUR" for a numeric question leaves
+ * the field empty rather than visibly wrong. Extracts the first
+ * number-looking token and normalizes thousands/decimal separators (both
+ * "." and "," are used for either role depending on locale — a trailing
+ * 1-2 digit group after the last separator is treated as the decimal part,
+ * every other separator as a thousands grouping). Returns null when nothing
+ * number-shaped could be found at all.
+ */
+function coerceNumberInputValue(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return trimmed;
+
+  const match = trimmed.match(/-?\d[\d.,]*\d|-?\d/);
+  if (!match) return null;
+
+  const token = match[0];
+  const decimals = token.match(/[.,](\d{1,2})$/)?.[1];
+  const whole = (decimals ? token.slice(0, -(decimals.length + 1)) : token).replace(/[.,]/g, "");
+  const normalized = decimals ? `${whole}.${decimals}` : whole;
+  return /^-?\d+(\.\d+)?$/.test(normalized) ? normalized : null;
+}
+
+/**
+ * `el.type`'s exact-format coercer, or null for a type the HTML
+ * value-sanitization algorithm doesn't hard-validate (`text`, `tel`,
+ * `email`, `search`, `url`… all accept whatever string is set, so no
+ * caller needs to guard those — same reasoning `wantsNumericValue` in
+ * `field-format.ts` documents for `tel` specifically).
+ */
+function typedCoercer(type: string): ((raw: string) => string | null) | null {
+  if (type === "number") return coerceNumberInputValue;
+  const dateKind = dateInputKindForType(type);
+  return dateKind ? (raw: string) => coerceDateInputValue(dateKind, raw) : null;
+}
+
 /** Fills a single detected element and fires the events controlled forms rely on. */
 export function fillElement(el: HTMLElement, value: string): boolean {
   if (!value) return false;
 
   return withoutBlockingDialogs(() => {
+    if (el instanceof HTMLInputElement) {
+      const coercer = typedCoercer(el.type);
+      if (coercer) {
+        const coerced = coercer(value);
+        if (coerced === null) return false;
+        el.focus();
+        setNativeInputValue(el, coerced);
+        dispatchChangeEvents(el);
+        return true;
+      }
+    }
+
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       el.focus();
       setNativeInputValue(el, value);

@@ -13,7 +13,16 @@ export const FIELD_PATTERNS: Record<ProfileFieldKey, RegExp[]> = {
   fullName: [/^full[\s_-]?name/i, /^name$/i, /your[\s_-]?name/i, /applicant[\s_-]?name/i],
   email: [/e-?mail/i],
   phone: [/phone/i, /mobile/i, /telefon/i, /tel\.?number/i, /\btel\b/i],
-  address: [/address(?!.*email)/i, /street/i, /adresse/i, /strasse|straße/i],
+  // The email-guard on `address`/`adresse` must look *behind* as well as
+  // ahead: "E-Mail Adresse" and a `name="…e_mail_address…"` attribute both
+  // have "email" immediately *before* "address", not after — a
+  // forward-only `(?!.*email)` lookahead never catches that (confirmed
+  // live: that exact name attribute matched `address` before the `email`
+  // signal (a separate, later-checked label) ever got a chance, filling a
+  // street address into an email field). `e[-_\s]?mail` covers "email",
+  // "e-mail" and the underscore-joined "e_mail" a `name`/`id` attribute
+  // uses.
+  address: [/(?<!e[-_\s]?mail[\s_-]*)address(?!.*e[-_\s]?mail)/i, /street/i, /(?<!e[-_\s]?mail[\s_-]*)adresse/i, /strasse|straße/i],
   // `(?<!w)ort\b` (not `\bort\b`) deliberately still matches compounds like
   // "Wohnort"/"Geburtsort" (residence/birthplace) that legitimately mean
   // "place" — but the negative lookbehind excludes anything ending in
@@ -36,6 +45,7 @@ export const FIELD_PATTERNS: Record<ProfileFieldKey, RegExp[]> = {
     /compensation[\s_-]?expectation/i,
     /gehaltsvorstellung/i,
     /wunschgehalt/i,
+    /gehaltserwartung/i,
   ],
 };
 

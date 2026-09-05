@@ -33,15 +33,38 @@ function tidy(text: string): string {
  */
 const GENERIC_PLACEHOLDER_RE = /^(type|enter|write|your answer|answer here|start typing|e\.?g\.?\b)/i;
 
+/**
+ * `label.textContent` minus whatever text lives inside `exclude` itself.
+ * Needed for a wrapping `<label>Question <select>…options…</select></label>`
+ * pattern: a `<select>`'s own `<option>` labels are part of its
+ * `textContent`, so reading the wrapping label's `textContent` directly
+ * picks up "Question Option1 Option2 …" instead of just "Question".
+ */
+function textExcluding(node: Node, exclude: HTMLElement): string {
+  if (node === exclude) return "";
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  let text = "";
+  node.childNodes.forEach((child) => {
+    text += textExcluding(child, exclude);
+  });
+  return text;
+}
+
 function fromLabelElement(el: HTMLElement): string {
   const doc = el.ownerDocument;
   const id = el.getAttribute("id");
   if (id) {
     const forLabel = doc.querySelector(`label[for="${CSS.escape(id)}"]`);
-    if (forLabel?.textContent && collapse(forLabel.textContent)) return collapse(forLabel.textContent);
+    if (forLabel) {
+      const text = collapse(textExcluding(forLabel, el));
+      if (text) return text;
+    }
   }
   const wrapping = el.closest("label");
-  if (wrapping?.textContent && collapse(wrapping.textContent)) return collapse(wrapping.textContent);
+  if (wrapping) {
+    const text = collapse(textExcluding(wrapping, el));
+    if (text) return text;
+  }
 
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {

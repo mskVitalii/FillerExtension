@@ -18,14 +18,36 @@ const AUTOCOMPLETE_MAP: Record<string, ProfileFieldKey> = {
   url: "website",
 };
 
+/**
+ * `label.textContent` minus whatever text lives inside `exclude` itself —
+ * a `<select>`'s own `<option>` labels are part of its `textContent`, so a
+ * wrapping `<label>Question <select>…options…</select></label>` would
+ * otherwise leak "Option1 Option2 …" into the label signal.
+ */
+function textExcluding(node: Node, exclude: Element): string {
+  if (node === exclude) return "";
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  let text = "";
+  node.childNodes.forEach((child) => {
+    text += textExcluding(child, exclude);
+  });
+  return text;
+}
+
 function labelForElement(el: FillableElement): string {
   const id = el.getAttribute("id");
   if (id) {
     const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
-    if (label?.textContent) return label.textContent;
+    if (label) {
+      const text = textExcluding(label, el);
+      if (text) return text;
+    }
   }
   const wrappingLabel = el.closest("label");
-  if (wrappingLabel?.textContent) return wrappingLabel.textContent;
+  if (wrappingLabel) {
+    const text = textExcluding(wrappingLabel, el);
+    if (text) return text;
+  }
 
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {

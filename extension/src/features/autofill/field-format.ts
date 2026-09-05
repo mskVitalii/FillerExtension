@@ -1,5 +1,6 @@
 import { resolvePhone, type ResolvedPhone } from "@/lib/phone";
 import { salaryNumericValue } from "@/lib/salary";
+import { dateInputKindForType, type DateInputKind } from "@/lib/date-format";
 import { fillElement } from "./native-setter";
 
 /**
@@ -57,6 +58,11 @@ export function wantsNumericValue(el: HTMLElement): boolean {
   }
 
   return false;
+}
+
+/** The date/time shape `el` hard-requires (`date`/`month`/`week`/`time`/`datetime-local`), or null. */
+export function dateInputKind(el: HTMLElement): DateInputKind | null {
+  return el instanceof HTMLInputElement ? dateInputKindForType(el.type) : null;
 }
 
 /** Salary string to type into `el` — a rounded integer for number-only fields, else the raw input. */

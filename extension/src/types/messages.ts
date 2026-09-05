@@ -7,6 +7,7 @@ import type { ElementLocator } from "@/features/autofill/element-locator";
 import type { PageCheckbox, CheckboxDecisionInput } from "@/features/autofill/checkboxes";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
 import type { InsertField } from "@/features/autofill/insert-field-labels";
+import type { DateInputKind } from "@/lib/date-format";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -43,7 +44,14 @@ export type RuntimeMessage =
   | { type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }
   | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
   | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
-  | { type: "ANSWER_CUSTOM_QUESTION"; question: string; job: Job; options?: string[] }
+  | {
+      type: "ANSWER_CUSTOM_QUESTION";
+      question: string;
+      job: Job;
+      options?: string[];
+      numeric?: boolean;
+      dateKind?: DateInputKind;
+    }
   | { type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }
   | { type: "FILL_CUSTOM_QUESTION_ANSWERS"; tabId: number; answers: Record<string, string> }
   | { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number }

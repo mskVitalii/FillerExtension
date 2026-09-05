@@ -473,6 +473,8 @@ export function MainView({
               question: q.question,
               job: currentJob,
               options: q.options,
+              numeric: q.numeric,
+              dateKind: q.dateKind,
             }),
           ),
         );
@@ -558,6 +560,8 @@ export function MainView({
         question: p.question.trim(),
         locator: p.locator,
         options: p.options && p.options.length > 0 ? p.options : undefined,
+        numeric: p.numeric,
+        dateKind: p.dateKind,
       }));
     if (additions.length === 0) {
       setError("Nothing question-shaped in that block — try a wider selection with ↑.");
@@ -864,7 +868,21 @@ export function MainView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId, coverLetter, job.company]);
 
-  async function runAutofill() {
+  /**
+   * `rescanQuestions` is only for the manual "Autofill Application" button
+   * (spec: clicking it is the user's explicit "try again on this page now"
+   * moment) — a multi-step/SPA form routinely renders its custom questions
+   * only after some initial hydration, or reveals new ones once semantic
+   * fields like country get filled, so the panel-open scan can legitimately
+   * have missed what's there by the time the user clicks Autofill. The
+   * bootstrap/navigation call sites already run `handleDetectQuestions`
+   * once on their own right after `runAutofill()` — defaulting this to
+   * `false` there avoids scanning (and re-answering via the model) twice
+   * on every ordinary panel open. `answerAndFillQuestions` re-filters
+   * against already-known answers regardless, so a rescan here never
+   * re-asks the model about a question it already answered.
+   */
+  async function runAutofill(rescanQuestions = false) {
     setAutofillStatus(null);
     try {
       const response = await sendMessage<{
@@ -882,6 +900,7 @@ export function MainView({
     } catch {
       setAutofillStatus("Autofill failed on this page.");
     }
+    if (rescanQuestions) void handleDetectQuestions(job);
   }
 
   /** Shared by every place a password gets (re)generated — on mount/reset so
@@ -1353,7 +1372,7 @@ export function MainView({
         </div>
       )}
 
-      <Button onClick={() => void runAutofill()}>Autofill Application</Button>
+      <Button onClick={() => void runAutofill(true)}>Autofill Application</Button>
       {!cvMeta && (
         <p className="text-xs text-muted-foreground">
           No CV on file yet —{" "}

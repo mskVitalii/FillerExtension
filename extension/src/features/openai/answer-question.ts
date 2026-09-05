@@ -7,6 +7,7 @@ import {
   getPersonalLegend,
   getProfile,
 } from "@/features/profile/repository";
+import { DATE_FORMAT_EXAMPLE, todayISO, type DateInputKind } from "@/lib/date-format";
 import { MODEL_LUNA, requestStructured } from "./client";
 
 const SCHEMA = {
@@ -68,6 +69,42 @@ const CHOICE_RULE = `
   that commits the applicant least.`;
 
 /**
+ * The target field is `<input type="number">` (or an equivalent
+ * numeric-only field) — a prose answer like "around 65,000 EUR" or a range
+ * like "65000-75000" gets silently rejected by the browser (the HTML
+ * value-sanitization algorithm resets a non-numeric value to "") or picks
+ * the wrong end of the range when parsed back out. Ask for the single bare
+ * number the applicant would actually type into that box.
+ */
+const NUMERIC_RULE = `
+- This field only accepts a plain number: reply with digits only (a single
+  "." for a decimal if needed) — no currency symbol, no thousands
+  separator, no unit, no words, no range. If a range genuinely fits best
+  (e.g. a salary expectation given as "65-75k"), reply with one
+  representative figure (its midpoint), not the range.`;
+
+/**
+ * The target field is `<input type="date">` (or its month/week/time/
+ * datetime-local siblings) — the browser applies the same hard,
+ * silent-reset-to-empty validation as `type="number"`, just against a
+ * stricter exact format. A question like "earliest possible start date"
+ * naturally invites an answer about a *notice period* ("with one month's
+ * notice") rather than a calendar date — confirmed live on Stepstone,
+ * where exactly that left a required date field empty. `todayISO` in the
+ * user prompt is the reference point for computing the actual date.
+ */
+function dateRule(kind: DateInputKind): string {
+  return `
+- This field only accepts a date in the exact format "${DATE_FORMAT_EXAMPLE[kind]}"
+  — reply with ONLY that value, nothing else (no words, no explanation).
+  "todayISO" in the data below is today's date: compute the answer from it
+  — e.g. "available with one month's notice" → todayISO plus one month;
+  "immediately" / "as soon as possible" / no stated constraint → todayISO
+  itself. Never answer with a description of the notice period or
+  availability instead of the date itself.`;
+}
+
+/**
  * Custom application questions (spec_2 item 5) — grounded in the same
  * sources the cover-letter pipeline uses (features/cover-letter/pipeline.ts),
  * plus the current cover letter draft itself so the answer stays consistent
@@ -77,7 +114,13 @@ const CHOICE_RULE = `
  * moment the Side Panel opens on a posting — latency and cost per open
  * matter more here than the extra nuance MODEL_TERRA would add.
  */
-export async function answerCustomQuestion(question: string, job: Job, options?: string[]): Promise<string> {
+export async function answerCustomQuestion(
+  question: string,
+  job: Job,
+  options?: string[],
+  numeric?: boolean,
+  dateKind?: DateInputKind,
+): Promise<string> {
   const [profile, cvMeta, legend, coverLetter, languageLevels, customFields] = await Promise.all([
     getProfile(),
     getCvMeta(),
@@ -91,6 +134,7 @@ export async function answerCustomQuestion(question: string, job: Job, options?:
     {
       question,
       options: options && options.length > 0 ? options : undefined,
+      todayISO: todayISO(),
       job,
       profile,
       cvText: cvMeta?.text ?? "",
@@ -103,11 +147,17 @@ export async function answerCustomQuestion(question: string, job: Job, options?:
     2,
   );
 
+  const rules = [
+    options && options.length > 0 ? CHOICE_RULE : "",
+    numeric ? NUMERIC_RULE : "",
+    dateKind ? dateRule(dateKind) : "",
+  ].filter(Boolean);
+
   const result = await requestStructured<{ answer: string }>({
     schemaName: "custom_question_answer",
     schema: SCHEMA,
     model: MODEL_LUNA,
-    systemPrompt: options && options.length > 0 ? `${SYSTEM_PROMPT}\n${CHOICE_RULE}` : SYSTEM_PROMPT,
+    systemPrompt: rules.length > 0 ? [SYSTEM_PROMPT, ...rules].join("\n") : SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { answer: string },
   });
