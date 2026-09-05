@@ -137,18 +137,30 @@ function registerMessageListener(): void {
       case "START_ELEMENT_PICKER": {
         // Held open until the user clicks a block or cancels (Esc, or
         // background telling this frame another frame won the pick).
-        void startElementPicker().then((outcome) => {
-          const response: RuntimeMessage = outcome.cancelled
-            ? { type: "ELEMENT_PICKER_RESULT", cancelled: true, picked: [], blockText: "", semanticCount: 0 }
-            : {
-                type: "ELEMENT_PICKER_RESULT",
-                cancelled: false,
-                picked: outcome.picked,
-                blockText: outcome.blockText,
-                semanticCount: outcome.semanticCount,
-              };
-          sendResponse(response);
-        });
+        void startElementPicker()
+          .then((outcome) => {
+            const response: RuntimeMessage = outcome.cancelled
+              ? { type: "ELEMENT_PICKER_RESULT", cancelled: true, picked: [], blockText: "", semanticCount: 0 }
+              : {
+                  type: "ELEMENT_PICKER_RESULT",
+                  cancelled: false,
+                  picked: outcome.picked,
+                  blockText: outcome.blockText,
+                  semanticCount: outcome.semanticCount,
+                };
+            sendResponse(response);
+          })
+          .catch(() => {
+            // Never leave the Side Panel's `await` hanging — a rejected picker
+            // still has to close the message channel with a cancelled result.
+            sendResponse({
+              type: "ELEMENT_PICKER_RESULT",
+              cancelled: true,
+              picked: [],
+              blockText: "",
+              semanticCount: 0,
+            });
+          });
         return true;
       }
 

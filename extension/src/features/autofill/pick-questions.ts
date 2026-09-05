@@ -181,62 +181,79 @@ export function decomposeContainer(container: HTMLElement): DecomposeResult {
   const picked: PickedField[] = [];
   let semanticCount = 0;
 
+  // One malformed field (a property getter on a web-component that throws, a
+  // detached node) must not abort the whole decompose — skip it and keep the
+  // rest of the pick usable.
   for (const el of fillableFieldsIn(container)) {
-    // A field the autofill engine already recognises (email, phone,
-    // LinkedIn, country…) should just be filled from the profile, never
-    // turned into an AI question.
-    if (detectSemanticField(el)) {
-      semanticCount++;
-      continue;
+    try {
+      // A field the autofill engine already recognises (email, phone,
+      // LinkedIn, country…) should just be filled from the profile, never
+      // turned into an AI question.
+      if (detectSemanticField(el)) {
+        semanticCount++;
+        continue;
+      }
+      const question = fieldQuestionText(el, container).slice(0, 400);
+      const input = el as HTMLInputElement;
+      const options =
+        el instanceof HTMLSelectElement
+          ? Array.from(el.options)
+              .map((o) => collapse(o.textContent ?? ""))
+              .filter(Boolean)
+          : undefined;
+      picked.push({
+        locator: buildLocator(el, question),
+        question,
+        confident: isQuestionShaped(question),
+        options,
+        numeric: wantsNumericValue(el) || undefined,
+        dateKind: dateInputKind(el) ?? undefined,
+        descriptor: {
+          index: picked.length,
+          tag: el.tagName.toLowerCase(),
+          type: input.type || "",
+          name: el.getAttribute("name") || "",
+          placeholder: el.getAttribute("placeholder") || "",
+          nearbyText: question.slice(0, 300),
+          options,
+        },
+      });
+    } catch {
+      /* skip this field */
     }
-    const question = fieldQuestionText(el, container).slice(0, 400);
-    const input = el as HTMLInputElement;
-    const options =
-      el instanceof HTMLSelectElement
-        ? Array.from(el.options)
-            .map((o) => collapse(o.textContent ?? ""))
-            .filter(Boolean)
-        : undefined;
-    picked.push({
-      locator: buildLocator(el, question),
-      question,
-      confident: isQuestionShaped(question),
-      options,
-      numeric: wantsNumericValue(el) || undefined,
-      dateKind: dateInputKind(el) ?? undefined,
-      descriptor: {
-        index: picked.length,
-        tag: el.tagName.toLowerCase(),
-        type: input.type || "",
-        name: el.getAttribute("name") || "",
-        placeholder: el.getAttribute("placeholder") || "",
-        nearbyText: question.slice(0, 300),
-        options,
-      },
-    });
   }
 
-  for (const { groupEl, radios } of radioGroupsIn(container)) {
-    const question = radioGroupQuestion(groupEl, radios, container);
-    const options = radios.map(radioOptionLabel).filter(Boolean);
-    picked.push({
-      locator: buildLocator(groupEl, question),
-      question,
-      confident: isQuestionShaped(question) && options.length > 0,
-      options,
-      descriptor: {
-        index: picked.length,
-        tag: "radiogroup",
-        type: "radio",
-        name: radios[0]?.name ?? "",
-        placeholder: "",
-        nearbyText: question.slice(0, 300),
+  try {
+    for (const { groupEl, radios } of radioGroupsIn(container)) {
+      const question = radioGroupQuestion(groupEl, radios, container);
+      const options = radios.map(radioOptionLabel).filter(Boolean);
+      picked.push({
+        locator: buildLocator(groupEl, question),
+        question,
+        confident: isQuestionShaped(question) && options.length > 0,
         options,
-      },
-    });
+        descriptor: {
+          index: picked.length,
+          tag: "radiogroup",
+          type: "radio",
+          name: radios[0]?.name ?? "",
+          placeholder: "",
+          nearbyText: question.slice(0, 300),
+          options,
+        },
+      });
+    }
+  } catch {
+    /* radio-group detection failed on this block — the free-text fields above still stand */
   }
 
-  return { picked, blockText: (container.innerText || "").slice(0, 6000), semanticCount };
+  let blockText = "";
+  try {
+    blockText = (container.innerText || "").slice(0, 6000);
+  } catch {
+    /* innerText can throw on a detached / cross-origin-ish node */
+  }
+  return { picked, blockText, semanticCount };
 }
 
 // --- Fill -------------------------------------------------------------
@@ -316,29 +333,33 @@ function selectRadioOption(radios: HTMLInputElement[], answer: string): boolean 
 export function fillAnswersByLocator(items: { locator: ElementLocator; answer: string }[]): number {
   let filled = 0;
   for (const { locator, answer } of items) {
-    if (!answer) continue;
-    const el = resolveLocator(locator);
-    if (!el) continue;
+    try {
+      if (!answer) continue;
+      const el = resolveLocator(locator);
+      if (!el) continue;
 
-    const radios = radiosForGroup(el);
-    if (radios.length > 0) {
-      // This is an explicitly picked field, so set the requested option even
-      // when the form pre-selected a default — skip only when the option
-      // already checked is the one we'd choose anyway.
-      const current = radios.find((r) => r.checked);
-      if (current && radioOptionMatches(current, answer) >= 2) continue;
-      if (selectRadioOption(radios, answer)) filled++;
-      continue;
-    }
+      const radios = radiosForGroup(el);
+      if (radios.length > 0) {
+        // This is an explicitly picked field, so set the requested option even
+        // when the form pre-selected a default — skip only when the option
+        // already checked is the one we'd choose anyway.
+        const current = radios.find((r) => r.checked);
+        if (current && radioOptionMatches(current, answer) >= 2) continue;
+        if (selectRadioOption(radios, answer)) filled++;
+        continue;
+      }
 
-    if (el instanceof HTMLSelectElement) {
-      if (el.value && el.selectedIndex > 0) continue;
+      if (el instanceof HTMLSelectElement) {
+        if (el.value && el.selectedIndex > 0) continue;
+        if (fillElement(el, answer)) filled++;
+        continue;
+      }
+
+      if (!isEmptyField(el)) continue;
       if (fillElement(el, answer)) filled++;
-      continue;
+    } catch {
+      /* one field's write failed — keep filling the rest */
     }
-
-    if (!isEmptyField(el)) continue;
-    if (fillElement(el, answer)) filled++;
   }
   return filled;
 }

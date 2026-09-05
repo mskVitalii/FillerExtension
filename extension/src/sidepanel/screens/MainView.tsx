@@ -33,6 +33,14 @@ import { LANGUAGES } from "@/lib/languages";
 import { generatePassword } from "@/lib/generate-password";
 import { cn } from "@/lib/utils";
 
+/**
+ * Toggles "Pick fields on page" from the keyboard while the Side Panel is
+ * focused — press once to start, again to stop. Alt+P has no default action
+ * in the panel and `preventDefault` stops it typing a character.
+ */
+const PICKER_HOTKEY_LABEL =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌥P" : "Alt+P";
+
 interface MainViewProps {
   tabId: number;
   tabUrl: string;
@@ -528,6 +536,21 @@ export function MainView({
 
   /** Turn one picked block into answered, filled question cards. */
   async function ingestPickedFields(pickedFields: PickedField[], blockText: string, semanticCount: number) {
+    try {
+      await ingestPickedFieldsInner(pickedFields, blockText, semanticCount);
+    } catch (err) {
+      // The picker loop calls this un-awaited, pick after pick — a throw here
+      // must not become an unhandled rejection that leaves the loop or the
+      // on-page overlay in a bad state.
+      setError(err instanceof Error ? err.message : "Couldn't process that selection.");
+    }
+  }
+
+  async function ingestPickedFieldsInner(
+    pickedFields: PickedField[],
+    blockText: string,
+    semanticCount: number,
+  ) {
     // Anything the autofill engine recognises in the pick (email, phone,
     // LinkedIn, country…) is filled by Autofill first, not asked as a question.
     if (semanticCount > 0) await runAutofill();
@@ -650,6 +673,22 @@ export function MainView({
         void sendMessage({ type: "CANCEL_ELEMENT_PICKER", tabId }).catch(() => {});
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Alt+P toggles the picker — press again to end the mode (issue: reaching
+  // for the button after every pick). Only fires while the Side Panel holds
+  // focus, which is where the button lives anyway.
+  useEffect(() => {
+    const onHotkey = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey !== true) return;
+      if (e.code !== "KeyP") return;
+      e.preventDefault();
+      if (pickingRef.current) handleStopPicker();
+      else void handleStartPicker();
+    };
+    window.addEventListener("keydown", onHotkey);
+    return () => window.removeEventListener("keydown", onHotkey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1218,17 +1257,23 @@ export function MainView({
           {picking ? (
             <Button size="sm" variant="outline" onClick={handleStopPicker}>
               Stop picking
+              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                {PICKER_HOTKEY_LABEL}
+              </kbd>
             </Button>
           ) : (
             <Button size="sm" variant="outline" onClick={() => void handleStartPicker()}>
               Pick fields on page
+              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                {PICKER_HOTKEY_LABEL}
+              </kbd>
             </Button>
           )}
         </div>
         {picking && (
           <p className="mt-1 text-xs text-muted-foreground">
             Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
-            Stays on until <kbd>Esc</kbd> or “Stop picking”.
+            Stays on until <kbd>Esc</kbd>, <kbd>{PICKER_HOTKEY_LABEL}</kbd>, or “Stop picking”.
           </p>
         )}
         {customQuestions.length > 0 && (

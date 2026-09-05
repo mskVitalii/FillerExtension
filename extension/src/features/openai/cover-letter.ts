@@ -1,6 +1,7 @@
 import type { Job } from "@/types/job";
 import type { Profile } from "@/types/profile";
 import { requestStructured } from "./client";
+import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import type { JobAnalysis } from "./job-analysis";
 
 export interface CoverLetterInput {
@@ -29,12 +30,8 @@ Ground rules:
   rather than fabricating it.
 - Tailor tone and emphasis to the job analysis provided.
 - Output plain prose paragraphs, no markdown headers.
-- Write like a specific person, not an AI assistant: no "leverage",
-  "streamline", "robust", "meticulous" or similar corporate filler; no
-  "It's not just X, it's Y" contrasts; no throat-clearing openers like
-  "Here's the thing"; no generic "In conclusion" recap at the end. Be
-  concrete — name the technology, project, or result instead of describing
-  it as "significant" or "impactful".`;
+
+${HOUSE_STYLE_RULES}`;
 
 /**
  * Stage 2 of the cover-letter pipeline (spec section 15-16). Consumes the
@@ -62,5 +59,5 @@ export async function generateCoverLetter(input: CoverLetterInput): Promise<stri
     parse: (raw) => JSON.parse(raw) as { content: string },
   });
 
-  return result.content;
+  return stripEmDashes(result.content);
 }

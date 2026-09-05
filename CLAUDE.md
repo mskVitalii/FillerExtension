@@ -106,14 +106,18 @@ for every tab by default and only enabled for the specific tab whose action icon
 (`chrome.sidePanel.setOptions({ tabId, ... })` in `background/index.ts`), so it doesn't keep
 showing stale content from a previous tab after the user switches tabs.
 
-### Job extraction: two-stage, DOM-first
+### Job extraction: three-stage, DOM-first
 
-`src/features/job-extraction/extractor.ts` merges a JSON-LD structured-data pass
-(`json-ld.ts`) with a generic DOM heuristics pass (`dom-heuristics.ts`); JSON-LD wins
-per-field when present. `isExtractionSufficient()` gates whether the background falls back to
-an AI extraction pass (`job-extraction/ai-fallback.ts`, via `router.ts`'s `GET_JOB` handler)
-when the DOM/JSON-LD pass didn't produce enough signal (missing position/company, or a short
-description).
+`src/features/job-extraction/extractor.ts` overlays three passes, lowest to highest
+confidence: a generic DOM heuristics pass (`dom-heuristics.ts`) → a site-specific extractor
+from `job-extraction/sites/` when one recognises the page (`sites/index.ts` dispatches;
+`sites/workatastartup.ts` handles Y Combinator's Work at a Startup, which ships no JSON-LD and
+fuses role+company into `og:title`) → a JSON-LD structured-data pass (`json-ld.ts`). Each
+overlay fills only its non-empty fields via `applyOverlay()`. Add a site by dropping a module
+in `sites/` and appending it to `SITE_EXTRACTORS`. `isExtractionSufficient()` gates whether
+the background falls back to an AI extraction pass (`job-extraction/ai-fallback.ts`, via
+`router.ts`'s `GET_JOB` handler) when the combined pass didn't produce enough signal (missing
+position/company, or a short description).
 
 ### Storage: three tiers with different trust/durability
 

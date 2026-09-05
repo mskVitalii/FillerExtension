@@ -137,12 +137,17 @@ function findSummaryRecapEnding(text: string): SlopFinding[] {
   return [];
 }
 
-function findEmDashOveruse(text: string): SlopFinding[] {
+/**
+ * Any em dash at all. Real applicants don't type "—"; it's one of the
+ * loudest AI tells, so a single occurrence trips the editor pass (which
+ * swaps it for a comma / period). `generateCoverLetter` also strips them
+ * deterministically, so this mostly guards drafts that reached the detector
+ * by another path.
+ */
+function findEmDash(text: string): SlopFinding[] {
   const count = (text.match(/—/g) ?? []).length;
-  if (count > 2) {
-    return [{ pattern: "em-dash-overuse", match: `${count} em dashes` }];
-  }
-  return [];
+  if (count === 0) return [];
+  return [{ pattern: "em-dash", match: count === 1 ? "1 em dash" : `${count} em dashes` }];
 }
 
 /** Runs the full rule set against a generated cover letter. */
@@ -156,6 +161,6 @@ export function detectSlop(text: string): SlopFinding[] {
     ...findPhraseMatches(text, WEASEL_ATTRIBUTION, "weasel-attribution"),
     ...findBinaryContrast(text),
     ...findSummaryRecapEnding(text),
-    ...findEmDashOveruse(text),
+    ...findEmDash(text),
   ];
 }

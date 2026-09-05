@@ -1,4 +1,5 @@
 import { requestStructured } from "./client";
+import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 
 const SCHEMA = {
@@ -19,7 +20,13 @@ content. Replace banned words/clichés with plain, concrete language.
 Rewrite "not X, it's Y" contrasts as a direct statement of Y. Cut
 throat-clearing openers, weasel attribution, and importance-puffery instead
 of softening them. If the ending is a generic summary/recap, end on the
-letter's last concrete point instead.
+letter's last concrete point instead. Replace every em dash ("—") with a
+comma, a period, or parentheses.
+
+Do not introduce any new AI-slop while editing. For reference, the full
+house style is:
+
+${HOUSE_STYLE_RULES}
 
 Output plain prose paragraphs, no markdown headers.`;
 
@@ -47,5 +54,5 @@ export async function polishCoverLetter(content: string, findings: SlopFinding[]
     parse: (raw) => JSON.parse(raw) as { content: string },
   });
 
-  return result.content;
+  return stripEmDashes(result.content);
 }

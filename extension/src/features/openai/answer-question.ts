@@ -9,6 +9,7 @@ import {
 } from "@/features/profile/repository";
 import { DATE_FORMAT_EXAMPLE, todayISO, type DateInputKind } from "@/lib/date-format";
 import { MODEL_LUNA, requestStructured } from "./client";
+import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
   type: "object",
@@ -34,7 +35,9 @@ Ground rules:
   briefly rather than fabricating it.
 - Match the question's expected length: a short field gets a short answer, an
   open-ended "tell us about..." field gets a fuller one.
-- Output plain text, no markdown, no restating the question.`;
+- Output plain text, no markdown, no restating the question.
+
+${HOUSE_STYLE_RULES}`;
 
 /**
  * A defensive backstop, independent of how good the question-detection
@@ -162,5 +165,9 @@ export async function answerCustomQuestion(
     parse: (raw) => JSON.parse(raw) as { answer: string },
   });
 
-  return isNonAnswer(result.answer) ? "" : result.answer;
+  if (isNonAnswer(result.answer)) return "";
+  // Constrained answers (a verbatim option, a bare number, an exact date) must
+  // pass through untouched — only free-text prose gets the em-dash sweep.
+  const constrained = (options && options.length > 0) || numeric || Boolean(dateKind);
+  return constrained ? result.answer : stripEmDashes(result.answer);
 }

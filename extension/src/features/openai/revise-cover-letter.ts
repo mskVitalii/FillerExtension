@@ -1,5 +1,6 @@
 import type { Job } from "@/types/job";
 import { MODEL_TERRA, requestStructured } from "./client";
+import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
   type: "object",
@@ -20,7 +21,11 @@ Ground rules:
   that aren't already in the draft or the job context provided.
 - Keep the same language the draft is currently written in unless the
   instruction explicitly asks to change it.
-- Output plain prose paragraphs, no markdown headers.`;
+- Output plain prose paragraphs, no markdown headers.
+- Don't introduce AI-slop while editing, and clean it from any sentence you
+  touch.
+
+${HOUSE_STYLE_RULES}`;
 
 /**
  * Cover-letter "Improve" pass (spec_2 item 3): free-text instructions from
@@ -41,5 +46,5 @@ export async function reviseCoverLetter(content: string, instructions: string, j
     parse: (raw) => JSON.parse(raw) as { content: string },
   });
 
-  return result.content;
+  return stripEmDashes(result.content);
 }

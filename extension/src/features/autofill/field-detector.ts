@@ -77,6 +77,29 @@ function nearbyText(el: FillableElement): string {
   return "";
 }
 
+interface Signal {
+  text: string;
+  /**
+   * A machine identifier (`name` / `id` / `aria-label` / `data-testid`) —
+   * deliberate, terse, and safe to test a short keyword pattern against.
+   * The free-text signals (visible `<label>` / `aria-labelledby` text,
+   * `placeholder`, nearby text) are not: on a custom application form the
+   * "label" is often a whole question paragraph, and a keyword landing
+   * inside it is noise, not a field type — e.g. "…specializing in *mobile*
+   * interfaces" matched `phone`, "team eff*ort*" matched `city` (`ort\b`),
+   * each stuffing a profile value into a free-text answer box. Those signals
+   * are matched only when short enough to actually be a label.
+   */
+  identifier: boolean;
+}
+
+/** Word count past which a free-text signal reads as a question prompt, not a field label. */
+const PROSE_WORD_COUNT = 10;
+
+function isProse(text: string): boolean {
+  return text.trim().split(/\s+/).length > PROSE_WORD_COUNT;
+}
+
 /**
  * Every label-ish signal attached to `el` (name, id, aria-label, label text,
  * placeholder, nearby text) — exported so other features that need to
@@ -85,20 +108,24 @@ function nearbyText(el: FillableElement): string {
  * of re-deriving it.
  */
 export function elementSignalParts(el: FillableElement): string[] {
-  return signalParts(el);
+  return signalParts(el).map((s) => s.text);
 }
 
 /** Signals in descending order of authority — a match on an earlier signal wins outright. */
-function signalParts(el: FillableElement): string[] {
-  return [
-    el.getAttribute("name"),
-    el.getAttribute("id"),
-    el.getAttribute("aria-label"),
-    el.getAttribute("data-testid"),
-    labelForElement(el),
-    el.getAttribute("placeholder"),
-    nearbyText(el),
-  ].filter((part): part is string => Boolean(part));
+function signalParts(el: FillableElement): Signal[] {
+  return (
+    [
+      [el.getAttribute("name"), true],
+      [el.getAttribute("id"), true],
+      [el.getAttribute("aria-label"), true],
+      [el.getAttribute("data-testid"), true],
+      [labelForElement(el), false],
+      [el.getAttribute("placeholder"), false],
+      [nearbyText(el), false],
+    ] as [string | null, boolean][]
+  )
+    .filter((part): part is [string, boolean] => Boolean(part[0]))
+    .map(([text, identifier]) => ({ text, identifier }));
 }
 
 function matchField(signal: string): ProfileFieldKey | null {
@@ -122,8 +149,9 @@ export function detectSemanticField(el: FillableElement): ProfileFieldKey | null
     return AUTOCOMPLETE_MAP[autocomplete];
   }
 
-  for (const signal of signalParts(el)) {
-    const field = matchField(signal);
+  for (const { text, identifier } of signalParts(el)) {
+    if (!identifier && isProse(text)) continue;
+    const field = matchField(text);
     if (field) return field;
   }
   return null;

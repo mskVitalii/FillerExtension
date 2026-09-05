@@ -61,3 +61,49 @@ describe("detectSemanticField — email vs. address", () => {
     expect(detectSemanticField(el)).toBe("email");
   });
 });
+
+/**
+ * Reported live: a free-text application question whose `<label>` is a whole
+ * paragraph got a profile value stuffed into it because a short keyword
+ * pattern matched a word buried in the prose — "…specializing in *mobile*
+ * interfaces" matched `phone`, "…a team eff*ort*…" matched `city` (`ort\b`).
+ * A free-text signal (label / placeholder / nearby text) that reads as a
+ * question prompt rather than a field label is no longer pattern-matched.
+ */
+describe("detectSemanticField — prose labels are not field types", () => {
+  function fieldWithLabel(name: string, tag: "input" | "textarea", label: string): HTMLElement {
+    const el = document.createElement(tag);
+    el.setAttribute("name", name);
+    el.setAttribute("id", name);
+    const labelEl = document.createElement("label");
+    labelEl.setAttribute("for", name);
+    labelEl.textContent = label;
+    document.body.append(labelEl, el);
+    return el;
+  }
+
+  it("does not treat 'mobile' inside a long question prompt as a phone field", () => {
+    const el = fieldWithLabel(
+      "short_phrase",
+      "input",
+      'Describe yourself in a short phrase. e.g. "Machine learning engineer from Twitter", ' +
+        '"DevOps engineer who scaled a site to 10M+ users", "Frontend developer specializing in mobile interfaces"',
+    );
+    expect(detectSemanticField(el)).toBeNull();
+  });
+
+  it("does not treat 'effort' (⊃ 'ort') inside a long question prompt as a city field", () => {
+    const el = fieldWithLabel(
+      "proud_project",
+      "textarea",
+      "Optionally, describe a project that you worked on that you are proud of. If you are describing " +
+        "a team effort, please be specific about your personal contribution.",
+    );
+    expect(detectSemanticField(el)).toBeNull();
+  });
+
+  it("still matches a short, real label", () => {
+    expect(detectSemanticField(fieldWithLabel("f_a", "input", "Mobile number"))).toBe("phone");
+    expect(detectSemanticField(fieldWithLabel("f_b", "input", "City"))).toBe("city");
+  });
+});

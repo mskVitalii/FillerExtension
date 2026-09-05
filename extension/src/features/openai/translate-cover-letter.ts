@@ -1,4 +1,5 @@
 import { MODEL_LUNA, requestStructured } from "./client";
+import { stripEmDashes } from "./house-style";
 
 const SCHEMA = {
   type: "object",
@@ -12,8 +13,8 @@ const SCHEMA = {
 const SYSTEM_PROMPT = `You translate a cover letter for the applicant's own understanding —
 not for submission. Translate faithfully, preserve paragraph breaks, and keep
 names, companies, and technical terms as-is where translating them would be
-unnatural. Output plain prose paragraphs, no markdown headers, no notes about
-the translation itself.`;
+unnatural. Do not use em dashes ("—"); use commas or periods. Output plain
+prose paragraphs, no markdown headers, no notes about the translation itself.`;
 
 /**
  * Cover-letter "Translate" tab (spec_2 item 3): a personal-understanding
@@ -33,5 +34,5 @@ export async function translateCoverLetter(content: string, targetLanguage: stri
     parse: (raw) => JSON.parse(raw) as { content: string },
   });
 
-  return result.content;
+  return stripEmDashes(result.content);
 }
