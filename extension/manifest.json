@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Filler",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Extract job postings, draft tailored cover letters with your OpenAI key, and autofill applications.",
   "action": {
     "default_title": "Filler"
@@ -28,13 +28,18 @@
     "downloads",
     "identity"
   ],
-  "host_permissions": ["https://www.googleapis.com/*", "https://api.openai.com/*"],
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://api.openai.com/*"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "oauth2": {
     "client_id": "168797524296-ufe0uh7ulsbsujqoqs34e9tt6vsqnd4n.apps.googleusercontent.com",
-    "scopes": ["https://www.googleapis.com/auth/drive.appdata"]
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.appdata"
+    ]
   },
   "options_ui": {
     "page": "src/sidepanel/index.html",
