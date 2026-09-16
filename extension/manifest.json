@@ -30,7 +30,9 @@
   ],
   "host_permissions": [
     "https://www.googleapis.com/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://api.tavily.com/*",
+    "https://api.adzuna.com/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

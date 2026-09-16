@@ -1,7 +1,9 @@
 import {
   EMPTY_PROFILE,
+  type CandidateSummary,
   type CustomField,
   type CvMeta,
+  type FaqEntry,
   type LanguageLevel,
   type PersonalLegend,
   type Profile,
@@ -136,4 +138,55 @@ export async function getLanguageLevels(): Promise<LanguageLevel[]> {
 export async function saveLanguageLevels(levels: LanguageLevel[]): Promise<void> {
   await setLocal("languageLevelsCache", levels);
   await drive.writeJsonFile("languageLevels.json", levels);
+}
+
+/**
+ * Pre-generated FAQ answers (spec_5 section B) — same cache-then-Drive
+ * pattern as Custom Fields / Language Levels.
+ */
+export async function getFaqAnswers(): Promise<FaqEntry[]> {
+  const cached = await getLocal("faqAnswersCache");
+  if (cached) return cached;
+  try {
+    const remote = await drive.readJsonFile<FaqEntry[]>("faq.json");
+    if (remote) {
+      await setLocal("faqAnswersCache", remote);
+      return remote;
+    }
+  } catch {
+    // Google not connected yet — fall through to empty list.
+  }
+  return [];
+}
+
+export async function saveFaqAnswers(entries: FaqEntry[]): Promise<void> {
+  await setLocal("faqAnswersCache", entries);
+  await drive.writeJsonFile("faq.json", entries);
+}
+
+/**
+ * The candidate-summary digest (spec_5 section C) — same cache-then-Drive
+ * pattern as Personal Legend, stored as plain text (`candidateSummary.md`)
+ * rather than JSON since it's prose, not structured data.
+ */
+export async function getCandidateSummary(): Promise<CandidateSummary | null> {
+  const cached = await getLocal("candidateSummaryCache");
+  if (cached) return cached;
+  try {
+    const content = await drive.readTextFile("candidateSummary.md");
+    if (content !== null) {
+      const summary: CandidateSummary = { content, updatedAt: new Date().toISOString() };
+      await setLocal("candidateSummaryCache", summary);
+      return summary;
+    }
+  } catch {
+    // Google not connected yet.
+  }
+  return null;
+}
+
+export async function saveCandidateSummary(content: string): Promise<void> {
+  const summary: CandidateSummary = { content, updatedAt: new Date().toISOString() };
+  await setLocal("candidateSummaryCache", summary);
+  await drive.writeTextFile("candidateSummary.md", content);
 }

@@ -1,12 +1,12 @@
 import { detectSemanticField } from "./field-detector";
 import { queryFillableDeep } from "./engine";
-import { fillElement } from "./native-setter";
-import { fieldQuestionText, isQuestionShaped } from "./field-signal";
+import { fieldQuestionText, isQuestionShaped, nativeFieldOptions } from "./field-signal";
 import { wantsNumericValue, dateInputKind } from "./field-format";
+import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 
-const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
+const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
   "hidden",
   "submit",
@@ -31,6 +31,8 @@ export interface CustomQuestion {
   locator?: ElementLocator;
   /** Choice labels when the picked field is a radio-group / `<select>` — the answer must be one of these. */
   options?: string[];
+  /** True for a "select all that apply" checkbox-group question — the answer may name more than one of `options`. */
+  multi?: boolean;
   /** True when the field only accepts a bare number — the AI must answer with digits only, no currency/units/prose. */
   numeric?: boolean;
   /** Present when the field is a `date`/`month`/`week`/`time`/`datetime-local` input — the answer must be in that exact format. */
@@ -54,15 +56,6 @@ interface QuestionField {
   numeric?: boolean;
   /** `el`'s required date/time format, e.g. `<input type="date">` — an available-from/start-date question. */
   dateKind?: DateInputKind;
-}
-
-/** A `<select>`'s option labels, minus a blank placeholder option — `undefined` for anything else. */
-function selectOptions(el: HTMLElement): string[] | undefined {
-  if (!(el instanceof HTMLSelectElement)) return undefined;
-  const labels = Array.from(el.options)
-    .map((opt) => opt.textContent?.trim() ?? "")
-    .filter((text) => text.length > 0);
-  return labels.length > 0 ? labels : undefined;
 }
 
 /**
@@ -97,7 +90,7 @@ function scanQuestionFields(): QuestionField[] {
     fields.push({
       question,
       el,
-      options: selectOptions(el),
+      options: nativeFieldOptions(el),
       numeric: wantsNumericValue(el) || undefined,
       dateKind: dateInputKind(el) ?? undefined,
     });
@@ -105,8 +98,22 @@ function scanQuestionFields(): QuestionField[] {
   return fields;
 }
 
-export function detectCustomQuestions(): CustomQuestion[] {
-  return scanQuestionFields().map((field, index) => ({
+/**
+ * Async because of `revealComboboxOptions` (spec_5 section A): a field with
+ * no deterministic `<select>`/`<datalist>` options gets one best-effort,
+ * time-boxed probe to see whether it's a combobox hiding its choices until
+ * opened. Every other field resolves immediately, so this only adds
+ * latency when there's actually a combobox-shaped field to probe — and
+ * those probes run one at a time (not `Promise.all`), since two widgets
+ * open at once can steal each other's focus and cross-contaminate each
+ * other's revealed option list (see `revealComboboxOptions`'s docstring).
+ */
+export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
+  const fields = scanQuestionFields();
+  for (const field of fields) {
+    if (!field.options) field.options = await revealComboboxOptions(field.el);
+  }
+  return fields.map((field, index) => ({
     id: `question-${index}`,
     question: field.question,
     options: field.options,
@@ -130,11 +137,27 @@ export function questionAnswerKey(q: Pick<CustomQuestion, "question" | "locator"
   return q.locator ? `loc:${q.locator.tag}` : q.question;
 }
 
+/**
+ * A `role="combobox"` trigger with no real selection yet very often still
+ * has non-empty `textContent` — its own placeholder ("Select your level",
+ * "Choose…", "--") is rendered as visible text rather than carried in a
+ * `placeholder` attribute the way a plain `<input>` would. Without this, a
+ * freshly-detected combobox reads as "already answered" from the moment
+ * it's scanned and `fillCustomQuestionAnswers` would skip it forever —
+ * the AI answer never gets written in. Intentionally narrow (a fixed set of
+ * placeholder-shaped phrases) so a combobox that already shows a genuine
+ * selected option — which is exactly what this function exists to protect
+ * — is never mistaken for an empty one.
+ */
+const COMBOBOX_PLACEHOLDER_RE = /^(select|choose|pick)\b|^-+$/i;
+
 function isEmptyField(el: HTMLElement): boolean {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
     return el.value.trim() === "";
   }
-  return (el.textContent ?? "").trim() === "";
+  const text = (el.textContent ?? "").trim();
+  if (!text) return true;
+  return el.getAttribute("role") === "combobox" && COMBOBOX_PLACEHOLDER_RE.test(text);
 }
 
 /**
@@ -143,14 +166,27 @@ function isEmptyField(el: HTMLElement): boolean {
  * keeps this stateless across the detect → answer → fill round-trip and
  * resilient to the form re-rendering in between. Skips any field the user
  * has already typed into (this runs automatically, so it must never clobber
- * a manual answer). Returns how many fields were filled.
+ * a manual answer). Returns how many fields were filled, plus the question
+ * text of any that had an answer ready but couldn't be written in — e.g. a
+ * flyout combobox whose site gates opening on a trusted click (see
+ * `fillComboboxAnswer`) — so the Side Panel can tell the user to answer
+ * those manually instead of silently leaving them blank.
+ *
+ * Async, and fields are filled one at a time (not `Promise.all`): a
+ * flyout-driven combobox answer (`fillComboboxAnswer`) opens and closes the
+ * widget itself, same one-at-a-time constraint `revealComboboxOptions` (used
+ * during detection) already documents.
  */
-export function fillCustomQuestionAnswers(answers: Record<string, string>): number {
+export async function fillCustomQuestionAnswers(
+  answers: Record<string, string>,
+): Promise<{ filled: number; unfilled: string[] }> {
   let filled = 0;
+  const unfilled: string[] = [];
   for (const { question, el } of scanQuestionFields()) {
     const answer = answers[question];
     if (!answer || !isEmptyField(el)) continue;
-    if (fillElement(el, answer)) filled++;
+    if (await fillComboboxAnswer(el, answer)) filled++;
+    else unfilled.push(question);
   }
-  return filled;
+  return { filled, unfilled };
 }

@@ -1,7 +1,7 @@
 import type { Profile, ProfileFieldKey } from "@/types/profile";
 import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
-import { fillDialCodeField, formatSalaryForField, resolvePhoneFill } from "./field-format";
+import { fillDialCodeField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { generatePassword } from "@/lib/generate-password";
@@ -46,11 +46,12 @@ function profileValue(profile: Profile, field: ProfileFieldKey): string {
  * Fills one detected element, rendering the profile value into the shape the
  * field actually wants (spec sections 12-13): a phone number as `+49…` /
  * `0170…` / bare national + a sibling dial-code field; a salary as a bare
- * rounded integer when the field only accepts a number; a country under
- * whichever spelling ("Germany"/"Deutschland"/"DE") the page's `<select>`
- * uses. Everything else is typed verbatim.
+ * rounded integer when the field only accepts a number, or the matching
+ * bracket option when it only offers discrete ranges to choose from; a
+ * country under whichever spelling ("Germany"/"Deutschland"/"DE") the page's
+ * `<select>` uses. Everything else is typed verbatim.
  */
-function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value: string, profile: Profile): boolean {
+async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value: string, profile: Profile): Promise<boolean> {
   if (field === "phone") {
     const fill = resolvePhoneFill(el, value, profile.country);
     if (!fill) return fillElement(el, value);
@@ -59,7 +60,7 @@ function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value: strin
   }
 
   if (field === "expectedSalary") {
-    return fillElement(el, formatSalaryForField(el, value));
+    return fillSalaryField(el, value);
   }
 
   if (field === "country" && el instanceof HTMLSelectElement) {
@@ -103,9 +104,33 @@ function fillRegistrationPassword(elements: HTMLElement[]): { password: string |
  * from the profile (spec sections 12-13). Returns how many fields it could
  * confidently fill so the Side Panel can report progress, plus a freshly
  * generated password when the page looks like a registration form.
+ *
+ * Async, and fields are filled one at a time (not `Promise.all`): a
+ * flyout-driven salary combobox (`fillSalaryField`) opens and closes its own
+ * widget, and two open at once can steal each other's focus (see
+ * `combobox.ts`).
  */
-export function autofillDocument(profile: Profile): { filled: number; total: number; generatedPassword: string | null } {
+export async function autofillDocument(
+  profile: Profile,
+): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
+
+  // A phone widget's own dial-code companion (e.g. greenhouse.io's
+  // react-select "Country" flag/calling-code picker) is very often labelled
+  // literally "Country" and would otherwise match the *address*-country
+  // pattern too — `detectSemanticField` has no way to tell those two "country"
+  // meanings apart on its own. `findDialCodeField` is the one place that
+  // already knows which field belongs to a phone number, so anything it
+  // claims is reserved here and skipped by the generic pass below — it's
+  // filled (or correctly left alone) exclusively by the phone branch,
+  // never mistaken for the applicant's own home-address country.
+  const dialCodeFields = new Set<HTMLElement>();
+  for (const el of elements) {
+    if (detectSemanticField(el) === "phone") {
+      const companion = findDialCodeField(el);
+      if (companion) dialCodeFields.add(companion);
+    }
+  }
 
   let filled = 0;
   for (const el of elements) {
@@ -115,11 +140,12 @@ export function autofillDocument(profile: Profile): { filled: number; total: num
     // happens to match — only fillRegistrationPassword() below is allowed
     // to write into one.
     if (el instanceof HTMLInputElement && el.type === "password") continue;
+    if (dialCodeFields.has(el)) continue;
     const field = detectSemanticField(el);
     if (!field) continue;
     const value = profileValue(profile, field);
     if (!value) continue;
-    if (fillSemanticField(el, field, value, profile)) filled++;
+    if (await fillSemanticField(el, field, value, profile)) filled++;
   }
 
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);

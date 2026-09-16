@@ -1,7 +1,9 @@
 import { resolvePhone, type ResolvedPhone } from "@/lib/phone";
-import { salaryNumericValue } from "@/lib/salary";
+import { salaryNumericValue, matchSalaryBracket } from "@/lib/salary";
 import { dateInputKindForType, type DateInputKind } from "@/lib/date-format";
 import { fillElement } from "./native-setter";
+import { collapse } from "./field-signal";
+import { isComboboxLike, fillComboboxByPicking } from "./combobox";
 
 /**
  * Renders a profile value into the exact shape the *target field* wants,
@@ -76,6 +78,28 @@ export function formatSalaryForField(el: HTMLElement, raw: string): string {
   return numeric;
 }
 
+/**
+ * A discrete-choice salary field — a `<select>` or a react-select-style
+ * flyout (confirmed live on greenhouse.io: a salary-range question like
+ * "25.000€ - 35.000€" … "115.000€ +") — never accepts a typed number at
+ * all; the closest bracket has to be picked instead (`matchSalaryBracket`).
+ * Falls back to `formatSalaryForField`'s type-a-number behavior whenever
+ * that doesn't apply: a plain text/number field, a `<select>` whose options
+ * don't parse as brackets, or a flyout with no toggle button / no bracket
+ * match for this profile value. Shared by the bulk semantic-autofill pass
+ * (`engine.ts`) and the right-click "Insert" feature (`content/index.ts`).
+ */
+export async function fillSalaryField(el: HTMLElement, value: string): Promise<boolean> {
+  if (el instanceof HTMLSelectElement) {
+    const options = Array.from(el.options).map((opt) => collapse(opt.textContent ?? ""));
+    const bracket = matchSalaryBracket(options, value);
+    if (bracket && fillElement(el, bracket)) return true;
+  } else if (isComboboxLike(el)) {
+    if (await fillComboboxByPicking(el, (texts) => matchSalaryBracket(texts, value))) return true;
+  }
+  return fillElement(el, formatSalaryForField(el, value));
+}
+
 // --- phone -----------------------------------------------------------------
 
 const DIAL_CODE_SIGNAL_RE =
@@ -103,6 +127,25 @@ function isFieldElement(el: Element): el is HTMLElement {
 
 function optionStrings(select: HTMLSelectElement): string[] {
   return Array.from(select.options).map((o) => `${o.value} ${o.textContent ?? ""}`.trim());
+}
+
+/**
+ * greenhouse.io's phone section (react-select, not a native `<select>`)
+ * renders its currently-picked dial code as a *sibling* node next to the
+ * actual `role="combobox"` input — the input's own `.value` is really just
+ * its search/filter text and is usually empty. `[class*="control"]` /
+ * `[class*="single-value"]` are react-select's own default className
+ * prefixes (unminified even in a production build, since they're used for
+ * CSS targeting) — a signal, not a Greenhouse-specific hack: any other ATS
+ * built on the same widely-used library renders the identical shape. Bare
+ * "+49" / "49" only — `Germany (+49)` (a `<select>`'s option text) is
+ * handled by `optionStrings`/the `byShape` check below instead.
+ */
+function comboboxDialCodeValue(el: HTMLElement): string | null {
+  if (el.getAttribute("role") !== "combobox") return null;
+  const control = el.closest('[class*="control" i]') ?? el.parentElement;
+  const shown = control ? collapse(control.querySelector('[class*="single-value" i]')?.textContent ?? "") : "";
+  return /^\+?\d{1,4}$/.test(shown) ? shown : null;
 }
 
 const MAX_GROUP_LEVELS = 6;
@@ -140,6 +183,9 @@ export function findDialCodeField(phoneEl: HTMLElement): HTMLElement | null {
     });
     if (byShape) return byShape;
 
+    const byComboboxShape = candidates.find((el) => comboboxDialCodeValue(el) !== null);
+    if (byComboboxShape) return byComboboxShape;
+
     if (node.tagName === "FORM") break;
   }
 
@@ -163,6 +209,13 @@ function fillSelectFromCandidates(select: HTMLSelectElement, candidates: string[
 
 /** Fills a detected dial-code companion field. Returns whether it took. */
 export function fillDialCodeField(el: HTMLElement, phone: ResolvedPhone): boolean {
+  // A `role="combobox"` companion only ever reaches here already showing
+  // this number's own calling code (`dialCodeCompanionIsUsable` gates that
+  // in `resolvePhoneFill`) — there's nothing to set, and typing into it
+  // would just overwrite react-select's *search* text without actually
+  // committing a selection, corrupting the display for no reason.
+  if (el.getAttribute("role") === "combobox") return true;
+
   const cc = phone.callingCode;
   const candidates = [`+${cc}`, cc, `00${cc}`, `+ ${cc}`];
   if (phone.iso2) candidates.push(phone.iso2, phone.iso2.toLowerCase());
@@ -175,6 +228,22 @@ export function fillDialCodeField(el: HTMLElement, phone: ResolvedPhone): boolea
     return fillElement(el, value);
   }
   return false;
+}
+
+/**
+ * A native `<select>` (or a plainly-labelled dial-code `<input>`) is always
+ * trusted — `fillDialCodeField` can reliably drive it to the right option
+ * afterward regardless of what it currently shows. A `role="combobox"`
+ * widget (greenhouse.io's react-select "Country" flag picker) can't be
+ * reliably opened/re-selected from here, so it's only trusted when it
+ * *already* shows this exact number's calling code — otherwise the safe
+ * fallback is the complete number in one field, not a bare national number
+ * left next to a flag/dial-code that doesn't actually match it.
+ */
+function dialCodeCompanionIsUsable(field: HTMLElement, phone: ResolvedPhone): boolean {
+  if (field.getAttribute("role") !== "combobox") return true;
+  const shown = comboboxDialCodeValue(field);
+  return shown === `+${phone.callingCode}` || shown === phone.callingCode;
 }
 
 export interface PhoneFill {
@@ -204,7 +273,7 @@ export function resolvePhoneFill(el: HTMLElement, raw: string, regionHint?: stri
   if (!phone) return null;
 
   const dialCodeField = findDialCodeField(el);
-  if (dialCodeField) {
+  if (dialCodeField && dialCodeCompanionIsUsable(dialCodeField, phone)) {
     // The country code lives in its own box — this field takes just the
     // national significant number (no leading 0, no country code).
     return { value: phone.significant, dialCodeField, phone };

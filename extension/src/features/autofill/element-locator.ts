@@ -79,6 +79,17 @@ function deepQuerySelector(selector: string): HTMLElement | null {
 const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 const loose = (a: string, b: string) => Boolean(a) && Boolean(b) && (a === b || a.startsWith(b) || b.startsWith(a));
 
+/** Toggle-button group containers anywhere in the document (Ashby/Greenhouse-style Yes/No widgets — see `pick-questions.ts`). */
+function buttonGroupContainers(): HTMLElement[] {
+  const parents = new Set<HTMLElement>();
+  for (const btn of document.querySelectorAll<HTMLElement>('button[aria-pressed], [role="button"][aria-pressed]')) {
+    if (btn.parentElement) parents.add(btn.parentElement);
+  }
+  return [...parents].filter(
+    (el) => el.querySelectorAll('button[aria-pressed], [role="button"][aria-pressed]').length >= 2,
+  );
+}
+
 /** The group's own prompt — first legend/label that isn't one of its option labels. */
 function groupLabelText(container: HTMLElement): string {
   const optionIds = new Set(
@@ -119,6 +130,12 @@ export function resolveLocator(loc: ElementLocator): HTMLElement | null {
     const hint = norm(loc.textHint);
     for (const box of document.querySelectorAll<HTMLElement>('fieldset, [role="radiogroup"]')) {
       if (loose(hint, groupLabelText(box))) return box;
+    }
+    for (const box of buttonGroupContainers()) {
+      // The prompt usually lives outside a toggle-button group (a sibling
+      // <label>, not an internal <legend>) — fieldQuestionText's
+      // preceding-sibling climb finds it, unlike groupLabelText above.
+      if (loose(hint, norm(fieldQuestionText(box)))) return box;
     }
     for (const el of queryFillableDeep(FILLABLE_SELECTOR)) {
       if (loose(hint, norm(fieldQuestionText(el)))) return el;

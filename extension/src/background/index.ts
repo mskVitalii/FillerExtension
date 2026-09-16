@@ -3,6 +3,7 @@ import { handleContextMenuClick, registerContextMenu } from "./context-menu";
 import { cancelElementPicker, routeMessage } from "./router";
 import { ensureContentScript } from "./inject-content-script";
 import { clearTabState } from "@/features/storage/session";
+import { recordUrlActivation } from "@/features/storage/local";
 
 const SIDE_PANEL_PATH = "src/sidepanel/index.html";
 
@@ -46,6 +47,9 @@ chrome.action.onClicked.addListener((tab) => {
   // awaited: it doesn't need to precede `open`, and blocking on it here is
   // exactly what broke the gesture chain above.
   void ensureContentScript(tabId);
+  // spec_6 — logged for the submissions chart; not part of the gesture
+  // chain above (nothing here needs to be synchronous or block `open`).
+  if (tab.url) void recordUrlActivation(tab.url);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

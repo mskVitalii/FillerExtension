@@ -116,6 +116,25 @@
       </script>
     </fieldset>
 
+    <fieldset class="phone-input">
+      <legend>greenhouse.io-style phone (react-select "Country" combobox picks the dial code, not a &lt;select&gt;)</legend>
+      <div class="phone-input__country">
+        <label id="gh-country-label" for="gh-country">Country</label>
+        <div class="select__control">
+          <div class="select__value-container">
+            <div class="select__single-value"><span>+49</span></div>
+            <div class="select__input-container">
+              <input id="gh-country" class="select__input" role="combobox" aria-labelledby="gh-country-label" aria-autocomplete="list" value="" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-input__phone">
+        <label for="gh-phone">Phone</label>
+        <input id="gh-phone" aria-label="Phone" placeholder="170 1234567" />
+      </div>
+    </fieldset>
+
     <fieldset>
       <legend>aria-label / placeholder only (no name/id)</legend>
       <input aria-label="Given name" placeholder="Your first name" />
@@ -141,6 +160,40 @@
       <legend>Custom combobox (role="combobox")</legend>
       <div role="combobox" aria-label="Country" tabindex="0" contenteditable="true"></div>
       <ul id="combobox-list"></ul>
+    </fieldset>
+
+    <fieldset>
+      <legend>react-select-style combobox — opens only via its toggle button (spec_5 section A, greenhouse.io behavior)</legend>
+      <label for="visa-status">Which visa status applies to you?
+        <div style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid #ccc; border-radius: 4px; padding: 2px 4px;">
+          <input id="visa-status" role="combobox" aria-label="Which visa status applies to you?" aria-haspopup="listbox" style="border: none; outline: none;" />
+          <button type="button" id="visa-status-toggle" aria-label="Toggle flyout" style="border: none; background: none; cursor: pointer;">▾</button>
+        </div>
+      </label>
+      <ul id="visa-status-list" style="list-style: none; padding: 0; margin: 4px 0 0; max-width: 200px;"></ul>
+      <script>
+        // Mirrors greenhouse.io: clicking the input itself does nothing —
+        // only the toggle button opens the menu.
+        document.getElementById("visa-status-toggle").addEventListener("mousedown", () => {
+          const list = document.getElementById("visa-status-list");
+          list.innerHTML = ["Citizen", "Work permit", "Visa sponsorship required"]
+            .map((text) => `<li role="option" style="padding: 4px; border: 1px solid #eee;">${text}</li>`)
+            .join("");
+        });
+      </script>
+    </fieldset>
+
+    <fieldset>
+      <legend>Datalist-backed dropdown (spec_5 section A)</legend>
+      <label>Which car would you prefer for the company fleet?
+        <input list="cars" name="car_pref" />
+        <datalist id="cars">
+          <option value="Volvo"></option>
+          <option value="Saab"></option>
+          <option value="Fiat"></option>
+          <option value="Audi"></option>
+        </datalist>
+      </label>
     </fieldset>
 
     <fieldset>
@@ -251,6 +304,36 @@
             <div class="option"><span><input type="radio" id="hyb-2" name="hyb_demo" /></span><label for="hyb-2">1 day per week in the office</label></div>
             <div class="option"><span><input type="radio" id="hyb-3" name="hyb_demo" /></span><label for="hyb-3">Fully remote only</label></div>
             <div class="option"><span><input type="radio" id="hyb-4" name="hyb_demo" /></span><label for="hyb-4">Other (see 'Other considerations' below)</label></div>
+          </fieldset>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Toggle-button question (Ashby-style Yes/No — use "Pick fields on page")</legend>
+      <div style="max-width: 640px">
+        <div data-field-path="yesno-demo">
+          <label class="question-title" for="yesno-demo-input">Will you be able to work on-site at our office in Augsburg?</label>
+          <div class="yesno-toggle">
+            <button type="button" aria-pressed="false" data-option="yes">Yes</button>
+            <button type="button" aria-pressed="false" data-option="no">No</button>
+            <input type="checkbox" tabindex="-1" style="position: absolute; opacity: 0" name="yesno-demo-input" />
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Checkbox-group question (Ashby-style "select all that apply" — use "Pick fields on page")</legend>
+      <div style="max-width: 640px">
+        <div data-field-path="techstack-demo">
+          <fieldset style="border: 1px solid #ccc; border-radius: 8px; padding: 12px">
+            <label class="question-title" for="techstack-demo-group">Which of the following technologies do you have experience with? (Select all that apply)</label>
+            <div class="option"><span><input type="checkbox" id="tech-0" name="TypeScript" /></span><label for="tech-0">TypeScript</label></div>
+            <div class="option"><span><input type="checkbox" id="tech-1" name="React.js" /></span><label for="tech-1">React.js</label></div>
+            <div class="option"><span><input type="checkbox" id="tech-2" name="Node.js" /></span><label for="tech-2">Node.js</label></div>
+            <div class="option"><span><input type="checkbox" id="tech-3" name="GraphQL" /></span><label for="tech-3">GraphQL</label></div>
+            <div class="option"><span><input type="checkbox" id="tech-4" name="PostgreSQL" /></span><label for="tech-4">PostgreSQL</label></div>
           </fieldset>
         </div>
       </div>

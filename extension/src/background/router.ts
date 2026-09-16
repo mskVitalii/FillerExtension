@@ -1,8 +1,16 @@
 import type { RuntimeMessage } from "@/types/messages";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
-import { getProfile } from "@/features/profile/repository";
-import { setLocal } from "@/features/storage/local";
+import { getCandidateSummary, getFaqAnswers, getProfile, saveCandidateSummary, saveFaqAnswers } from "@/features/profile/repository";
+import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
+import { generateCandidateSummary } from "@/features/openai/summarize-candidate";
+import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
+import { searchOpenAiJobs } from "@/features/job-search/openai-provider";
+import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
+import { searchAdzunaJobs } from "@/features/job-search/adzuna-provider";
+import { adzunaCountryCode } from "@/features/job-search/adzuna-country";
+import { suggestSearchQuery } from "@/features/openai/suggest-search-query";
+import { suggestSearchTags } from "@/features/openai/suggest-search-tags";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { extractJobWithAi } from "@/features/job-extraction/ai-fallback";
 import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
@@ -34,6 +42,27 @@ export async function cancelElementPicker(tabId: number): Promise<void> {
   );
 }
 
+/**
+ * Lazily generates and caches the candidate-summary digest the AI-backed
+ * job-search providers ground their query in, so the first search a user
+ * ever runs doesn't come back empty just because they never visited
+ * Settings to generate one — subsequent searches reuse the cached copy
+ * (via `getCandidateSummary`) instead of re-generating it every time.
+ */
+async function ensureCandidateSummary(): Promise<string> {
+  const cached = await getCandidateSummary();
+  if (cached?.content) return cached.content;
+  const content = await generateCandidateSummary();
+  try {
+    await saveCandidateSummary(content);
+  } catch {
+    // Drive not connected yet — the local cache write inside
+    // `saveCandidateSummary` still lands, so this search's own call still
+    // gets the freshly generated content either way.
+  }
+  return content;
+}
+
 async function sendToFrames(tabId: number, frameIds: number[], message: RuntimeMessage): Promise<RuntimeMessage[]> {
   const responses = await Promise.all(
     frameIds.map((frameId) =>
@@ -61,6 +90,18 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "GET_JOB": {
+      // Re-opening the panel on a URL already fully determined before — a
+      // new tab on the same posting, a browser restart, a bookmark revisited
+      // days later — should never re-pay for DOM re-parsing or the AI
+      // fallback below; `chrome.storage.session`'s per-tab `TabState` only
+      // covers one tab's own lifetime, not this. `force` (Reset) bypasses it
+      // deliberately — that's the one action meant to redetect from scratch.
+      const tab = await chrome.tabs.get(message.tabId).catch(() => undefined);
+      if (!message.force && tab?.url) {
+        const cached = await getCachedJob(tab.url);
+        if (cached) return { type: "JOB_DATA", job: cached, sufficient: true };
+      }
+
       const frameIds = await ensureContentScript(message.tabId);
       const responses = await sendToFrames(message.tabId, frameIds, message);
       const jobResponses = responses.filter(
@@ -69,7 +110,10 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       if (jobResponses.length === 0) return undefined;
 
       const sufficient = jobResponses.find((r) => r.sufficient);
-      if (sufficient) return sufficient;
+      if (sufficient) {
+        if (tab?.url) void setCachedJob(tab.url, sufficient.job);
+        return sufficient;
+      }
 
       // No single frame had enough signal on its own — a job's description
       // commonly lives in a different frame than its title/company header
@@ -84,6 +128,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
       try {
         const aiJob = await extractJobWithAi(combinedText || best.visibleText || "", best.job.url);
+        if (tab?.url) void setCachedJob(tab.url, aiJob);
         return { type: "JOB_DATA", job: aiJob, sufficient: true };
       } catch {
         // AI fallback failed (e.g. no API key yet) — surface the partial DOM extraction.
@@ -169,6 +214,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         message.options,
         message.numeric,
         message.dateKind,
+        message.multi,
       );
       return { type: "CUSTOM_QUESTION_ANSWER", question: message.question, answer };
     }
@@ -177,10 +223,14 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       const frameIds = await ensureContentScript(message.tabId);
       const responses = await sendToFrames(message.tabId, frameIds, message);
       let filled = 0;
+      const unfilled: string[] = [];
       for (const r of responses) {
-        if (r.type === "CUSTOM_QUESTION_FILL_RESULT") filled += r.filled;
+        if (r.type === "CUSTOM_QUESTION_FILL_RESULT") {
+          filled += r.filled;
+          unfilled.push(...r.unfilled);
+        }
       }
-      return { type: "CUSTOM_QUESTION_FILL_RESULT", filled };
+      return { type: "CUSTOM_QUESTION_FILL_RESULT", filled, unfilled };
     }
 
     case "START_ELEMENT_PICKER": {
@@ -241,10 +291,14 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       const frameIds = await ensureContentScript(message.tabId);
       const responses = await sendToFrames(message.tabId, frameIds, message);
       let filled = 0;
+      const unfilled: string[] = [];
       for (const r of responses) {
-        if (r.type === "CUSTOM_QUESTION_FILL_RESULT") filled += r.filled;
+        if (r.type === "CUSTOM_QUESTION_FILL_RESULT") {
+          filled += r.filled;
+          unfilled.push(...r.unfilled);
+        }
       }
-      return { type: "CUSTOM_QUESTION_FILL_RESULT", filled };
+      return { type: "CUSTOM_QUESTION_FILL_RESULT", filled, unfilled };
     }
 
     case "DETECT_CHECKBOXES": {
@@ -282,6 +336,91 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "DETECT_JOB_LANGUAGE": {
       const info = await detectJobLanguage(message.job);
       return { type: "JOB_LANGUAGE_DATA", info };
+    }
+
+    case "GENERATE_FAQ_ANSWERS": {
+      const existing = await getFaqAnswers();
+      const entries = await fillMissingFaqAnswers(message.questions, existing);
+      try {
+        await saveFaqAnswers(entries);
+      } catch {
+        // `saveFaqAnswers` writes the local cache before the Drive call that
+        // can throw here (Drive not connected yet, expired token) — that
+        // write already landed, so still hand back the freshly generated
+        // (paid) answers instead of losing them to an unrelated Drive error.
+      }
+      return { type: "FAQ_ANSWERS_RESULT", entries };
+    }
+
+    case "SEARCH_JOBS": {
+      const { provider } = message.query;
+      if (provider === "adzuna") {
+        // Adzuna's "what" is a keyword search field, not an LLM prompt — the
+        // candidate digest below is for the two AI-backed providers only.
+        const [creds, profile] = await Promise.all([getJobSearchCredentials(), getProfile()]);
+        if (!creds.adzunaAppId || !creds.adzunaAppKey) {
+          throw new Error("Add your Adzuna app_id and app_key in Settings first.");
+        }
+        // "Keywords decide a lot" for a literal keyword search — never send
+        // Adzuna a single empty/guessed "what" just because the user left it
+        // blank; derive a whole set of title-synonym + per-spoken-language
+        // tags from their own CV instead (`suggestSearchTags`), and fan the
+        // search out over all of them (`searchAdzunaJobs`). Returned as
+        // `resolvedQuery` so the Job Search screen locks `tags` (and
+        // `what`/`where`) into its own state — otherwise a "load more" page 2
+        // would re-derive independently and could land on a *different* tag
+        // set than page 1, an inconsistent pagination sequence.
+        let query = message.query;
+        if (!query.tags?.length) {
+          if (query.what.trim()) {
+            // A user-typed keyword is a deliberate, specific override — respect
+            // it as-is rather than second-guessing it with AI-derived tags.
+            query = { ...query, tags: [query.what.trim()] };
+          } else {
+            const [suggestion, tags] = await Promise.all([suggestSearchQuery(), suggestSearchTags()]);
+            query = {
+              ...query,
+              what: suggestion.what,
+              where: query.where.trim() || suggestion.where,
+              tags: tags.length > 0 ? tags : [suggestion.what],
+            };
+          }
+        }
+        const results = await searchAdzunaJobs(
+          query,
+          { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
+          adzunaCountryCode(profile.country),
+          message.page ?? 1,
+        );
+        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query };
+      }
+      if (provider === "tavily") {
+        const creds = await getJobSearchCredentials();
+        if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
+        const summary = await ensureCandidateSummary();
+        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, summary, message.excludeResults);
+        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
+      }
+      const summary = await ensureCandidateSummary();
+      const results = await searchOpenAiJobs(message.query, summary, message.excludeResults);
+      return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
+    }
+
+    case "SUGGEST_SEARCH_QUERY": {
+      const suggestion = await suggestSearchQuery();
+      return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion };
+    }
+
+    case "GENERATE_CANDIDATE_SUMMARY": {
+      const content = await generateCandidateSummary();
+      try {
+        await saveCandidateSummary(content);
+      } catch {
+        // Local cache is already written inside `saveCandidateSummary` before
+        // the Drive call that can throw here — still hand back the freshly
+        // generated (paid) summary rather than losing it to a Drive error.
+      }
+      return { type: "CANDIDATE_SUMMARY_RESULT", content };
     }
 
     default:

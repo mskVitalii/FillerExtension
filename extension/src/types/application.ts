@@ -15,3 +15,14 @@ export interface Application {
   updatedAt: string;
   status: ApplicationStatus;
 }
+
+/**
+ * One job posting URL the extension was activated on (icon clicked), the
+ * first time it was seen — a rough proxy for "applied to" that doesn't
+ * depend on the user actually saving a cover letter to Drive (spec_6).
+ */
+export interface UrlActivation {
+  url: string;
+  /** Local calendar date the URL was first seen, `YYYY-MM-DD`. */
+  date: string;
+}

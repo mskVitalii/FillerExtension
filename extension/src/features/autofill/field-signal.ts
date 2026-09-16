@@ -14,7 +14,8 @@
  * preceding text.
  */
 
-function collapse(text: string): string {
+/** Shared by `pick-questions.ts` and `custom-questions.ts` too — one whitespace-collapse helper, not three. */
+export function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
@@ -155,4 +156,37 @@ export function isQuestionShaped(text: string): boolean {
   if (GENERIC_PLACEHOLDER_RE.test(trimmed)) return false;
   if (trimmed.includes("?")) return true;
   return trimmed.split(/\s+/).length >= 3;
+}
+
+/**
+ * A field's deterministic, DOM-declared choice list (spec_5 section A): a
+ * `<select>`'s option labels, or a text `<input list="...">`'s `<datalist>`
+ * option values — minus a blank placeholder option. `undefined` for
+ * anything else, including a field whose options only appear after
+ * interaction (see `custom-questions.ts#revealComboboxOptions`, which
+ * handles that case separately since it's async).
+ *
+ * Resolves the `list` attribute manually (`getElementById` + tag check)
+ * rather than via the `HTMLInputElement.list` IDL property — jsdom's
+ * support for that property is unreliable, and this only needs to work the
+ * same way in both a real page and the test fixture.
+ */
+export function nativeFieldOptions(el: HTMLElement): string[] | undefined {
+  if (el instanceof HTMLSelectElement) {
+    const labels = Array.from(el.options)
+      .map((opt) => collapse(opt.textContent ?? ""))
+      .filter(Boolean);
+    return labels.length > 0 ? labels : undefined;
+  }
+  if (el instanceof HTMLInputElement) {
+    const listId = el.getAttribute("list");
+    const datalist = listId ? el.ownerDocument.getElementById(listId) : null;
+    if (datalist && datalist.tagName === "DATALIST") {
+      const labels = Array.from(datalist.querySelectorAll("option"))
+        .map((opt) => collapse(opt.getAttribute("value") || opt.textContent || ""))
+        .filter(Boolean);
+      return labels.length > 0 ? labels : undefined;
+    }
+  }
+  return undefined;
 }

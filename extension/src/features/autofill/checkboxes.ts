@@ -122,7 +122,8 @@ export function detectCheckboxes(): PageCheckbox[] {
   return out;
 }
 
-function setChecked(el: HTMLElement, checked: boolean): boolean {
+/** Exported for `pick-questions.ts`'s checkbox-group fill — same click-then-force-fallback approach, one call per option. */
+export function setChecked(el: HTMLElement, checked: boolean): boolean {
   if (isChecked(el) === checked) return false;
 
   if (typeof (el as HTMLElement).focus === "function") el.focus();

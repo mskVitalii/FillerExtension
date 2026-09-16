@@ -177,6 +177,13 @@ export function fillElement(el: HTMLElement, value: string): boolean {
 
     if (el.isContentEditable) {
       el.focus();
+      // `insertTextAtCaret` inserts at whatever the current selection
+      // happens to be, not "replace the field's value" — fine for a field
+      // that started genuinely empty (the only case this used to run
+      // against), but a combobox trigger that renders its own placeholder
+      // as visible text (e.g. "Select your level") would otherwise get that
+      // placeholder text and the real answer jumbled together.
+      el.textContent = "";
       insertTextAtCaret(el, value);
       dispatchChangeEvents(el, { blur: false });
       return true;
@@ -185,6 +192,7 @@ export function fillElement(el: HTMLElement, value: string): boolean {
     if (el.getAttribute("role") === "combobox") {
       el.focus();
       el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.textContent = "";
       insertTextAtCaret(el, value);
       dispatchChangeEvents(el, { blur: false });
       return true;

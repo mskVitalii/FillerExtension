@@ -1,5 +1,6 @@
 import type { Job, JobLanguageInfo } from "./job";
-import type { Profile } from "./profile";
+import type { FaqEntry, Profile } from "./profile";
+import type { JobSearchQuery, JobSearchResult } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField, FieldDescriptor } from "@/features/autofill/pick-questions";
@@ -15,7 +16,7 @@ import type { DateInputKind } from "@/lib/date-format";
  * on `type` — never send arbitrary/untyped payloads (spec section 21).
  */
 export type RuntimeMessage =
-  | { type: "GET_JOB"; tabId: number }
+  | { type: "GET_JOB"; tabId: number; force?: boolean }
   | { type: "JOB_DATA"; job: Job; sufficient: boolean; visibleText?: string }
   | { type: "EXTRACT_JOB_FROM_TEXT"; tabId: number; text: string }
   | { type: "GET_PROFILE" }
@@ -49,12 +50,14 @@ export type RuntimeMessage =
       question: string;
       job: Job;
       options?: string[];
+      /** True for a "select all that apply" checkbox-group question — the answer may name more than one option. */
+      multi?: boolean;
       numeric?: boolean;
       dateKind?: DateInputKind;
     }
   | { type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }
   | { type: "FILL_CUSTOM_QUESTION_ANSWERS"; tabId: number; answers: Record<string, string> }
-  | { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number }
+  | { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number; unfilled: string[] }
   | { type: "START_ELEMENT_PICKER"; tabId: number }
   | { type: "CANCEL_ELEMENT_PICKER"; tabId: number }
   | {
@@ -66,7 +69,11 @@ export type RuntimeMessage =
     }
   | { type: "DECOMPOSE_BLOCK"; blockText: string; fields: FieldDescriptor[] }
   | { type: "BLOCK_QUESTIONS"; questions: Record<number, string> }
-  | { type: "FILL_QUESTION_ANSWERS_BY_LOCATOR"; tabId: number; items: { locator: ElementLocator; answer: string }[] }
+  | {
+      type: "FILL_QUESTION_ANSWERS_BY_LOCATOR";
+      tabId: number;
+      items: { locator: ElementLocator; answer: string; question?: string }[];
+    }
   | { type: "DETECT_CHECKBOXES"; tabId: number }
   | { type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }
   | { type: "DECIDE_CHECKBOXES"; checkboxes: PageCheckbox[] }
@@ -75,6 +82,14 @@ export type RuntimeMessage =
   | { type: "CHECKBOX_APPLY_RESULT"; changed: number }
   | { type: "DETECT_JOB_LANGUAGE"; job: Job }
   | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo }
+  | { type: "GENERATE_FAQ_ANSWERS"; questions: string[] }
+  | { type: "FAQ_ANSWERS_RESULT"; entries: FaqEntry[] }
+  | { type: "SEARCH_JOBS"; query: JobSearchQuery; page?: number; excludeResults?: JobSearchResult[] }
+  | { type: "JOB_SEARCH_RESULTS"; results: JobSearchResult[]; resolvedQuery: JobSearchQuery }
+  | { type: "SUGGEST_SEARCH_QUERY" }
+  | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string }
+  | { type: "GENERATE_CANDIDATE_SUMMARY" }
+  | { type: "CANDIDATE_SUMMARY_RESULT"; content: string }
   /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */
   | { type: "ERROR"; error: string; code?: string };
 

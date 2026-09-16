@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
-import { FileText, GripVertical, ListChecks, RotateCcw, Settings } from "lucide-react";
+import { FileText, GripVertical, ListChecks, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
@@ -52,6 +52,7 @@ interface MainViewProps {
   googleConnected: boolean;
   onOpenSettings: () => void;
   onOpenApplications: () => void;
+  onOpenJobSearch: () => void;
   onRequestApiKey: () => void;
   onRequestGoogleConnect: () => void;
 }
@@ -77,6 +78,7 @@ export function MainView({
   googleConnected,
   onOpenSettings,
   onOpenApplications,
+  onOpenJobSearch,
   onRequestApiKey,
   onRequestGoogleConnect,
 }: MainViewProps) {
@@ -109,6 +111,11 @@ export function MainView({
   const [answeringAllQuestions, setAnsweringAllQuestions] = useState(false);
   const [detectingQuestions, setDetectingQuestions] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Questions the AI answered but whose field refused every autofill attempt
+  // (e.g. a react-select combobox that only opens on a real trusted click,
+  // which a content script can't fabricate — see combobox.ts) — surfaced so
+  // the user knows to answer these by hand instead of assuming they're done.
+  const [unfillableQuestions, setUnfillableQuestions] = useState<string[]>([]);
   // Not rendered in the UI (spec: checkboxes are decided and ticked directly
   // on the page — the applicant reviews/changes them there like any other
   // field), but still persisted to the per-tab cache so a re-open doesn't
@@ -273,7 +280,7 @@ export function MainView({
     setError(null);
     setAutofillStatus(null);
     void handleGeneratedPassword(generatePassword());
-    void bootstrapJob();
+    void bootstrapJob(true);
   }
 
   // Persist this tab's content so switching away and back restores it
@@ -394,12 +401,12 @@ export function MainView({
     return () => clearTimeout(timeout);
   }, [job, coverLetter, translations, effectiveActiveLanguage]);
 
-  async function bootstrapJob() {
+  async function bootstrapJob(force = false) {
     setLoadingJob(true);
     setError(null);
     let detectedJob: Job = job;
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId });
+      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId, force });
       if (response?.job) {
         detectedJob = response.job;
         setJob(response.job);
@@ -481,6 +488,7 @@ export function MainView({
               question: q.question,
               job: currentJob,
               options: q.options,
+              multi: q.multi,
               numeric: q.numeric,
               dateKind: q.dateKind,
             }),
@@ -510,23 +518,25 @@ export function MainView({
       // text on a re-scan; picker-added ones carry a locator instead, since
       // their field often has no question-shaped label to match.
       const textAnswers: Record<string, string> = {};
-      const locatorItems: { locator: ElementLocator; answer: string }[] = [];
+      const locatorItems: { locator: ElementLocator; answer: string; question?: string }[] = [];
       for (const q of questions) {
         const answer = answersByQuestion[questionAnswerKey(q)];
         if (!answer) continue;
-        if (q.locator) locatorItems.push({ locator: q.locator, answer });
+        if (q.locator) locatorItems.push({ locator: q.locator, answer, question: q.question });
         else textAnswers[q.question] = answer;
       }
-      const fills: Promise<unknown>[] = [];
+      type FillResult = { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number; unfilled: string[] };
+      const fills: Promise<FillResult>[] = [];
       if (Object.keys(textAnswers).length > 0) {
-        fills.push(
-          sendMessage({ type: "FILL_CUSTOM_QUESTION_ANSWERS", tabId, answers: textAnswers }),
-        );
+        fills.push(sendMessage<FillResult>({ type: "FILL_CUSTOM_QUESTION_ANSWERS", tabId, answers: textAnswers }));
       }
       if (locatorItems.length > 0) {
-        fills.push(sendMessage({ type: "FILL_QUESTION_ANSWERS_BY_LOCATOR", tabId, items: locatorItems }));
+        fills.push(
+          sendMessage<FillResult>({ type: "FILL_QUESTION_ANSWERS_BY_LOCATOR", tabId, items: locatorItems }),
+        );
       }
-      await Promise.all(fills);
+      const fillResults = await Promise.all(fills);
+      setUnfillableQuestions(fillResults.flatMap((r) => r.unfilled));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not answer the application questions.");
     } finally {
@@ -583,6 +593,7 @@ export function MainView({
         question: p.question.trim(),
         locator: p.locator,
         options: p.options && p.options.length > 0 ? p.options : undefined,
+        multi: p.multi,
         numeric: p.numeric,
         dateKind: p.dateKind,
       }));
@@ -811,9 +822,11 @@ export function MainView({
     await setLocal("lastCoverLetter", text);
   }
 
-  async function handleExportPdf() {
+  /** `language` is a display name from `LANGUAGES` (e.g. "German") appended to the filename for a translated export. */
+  async function handleExportPdf(content: string, language?: string) {
     try {
-      const file = await renderCoverLetterPdf(coverLetter, `Cover Letter - ${job.company || "application"}.pdf`);
+      const suffix = language ? ` (${language})` : "";
+      const file = await renderCoverLetterPdf(content, `Cover Letter - ${job.company || "application"}${suffix}.pdf`);
       await downloadFile(file);
     } catch (err) {
       setError(err instanceof Error ? `PDF export failed: ${err.message}` : "PDF export failed.");
@@ -979,6 +992,9 @@ export function MainView({
         <div className="flex items-center gap-3">
           <button onClick={() => void handleReset()} aria-label="Reset">
             <RotateCcw className="h-4 w-4 text-muted-foreground" />
+          </button>
+          <button onClick={onOpenJobSearch} aria-label="Job Search">
+            <Search className="h-4 w-4 text-muted-foreground" />
           </button>
           <button onClick={onOpenApplications} aria-label="Applications">
             <ListChecks className="h-4 w-4 text-muted-foreground" />
@@ -1168,7 +1184,7 @@ export function MainView({
                 <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
                   Regenerate
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleExportPdf}>
+                <Button size="sm" variant="outline" onClick={() => void handleExportPdf(coverLetter)}>
                   Export PDF
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => void handleUploadCoverLetterToPage()}>
@@ -1238,6 +1254,15 @@ export function MainView({
                       }
                     />
                   </Suspense>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void handleExportPdf(translations[effectiveActiveLanguage], effectiveActiveLanguage)
+                    }
+                  >
+                    Export PDF
+                  </Button>
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">
@@ -1311,6 +1336,12 @@ export function MainView({
               })}
             </ul>
           </>
+        )}
+        {unfillableQuestions.length > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Couldn't fill these fields automatically — please answer them yourself:{" "}
+            {unfillableQuestions.join(", ")}
+          </p>
         )}
       </div>
       {detectingQuestions && <p className="text-xs text-muted-foreground">Scanning page for questions…</p>}

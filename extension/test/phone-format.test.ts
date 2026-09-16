@@ -97,4 +97,53 @@ describe("resolvePhoneFill", () => {
     // The real pair still works from inside the same fieldset.
     expect(resolvePhoneFill(phoneC, RAW_PHONE, COUNTRY)!.dialCodeField).not.toBeNull();
   });
+
+  /**
+   * greenhouse.io's phone widget: a react-select "Country" combobox (not a
+   * `<select>`) renders its current pick in a sibling `.select__single-value`
+   * node rather than the input's own value. Real bug caught in review:
+   * without this, `findDialCodeField` never recognized it at all, so the
+   * phone field got the *full* number (redundant but harmless on its own),
+   * while a separate bug (fixed in `engine.ts`) let the generic autofill
+   * pass type the applicant's home-country name into the combobox itself.
+   */
+  function greenhousePhoneFixture(shownDialCode: string): { combobox: HTMLElement; phone: HTMLElement } {
+    const fieldset = el(`
+      <fieldset class="phone-input">
+        <div class="phone-input__country">
+          <label id="gh-country-label" for="gh-country">Country</label>
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__single-value"><span>${shownDialCode}</span></div>
+              <div class="select__input-container">
+                <input id="gh-country" class="select__input" role="combobox" aria-labelledby="gh-country-label" value="" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="phone-input__phone">
+          <input aria-label="Phone" placeholder="170 1234567" />
+        </div>
+      </fieldset>
+    `);
+    document.body.append(fieldset);
+    return {
+      combobox: fieldset.querySelector("#gh-country") as HTMLElement,
+      phone: fieldset.querySelector('[aria-label="Phone"]') as HTMLElement,
+    };
+  }
+
+  it("pairs with a react-select dial-code combobox that already shows this number's own calling code", () => {
+    const { combobox, phone } = greenhousePhoneFixture("+49");
+    const fill = resolvePhoneFill(phone, RAW_PHONE, COUNTRY);
+    expect(fill!.dialCodeField).toBe(combobox);
+    expect(fill!.value).toBe("1745624691");
+  });
+
+  it("falls back to the full number when the combobox shows a different calling code — never strands a bare national number next to a mismatched flag", () => {
+    const { phone } = greenhousePhoneFixture("+1");
+    const fill = resolvePhoneFill(phone, RAW_PHONE, COUNTRY);
+    expect(fill!.dialCodeField).toBeNull();
+    expect(fill!.value.replace(/\s/g, "")).toMatch(/^\+49/);
+  });
 });

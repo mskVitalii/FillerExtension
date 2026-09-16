@@ -2,7 +2,7 @@ import type { RuntimeMessage } from "@/types/messages";
 import { extractJob, isExtractionSufficient } from "@/features/job-extraction/extractor";
 import { autofillDocument } from "@/features/autofill/engine";
 import { fillElement } from "@/features/autofill/native-setter";
-import { fillDialCodeField, formatSalaryForField, resolvePhoneFill } from "@/features/autofill/field-format";
+import { fillDialCodeField, fillSalaryField, resolvePhoneFill } from "@/features/autofill/field-format";
 import { findConfirmPasswordFields } from "@/features/autofill/password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { getInsertTarget, initFocusTracker } from "@/features/autofill/focus-tracker";
@@ -23,7 +23,7 @@ import { base64ToFile } from "@/lib/base64";
  * beside a dial-code box, a rounded integer for a number-only salary field,
  * the country spelling the page's `<select>` uses.
  */
-function insertFieldValue(target: HTMLElement, field: string, value: string): boolean {
+async function insertFieldValue(target: HTMLElement, field: string, value: string): Promise<boolean> {
   if (field === "phone") {
     const fill = resolvePhoneFill(target, value);
     if (!fill) return fillElement(target, value);
@@ -31,7 +31,7 @@ function insertFieldValue(target: HTMLElement, field: string, value: string): bo
     return fillElement(target, fill.value);
   }
   if (field === "expectedSalary") {
-    return fillElement(target, formatSalaryForField(target, value));
+    return fillSalaryField(target, value);
   }
   if (field === "country" && target instanceof HTMLSelectElement) {
     for (const candidate of countryCandidates(value)) {
@@ -72,10 +72,16 @@ function registerMessageListener(): void {
       }
 
       case "AUTOFILL": {
-        const result = autofillDocument(message.profile);
-        const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
-        sendResponse(response);
-        return false;
+        void autofillDocument(message.profile)
+          .then((result) => {
+            const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
+            sendResponse(response);
+          })
+          .catch((error: unknown) => {
+            console.error("AUTOFILL failed", error);
+            sendResponse({ type: "AUTOFILL_RESULT", filled: 0, total: 0, generatedPassword: null });
+          });
+        return true;
       }
 
       case "INSERT_VALUE": {
@@ -102,36 +108,58 @@ function registerMessageListener(): void {
           return false;
         }
 
-        const filled = insertFieldValue(target, message.field, message.value);
-
-        if (message.field === "generatePassword") {
-          if (filled && target instanceof HTMLInputElement && target.type === "password") {
-            for (const confirmField of findConfirmPasswordFields(target)) {
-              fillElement(confirmField, message.value);
+        void insertFieldValue(target, message.field, message.value)
+          .then((filled) => {
+            if (message.field === "generatePassword") {
+              if (filled && target instanceof HTMLInputElement && target.type === "password") {
+                for (const confirmField of findConfirmPasswordFields(target)) {
+                  fillElement(confirmField, message.value);
+                }
+              }
+            } else if (!filled) {
+              // A successful insert is its own feedback — the value now sits
+              // right there in the field. A toast only earns its place when
+              // nothing visible happened and the user needs to know why.
+              showPageToast("Insert: this field type isn't supported here.", "error");
             }
-          }
-        } else if (!filled) {
-          // A successful insert is its own feedback — the value now sits
-          // right there in the field. A toast only earns its place when
-          // nothing visible happened and the user needs to know why.
-          showPageToast("Insert: this field type isn't supported here.", "error");
-        }
-        sendResponse();
-        return false;
+            sendResponse();
+          })
+          .catch((error: unknown) => {
+            console.error("INSERT_VALUE failed", error);
+            showPageToast("Insert: something went wrong placing that value.", "error");
+            sendResponse();
+          });
+        return true;
       }
 
       case "DETECT_CUSTOM_QUESTIONS": {
-        const questions = detectCustomQuestions();
-        const response: RuntimeMessage = { type: "CUSTOM_QUESTIONS_DATA", questions };
-        sendResponse(response);
-        return false;
+        void detectCustomQuestions()
+          .then((questions) => {
+            const response: RuntimeMessage = { type: "CUSTOM_QUESTIONS_DATA", questions };
+            sendResponse(response);
+          })
+          .catch((error: unknown) => {
+            // Logged rather than silently mapped to "0 questions found" — a
+            // throw here means something in `scanQuestionFields` itself blew
+            // up on this page's DOM, which otherwise looks identical to a
+            // form that genuinely has no detected questions.
+            console.error("DETECT_CUSTOM_QUESTIONS failed", error);
+            sendResponse({ type: "CUSTOM_QUESTIONS_DATA", questions: [] });
+          });
+        return true;
       }
 
       case "FILL_CUSTOM_QUESTION_ANSWERS": {
-        const filled = fillCustomQuestionAnswers(message.answers);
-        const response: RuntimeMessage = { type: "CUSTOM_QUESTION_FILL_RESULT", filled };
-        sendResponse(response);
-        return false;
+        void fillCustomQuestionAnswers(message.answers)
+          .then(({ filled, unfilled }) => {
+            const response: RuntimeMessage = { type: "CUSTOM_QUESTION_FILL_RESULT", filled, unfilled };
+            sendResponse(response);
+          })
+          .catch((error: unknown) => {
+            console.error("FILL_CUSTOM_QUESTION_ANSWERS failed", error);
+            sendResponse({ type: "CUSTOM_QUESTION_FILL_RESULT", filled: 0, unfilled: [] });
+          });
+        return true;
       }
 
       case "START_ELEMENT_PICKER": {
@@ -171,10 +199,16 @@ function registerMessageListener(): void {
       }
 
       case "FILL_QUESTION_ANSWERS_BY_LOCATOR": {
-        const filled = fillAnswersByLocator(message.items);
-        const response: RuntimeMessage = { type: "CUSTOM_QUESTION_FILL_RESULT", filled };
-        sendResponse(response);
-        return false;
+        void fillAnswersByLocator(message.items)
+          .then(({ filled, unfilled }) => {
+            const response: RuntimeMessage = { type: "CUSTOM_QUESTION_FILL_RESULT", filled, unfilled };
+            sendResponse(response);
+          })
+          .catch((error: unknown) => {
+            console.error("FILL_QUESTION_ANSWERS_BY_LOCATOR failed", error);
+            sendResponse({ type: "CUSTOM_QUESTION_FILL_RESULT", filled: 0, unfilled: [] });
+          });
+        return true;
       }
 
       case "DETECT_CHECKBOXES": {

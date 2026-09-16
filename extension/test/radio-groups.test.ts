@@ -22,11 +22,11 @@ describe("radio-group picking and filling", () => {
     expect(picked[0].options).toEqual(["he/him", "she/her", "they/them", "I prefer to use different pronouns"]);
   });
 
-  it("fills the option matching the given answer, and only that one", () => {
+  it("fills the option matching the given answer, and only that one", async () => {
     const container = document.querySelector<HTMLElement>('[data-field-path="pronouns-demo"]')!;
     const { picked } = decomposeContainer(container);
 
-    const filled = fillAnswersByLocator([{ locator: picked[0].locator, answer: "they/them" }]);
+    const { filled } = await fillAnswersByLocator([{ locator: picked[0].locator, answer: "they/them" }]);
     expect(filled).toBe(1);
 
     const radios = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
@@ -35,7 +35,7 @@ describe("radio-group picking and filling", () => {
     expect(checked[0].id).toBe("pron-2");
   });
 
-  it("decomposes and fills the hybrid-working group independently of the pronouns group", () => {
+  it("decomposes and fills the hybrid-working group independently of the pronouns group", async () => {
     const container = document.querySelector<HTMLElement>('[data-field-path="hybrid-demo"]')!;
     const { picked } = decomposeContainer(container);
     expect(picked).toHaveLength(1);
@@ -47,7 +47,7 @@ describe("radio-group picking and filling", () => {
       "Other (see 'Other considerations' below)",
     ]);
 
-    fillAnswersByLocator([{ locator: picked[0].locator, answer: "2 days per week in the office" }]);
+    await fillAnswersByLocator([{ locator: picked[0].locator, answer: "2 days per week in the office" }]);
     expect(document.getElementById("hyb-1")).toHaveProperty("checked", true);
     expect(document.getElementById("hyb-0")).toHaveProperty("checked", false);
   });

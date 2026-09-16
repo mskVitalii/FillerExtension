@@ -87,3 +87,42 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   if (!raw) throw new OpenAiError("OpenAI response had no content.");
   return request.parse(raw);
 }
+
+/**
+ * spec_5 section C: a plain-text Responses API call with OpenAI's hosted
+ * `web_search` tool enabled, so the model can search the live internet
+ * before answering — used to find current job postings. Deliberately
+ * separate from `requestStructured`: combining `tools` and a strict
+ * `text.format: json_schema` in the same call isn't a documented-safe
+ * combination, so the caller runs this first for raw, citation-bearing
+ * text, then a second ordinary `requestStructured` call (no tools) to
+ * parse that text into the app's normalized job-listing shape.
+ */
+export async function requestWithWebSearch(prompt: string, model: string = MODEL_LUNA): Promise<string> {
+  const apiKey = await getOpenAiApiKey();
+  if (!apiKey) throw new MissingApiKeyError();
+
+  const res = await fetch(RESPONSES_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      tools: [{ type: "web_search" }],
+      input: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+  }
+
+  const data = (await res.json()) as ResponsesApiOutput;
+  const message = data.output.find((item) => item.type === "message");
+  const raw = message?.content?.find((c) => c.type === "output_text")?.text;
+  if (!raw) throw new OpenAiError("OpenAI web search response had no content.");
+  return raw;
+}

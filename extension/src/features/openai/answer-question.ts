@@ -3,6 +3,7 @@ import { getLocal } from "@/features/storage/local";
 import {
   getCustomFields,
   getCvMeta,
+  getFaqAnswers,
   getLanguageLevels,
   getPersonalLegend,
   getProfile,
@@ -33,6 +34,12 @@ Ground rules:
   guessing from the CV or defaulting to a low/neutral level.
 - If information needed to answer well is missing, answer honestly and
   briefly rather than fabricating it.
+- "faq" is a set of pre-written answers to standard interview-FAQ questions
+  (spec_5 section B). If the question being asked now is the same as, or a
+  close variant of, one already in "faq", reuse its substance and phrasing —
+  adapt only what the target field's length/format actually requires — so
+  the applicant's answer stays consistent across different forms rather
+  than being re-derived from scratch each time.
 - Match the question's expected length: a short field gets a short answer, an
   open-ended "tell us about..." field gets a fuller one.
 - Output plain text, no markdown, no restating the question.
@@ -70,6 +77,16 @@ const CHOICE_RULE = `
   needed fact is genuinely absent (e.g. pronouns not stated anywhere),
   prefer a neutral option, an explicit "prefer not to say", or the option
   that commits the applicant least.`;
+
+/** A "select all that apply" checkbox group (e.g. "which of these technologies…") — a `CHOICE_RULE` variant allowing more than one option back. */
+const MULTI_CHOICE_RULE = `
+- This is a SELECT-ALL-THAT-APPLY question: "options" lists every allowed
+  answer. Reply with every option that genuinely applies, each copied
+  verbatim, joined by " | " (a single pipe surrounded by one space on each
+  side) — nothing else. If none apply, reply with an empty string.
+- Base each choice strictly on the applicant's profile/CV/Personal Legend —
+  never include an option just because it's plausible or common; only ones
+  the applicant's own material actually supports.`;
 
 /**
  * The target field is `<input type="number">` (or an equivalent
@@ -123,14 +140,16 @@ export async function answerCustomQuestion(
   options?: string[],
   numeric?: boolean,
   dateKind?: DateInputKind,
+  multi?: boolean,
 ): Promise<string> {
-  const [profile, cvMeta, legend, coverLetter, languageLevels, customFields] = await Promise.all([
+  const [profile, cvMeta, legend, coverLetter, languageLevels, customFields, faq] = await Promise.all([
     getProfile(),
     getCvMeta(),
     getPersonalLegend(),
     getLocal("lastCoverLetter"),
     getLanguageLevels(),
     getCustomFields(),
+    getFaqAnswers(),
   ]);
 
   const userPrompt = JSON.stringify(
@@ -145,13 +164,14 @@ export async function answerCustomQuestion(
       coverLetter: coverLetter ?? "",
       languageLevels,
       customFields,
+      faq: faq.filter((f) => f.answer.trim()),
     },
     null,
     2,
   );
 
   const rules = [
-    options && options.length > 0 ? CHOICE_RULE : "",
+    options && options.length > 0 ? (multi ? MULTI_CHOICE_RULE : CHOICE_RULE) : "",
     numeric ? NUMERIC_RULE : "",
     dateKind ? dateRule(dateKind) : "",
   ].filter(Boolean);

@@ -2,18 +2,93 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { getAllApplications, setApplicationStatus } from "@/features/applications/repository";
-import type { Application, ApplicationStatus } from "@/types/application";
+import { computeSubmissionStats, type SubmissionStats } from "@/features/applications/stats";
+import { getUrlActivationsWithBackfill } from "@/features/storage/local";
+import type { Application, ApplicationStatus, UrlActivation } from "@/types/application";
 
 const STATUS_OPTIONS: ApplicationStatus[] = ["draft", "applied", "interview", "rejected", "offer"];
+const EMPTY_STATS: SubmissionStats = { total: 0, avgPerDay: 0, byDay: [] };
 
 interface ApplicationsListProps {
   onBack: () => void;
 }
 
-/** Every application saved to Drive (spec sections 6, 19-20) — a single place to see every job applied to and its status. */
+/** `YYYY-MM-DD` -> `DD.MM`, compact enough to sit under a ~40px-wide bar. */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}.${m}`;
+}
+
+/**
+ * spec_6 — a chart of every job URL the extension was activated on (a rough
+ * proxy for "applied to", independent of whether a cover letter was ever
+ * saved to Drive — see `recordUrlActivation`), one bar per day that had at
+ * least one, scaled to that day's share of the busiest day. A date sits
+ * under every bar when there's room for it to stay legible; past ~8 bars
+ * only every Nth one gets a label so they don't run into each other, while
+ * every bar keeps its exact count in its hover title regardless.
+ */
+function SubmissionsChart({ byDay }: { byDay: SubmissionStats["byDay"] }) {
+  if (byDay.length === 0) return null;
+  const max = Math.max(...byDay.map((d) => d.count));
+  const labelEvery = Math.max(1, Math.ceil(byDay.length / 8));
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/20 p-1">
+      <div className="flex h-16 items-end gap-px">
+        {byDay.map((d) => (
+          <div
+            key={d.date}
+            title={`${d.date}: ${d.count}`}
+            className="min-w-[3px] flex-1 rounded-sm bg-primary/70"
+            style={{ height: `${Math.max(8, (d.count / max) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <div className="flex gap-px">
+        {byDay.map((d, i) => (
+          <div key={d.date} title={d.date} className="flex-1 truncate text-center text-[9px] text-muted-foreground">
+            {i % labelEvery === 0 ? shortDate(d.date) : ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One row in the combined list below the chart — every URL ever activated, joined with its saved Application when one exists. */
+interface ActivityRow {
+  url: string;
+  /** `YYYY-MM-DD`, the day the extension was first activated on `url`. */
+  date: string;
+  application: Application | null;
+}
+
+/**
+ * `activations` (after `getUrlActivationsWithBackfill`) is a superset of
+ * `applications` by URL — backfill adds one activation entry for every
+ * Drive-saved application that predates the activation log, so every
+ * application is guaranteed a matching row here. Sorted most-recent-first,
+ * preferring the application's own `updatedAt` (full timestamp) over the
+ * activation's day-only `date` when both exist.
+ */
+function buildActivityRows(applications: Application[], activations: UrlActivation[]): ActivityRow[] {
+  const appByUrl = new Map(applications.map((app) => [app.url, app]));
+  return activations
+    .map((activation) => ({
+      url: activation.url,
+      date: activation.date,
+      application: appByUrl.get(activation.url) ?? null,
+    }))
+    .sort((a, b) => (b.application?.updatedAt ?? b.date).localeCompare(a.application?.updatedAt ?? a.date));
+}
+
+/** Every job URL the extension was ever activated on (spec_6), each tagged "Cover letter" when a draft was saved to Drive. */
 export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [applications, setApplications] = useState<Application[]>([]);
+  const [activations, setActivations] = useState<UrlActivation[]>([]);
+  const [stats, setStats] = useState<SubmissionStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +100,13 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     setLoading(true);
     setError(null);
     try {
-      setApplications(await getAllApplications());
+      // Backfill depends on the just-fetched application list, so this can't
+      // run in parallel with it the way the original two fetches did.
+      const apps = await getAllApplications();
+      const activations = await getUrlActivationsWithBackfill(apps);
+      setApplications(apps);
+      setActivations(activations);
+      setStats(computeSubmissionStats(activations));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load applications from Drive.");
     } finally {
@@ -37,6 +118,8 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     setApplications((apps) => apps.map((a) => (a.id === app.id ? { ...a, status } : a)));
     await setApplicationStatus(app.id, status);
   }
+
+  const rows = buildActivityRows(applications, activations);
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -50,45 +133,72 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
 
       {loading && <p className="text-sm text-muted-foreground">Loading from Google Drive…</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {!loading && !error && applications.length === 0 && (
-        <p className="text-sm text-muted-foreground">No applications saved yet — generate a cover letter for a job to save one.</p>
+
+      {!loading && !error && stats.total > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs text-muted-foreground">Submissions over time</span>
+            <span className="text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{stats.total}</span> total ·{" "}
+              <span className="font-semibold text-foreground">{stats.avgPerDay}</span>/day avg
+            </span>
+          </div>
+          <SubmissionsChart byDay={stats.byDay} />
+        </div>
+      )}
+
+      {!loading && !error && rows.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No job postings tracked yet — open the panel on a posting, or generate a cover letter to save one.
+        </p>
       )}
 
       <div className="flex flex-col gap-2">
-        {applications.map((app) => (
-          <Card key={app.id}>
+        {rows.map((row) => (
+          <Card key={row.application?.id ?? row.url}>
             <CardContent className="flex flex-col gap-2 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{app.position || "—"}</p>
-                  <p className="truncate text-xs text-muted-foreground">{app.company || "—"}</p>
+                  {row.application ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-sm font-medium">{row.application.position || "—"}</p>
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                          Cover letter
+                        </span>
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground">{row.application.company || "—"}</p>
+                    </>
+                  ) : (
+                    <p className="truncate text-sm font-medium">{row.url}</p>
+                  )}
                 </div>
-                {app.url && (
-                  <a
-                    href={app.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
-                    aria-label="Open job posting"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <Select
-                  className="h-7 w-32 text-xs"
-                  value={app.status}
-                  onChange={(e) => void handleStatusChange(app, e.target.value as ApplicationStatus)}
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Open job posting"
                 >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </Select>
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+              <div className={cn("flex items-center gap-2", row.application ? "justify-between" : "justify-end")}>
+                {row.application && (
+                  <Select
+                    className="h-7 w-32 text-xs"
+                    value={row.application.status}
+                    onChange={(e) => void handleStatusChange(row.application!, e.target.value as ApplicationStatus)}
+                  >
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </Select>
+                )}
                 <span className="text-xs text-muted-foreground">
-                  {new Date(app.updatedAt).toLocaleDateString()}
+                  {row.application ? new Date(row.application.updatedAt).toLocaleDateString() : row.date}
                 </span>
               </div>
             </CardContent>

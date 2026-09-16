@@ -10,13 +10,16 @@ import {
   PRONOUN_OPTIONS,
   type CustomField,
   type CvMeta,
+  type FaqEntry,
   type LanguageLevel,
   type Profile,
 } from "@/types/profile";
 import { CEFR_LEVELS } from "@/lib/language-level";
 import {
   deleteCv,
+  saveCandidateSummary,
   saveCustomFields,
+  saveFaqAnswers,
   saveLanguageLevels,
   saveProfile,
   savePersonalLegend,
@@ -24,11 +27,26 @@ import {
 } from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { disconnectGoogle } from "@/features/google-drive/auth";
-import { deleteOpenAiApiKey } from "@/features/storage/local";
+import {
+  deleteOpenAiApiKey,
+  getJobSearchCredentials,
+  setJobSearchCredentials,
+  type JobSearchCredentials,
+} from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { extractPdfText } from "@/lib/pdf-text";
 import { COUNTRIES } from "@/lib/countries";
 import { formatSalaryForStorage } from "@/lib/salary";
+import { FAQ_QUESTIONS } from "@/lib/faq-questions";
+import { sendMessage } from "@/types/messages";
+
+/** Grouped once at module load — `FAQ_QUESTIONS` is a fixed constant, not per-render state. */
+const FAQ_GROUPS = Object.entries(
+  FAQ_QUESTIONS.reduce<Record<string, typeof FAQ_QUESTIONS>>((groups, q) => {
+    (groups[q.category] ??= []).push(q);
+    return groups;
+  }, {}),
+);
 
 interface SettingsPanelProps {
   profile: Profile;
@@ -36,12 +54,16 @@ interface SettingsPanelProps {
   legendContent: string;
   customFields: CustomField[];
   languageLevels: LanguageLevel[];
+  faqAnswers: FaqEntry[];
+  candidateSummary: string;
   onBack: () => void;
   onProfileChange: (profile: Profile) => void;
   onCvChange: (cvMeta: CvMeta | null) => void;
   onLegendChange: (content: string) => void;
   onCustomFieldsChange: (fields: CustomField[]) => void;
   onLanguageLevelsChange: (levels: LanguageLevel[]) => void;
+  onFaqAnswersChange: (entries: FaqEntry[]) => void;
+  onCandidateSummaryChange: (content: string) => void;
   onApiKeyDeleted: () => void;
   onGoogleDisconnected: () => void;
 }
@@ -52,12 +74,16 @@ export function SettingsPanel({
   legendContent,
   customFields,
   languageLevels,
+  faqAnswers,
+  candidateSummary,
   onBack,
   onProfileChange,
   onCvChange,
   onLegendChange,
   onCustomFieldsChange,
   onLanguageLevelsChange,
+  onFaqAnswersChange,
+  onCandidateSummaryChange,
   onApiKeyDeleted,
   onGoogleDisconnected,
 }: SettingsPanelProps) {
@@ -70,6 +96,26 @@ export function SettingsPanel({
   const [savingFields, setSavingFields] = useState(false);
   const [languagesDraft, setLanguagesDraft] = useState(languageLevels);
   const [savingLanguages, setSavingLanguages] = useState(false);
+  const [faqDraft, setFaqDraft] = useState<Record<string, string>>(
+    Object.fromEntries(faqAnswers.map((e) => [e.question, e.answer])),
+  );
+  const [generatingFaq, setGeneratingFaq] = useState(false);
+  const [faqError, setFaqError] = useState<string | null>(null);
+  const [savingFaq, setSavingFaq] = useState(false);
+  const [jobSearchCreds, setJobSearchCreds] = useState<JobSearchCredentials>({
+    tavilyApiKey: "",
+    adzunaAppId: "",
+    adzunaAppKey: "",
+  });
+  const [savingJobSearchCredentials, setSavingJobSearchCredentials] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(candidateSummary);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [savingSummary, setSavingSummary] = useState(false);
+
+  useEffect(() => {
+    void getJobSearchCredentials().then(setJobSearchCreds);
+  }, []);
 
   useEffect(() => {
     void getPreferences().then((prefs) => setAutofillOnOpen(prefs.autofillOnOpen));
@@ -168,6 +214,83 @@ export function SettingsPanel({
       onLanguageLevelsChange(languagesDraft);
     } finally {
       setSavingLanguages(false);
+    }
+  }
+
+  async function handleSaveJobSearchCredentials() {
+    setSavingJobSearchCredentials(true);
+    try {
+      await setJobSearchCredentials(jobSearchCreds);
+    } finally {
+      setSavingJobSearchCredentials(false);
+    }
+  }
+
+  async function handleSaveFaqDraft(next: Record<string, string>) {
+    setSavingFaq(true);
+    try {
+      const entries = FAQ_QUESTIONS.map(({ question }) => ({ question, answer: next[question] ?? "" }));
+      await saveFaqAnswers(entries);
+      onFaqAnswersChange(entries);
+    } finally {
+      setSavingFaq(false);
+    }
+  }
+
+  /**
+   * Generates only whichever of the 21 questions don't have an answer yet.
+   * The background's response carries all 21 (freshly-generated ones plus
+   * whatever was already saved) so it can't just replace `faqDraft`
+   * wholesale — that would blow away an edit the user typed into an
+   * *already-answered* question's textarea but hasn't hit Save for yet.
+   * Only apply the entries whose `faqDraft` slot is still genuinely empty.
+   */
+  async function handleGenerateMissingFaq() {
+    setGeneratingFaq(true);
+    setFaqError(null);
+    try {
+      const result = await sendMessage<{ type: "FAQ_ANSWERS_RESULT"; entries: FaqEntry[] }>({
+        type: "GENERATE_FAQ_ANSWERS",
+        questions: FAQ_QUESTIONS.map((q) => q.question),
+      });
+      setFaqDraft((prev) => {
+        const next = { ...prev };
+        for (const entry of result.entries) {
+          if (!next[entry.question]?.trim()) next[entry.question] = entry.answer;
+        }
+        return next;
+      });
+      onFaqAnswersChange(result.entries);
+    } catch (err) {
+      setFaqError(err instanceof Error ? err.message : "Couldn't generate FAQ answers.");
+    } finally {
+      setGeneratingFaq(false);
+    }
+  }
+
+  async function handleGenerateCandidateSummary() {
+    setGeneratingSummary(true);
+    setSummaryError(null);
+    try {
+      const result = await sendMessage<{ type: "CANDIDATE_SUMMARY_RESULT"; content: string }>({
+        type: "GENERATE_CANDIDATE_SUMMARY",
+      });
+      setSummaryDraft(result.content);
+      onCandidateSummaryChange(result.content);
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Couldn't generate the candidate summary.");
+    } finally {
+      setGeneratingSummary(false);
+    }
+  }
+
+  async function handleSaveCandidateSummary() {
+    setSavingSummary(true);
+    try {
+      await saveCandidateSummary(summaryDraft);
+      onCandidateSummaryChange(summaryDraft);
+    } finally {
+      setSavingSummary(false);
     }
   }
 
@@ -381,6 +504,116 @@ export function SettingsPanel({
               {savingLanguages ? "Saving…" : "Save Languages"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Frequently Asked Questions</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-xs text-muted-foreground">
+            Standard interview questions almost every application asks in some form. Pre-written
+            answers here get reused when a real form asks a close variant, instead of being
+            guessed fresh every time.
+          </p>
+          {FAQ_GROUPS.map(([category, items]) => (
+            <div key={category} className="flex flex-col gap-2">
+              <h4 className="text-xs font-semibold text-muted-foreground">{category}</h4>
+              {items.map(({ question }) => (
+                <div key={question} className="flex flex-col gap-1">
+                  <label className="text-xs">{question}</label>
+                  <textarea
+                    className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                    value={faqDraft[question] ?? ""}
+                    placeholder="Not generated yet."
+                    onChange={(e) => setFaqDraft((prev) => ({ ...prev, [question]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          {faqError && <p className="text-xs text-destructive">{faqError}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleGenerateMissingFaq} disabled={generatingFaq}>
+              {generatingFaq ? "Generating…" : "Generate missing answers"}
+            </Button>
+            <Button size="sm" onClick={() => void handleSaveFaqDraft(faqDraft)} disabled={savingFaq}>
+              {savingFaq ? "Saving…" : "Save FAQ Answers"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Candidate Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            A full digest of your profile, CV, Personal Legend, custom fields, languages, and
+            FAQ answers — this is what the Job Search tab's OpenAI/Tavily providers actually
+            search with, so results are grounded in everything about you, not just a typed
+            keyword. Generated automatically the first time you search if you skip this, but
+            reviewing/editing it here is worth it.
+          </p>
+          <textarea
+            className="min-h-32 rounded-md border border-border bg-background p-2 text-sm outline-none"
+            placeholder="Not generated yet."
+            value={summaryDraft}
+            onChange={(e) => setSummaryDraft(e.target.value)}
+          />
+          {summaryError && <p className="text-xs text-destructive">{summaryError}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleGenerateCandidateSummary} disabled={generatingSummary}>
+              {generatingSummary ? "Generating…" : summaryDraft ? "Regenerate" : "Generate"}
+            </Button>
+            <Button size="sm" onClick={handleSaveCandidateSummary} disabled={savingSummary}>
+              {savingSummary ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Job Search Providers</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            Optional — the Job Search tab always offers OpenAI web search (uses your OpenAI key
+            above); add either of these to also search Tavily or Adzuna.
+          </p>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Tavily API key</label>
+            <Input
+              type="password"
+              value={jobSearchCreds.tavilyApiKey}
+              onChange={(e) => setJobSearchCreds((prev) => ({ ...prev, tavilyApiKey: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Adzuna app_id</label>
+            <Input
+              value={jobSearchCreds.adzunaAppId}
+              onChange={(e) => setJobSearchCreds((prev) => ({ ...prev, adzunaAppId: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Adzuna app_key</label>
+            <Input
+              type="password"
+              value={jobSearchCreds.adzunaAppKey}
+              onChange={(e) => setJobSearchCreds((prev) => ({ ...prev, adzunaAppKey: e.target.value }))}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Get Adzuna credentials at developer.adzuna.com — search location defaults to your
+            Profile country.
+          </p>
+          <Button size="sm" variant="outline" onClick={handleSaveJobSearchCredentials} disabled={savingJobSearchCredentials}>
+            {savingJobSearchCredentials ? "Saving…" : "Save"}
+          </Button>
         </CardContent>
       </Card>
 

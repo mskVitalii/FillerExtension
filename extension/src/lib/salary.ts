@@ -94,6 +94,11 @@ export function salaryNumericValue(raw: string): string | null {
   return range ? String(salaryMidpoint(range)) : null;
 }
 
+/** "65000 - 75000" for a real range, a bare integer when both ends match. */
+export function formatSalaryRange(range: SalaryRange): string {
+  return range.low === range.high ? String(range.low) : `${range.low} - ${range.high}`;
+}
+
 /**
  * Tidies what the user typed in Settings into a canonical stored form -
  * "65000 - 75000" for a range, a bare integer otherwise - so the autofill
@@ -101,6 +106,52 @@ export function salaryNumericValue(raw: string): string | null {
  */
 export function formatSalaryForStorage(raw: string): string {
   const range = parseSalary(raw);
-  if (!range) return raw.trim();
-  return range.low === range.high ? String(range.low) : `${range.low} - ${range.high}`;
+  return range ? formatSalaryRange(range) : raw.trim();
+}
+
+/**
+ * A discrete-choice salary field (a `<select>` or a react-select-style
+ * flyout, confirmed live on greenhouse.io — e.g. "25.000€ - 35.000€",
+ * "115.000€ +") never accepts a typed number at all; it has to be answered
+ * by picking whichever bracket the profile's own expectation falls into. A
+ * trailing "+" (no matching upper bound for `parseSalary` to find) reads as
+ * an open-ended top bracket rather than a lone point value.
+ */
+function parseSalaryBracket(text: string): SalaryRange | null {
+  const range = parseSalary(text);
+  if (!range) return null;
+  return /\+\s*$/.test(text.trim()) ? { low: range.low, high: Infinity } : range;
+}
+
+/**
+ * The option text from `options` whose bracket best fits the profile's
+ * parsed salary — the bracket containing its midpoint, or (should no
+ * bracket actually contain it, e.g. a form with gaps between brackets) the
+ * numerically closest one. `null` when either side fails to parse at all
+ * (the profile value, or every option).
+ */
+export function matchSalaryBracket(options: string[], raw: string): string | null {
+  const target = parseSalary(raw);
+  if (!target) return null;
+  const point = salaryMidpoint(target);
+
+  const brackets = options
+    .map((text) => ({ text, range: parseSalaryBracket(text) }))
+    .filter((b): b is { text: string; range: SalaryRange } => b.range !== null);
+  if (brackets.length === 0) return null;
+
+  const containing = brackets.find((b) => point >= b.range.low && point <= b.range.high);
+  if (containing) return containing.text;
+
+  let best = brackets[0];
+  let bestDistance = Infinity;
+  for (const bracket of brackets) {
+    const mid = bracket.range.high === Infinity ? bracket.range.low : (bracket.range.low + bracket.range.high) / 2;
+    const distance = Math.abs(mid - point);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = bracket;
+    }
+  }
+  return best.text;
 }
