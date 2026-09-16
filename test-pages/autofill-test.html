@@ -340,6 +340,37 @@
     </fieldset>
 
     <fieldset>
+      <legend>LinkedIn Easy Apply-style questions (aria-label-only text field + role="radio" Yes/No — use "Pick fields on page")</legend>
+      <div style="max-width: 640px">
+        <div data-field-path="linkedin-easyapply-demo">
+          <div>
+            <p>How many years of work experience do you have with PostgreSQL?*</p>
+            <input type="text" id="li-years-pg" aria-label="How many years of work experience do you have with PostgreSQL?" />
+          </div>
+          <div>
+            <p>Are you comfortable commuting to this job's location?*</p>
+            <fieldset role="radiogroup" style="border: 1px solid #ccc; border-radius: 8px; padding: 12px">
+              <div style="display: flex; gap: 16px">
+                <div role="radio" aria-label="Are you comfortable commuting to this job's location?" aria-checked="false">
+                  <div>
+                    <div><input type="radio" id="li-commute-yes" name="li-commute" /><label for="li-commute-yes"></label></div>
+                    <div><p>Yes</p></div>
+                  </div>
+                </div>
+                <div role="radio" aria-label="Are you comfortable commuting to this job's location?" aria-checked="false">
+                  <div>
+                    <div><input type="radio" id="li-commute-no" name="li-commute" /><label for="li-commute-no"></label></div>
+                    <div><p>No</p></div>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>Password fields — generated password should fill create/confirm, never login</legend>
 
       <form>

@@ -101,7 +101,16 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
   chip.className = "chip";
   chip.hidden = true;
   shadow.append(style, box, chip);
-  document.documentElement.appendChild(host);
+  // A native <dialog> shown via showModal() (LinkedIn's Easy Apply modal
+  // included) is promoted to the browser's top layer, which paints above
+  // *everything* outside it regardless of z-index — an overlay appended to
+  // <html> would render invisibly behind it. `:modal` matches whichever
+  // element currently owns the top layer, so mounting there (last child,
+  // so it still paints above the dialog's own content) keeps the glow box
+  // and hover chip visible. `pointer-events: none` on the host means this
+  // never changes what a click actually hits.
+  const modalHost = document.querySelector(":modal");
+  (modalHost instanceof HTMLElement ? modalHost : document.documentElement).appendChild(host);
 
   let current: HTMLElement | null = null;
   let done = false;

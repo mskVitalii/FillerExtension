@@ -13,8 +13,11 @@ const SCHEMA = {
 
 const SYSTEM_PROMPT = `You suggest a starting job-search query for the applicant described below.
 "what" is a short role/keywords phrase (e.g. "senior backend engineer", "product designer") —
-their most recent or clearly strongest role from the CV/Personal Legend. "where" is a
-location (city, region, or country) — their stated city/country if given, else "".
+their most recent or clearly strongest role from the CV/Personal Legend. Pick ONE single title:
+never join multiple roles or technologies with "/", "," or parentheses (e.g. never "Full-Stack
+Developer / Backend Engineer (Go, Python, React)") — that reads as a combined AND-match to a
+literal keyword search and returns nothing. "where" is a location (city, region, or country) —
+their stated city/country if given, else "".
 Output only the two fields, no explanation.`;
 
 /**

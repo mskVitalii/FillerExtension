@@ -1,6 +1,6 @@
 import type { Job, JobLanguageInfo } from "./job";
 import type { FaqEntry, Profile } from "./profile";
-import type { JobSearchQuery, JobSearchResult } from "./job-search";
+import type { JobSearchProvider, JobSearchQuery, JobSearchResult } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField, FieldDescriptor } from "@/features/autofill/pick-questions";
@@ -86,8 +86,8 @@ export type RuntimeMessage =
   | { type: "FAQ_ANSWERS_RESULT"; entries: FaqEntry[] }
   | { type: "SEARCH_JOBS"; query: JobSearchQuery; page?: number; excludeResults?: JobSearchResult[] }
   | { type: "JOB_SEARCH_RESULTS"; results: JobSearchResult[]; resolvedQuery: JobSearchQuery }
-  | { type: "SUGGEST_SEARCH_QUERY" }
-  | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string }
+  | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
+  | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
   | { type: "GENERATE_CANDIDATE_SUMMARY" }
   | { type: "CANDIDATE_SUMMARY_RESULT"; content: string }
   /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */

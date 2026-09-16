@@ -91,6 +91,16 @@ export function radioOptionLabel(input: HTMLInputElement): string {
   if (aria && collapse(aria)) return collapse(aria);
   const sibling = input.nextElementSibling;
   if (sibling?.textContent && collapse(sibling.textContent)) return collapse(sibling.textContent);
+  // LinkedIn Easy Apply wires each option as its own `[role="radio"]` row: the
+  // <input>'s `for=` label is empty and the visible "Yes"/"No" text sits in a
+  // further sibling div, two levels up — invisible to the checks above, which
+  // all leave `input.value` (="on" for a radio with no explicit `value`, so
+  // every option in the group would read identically). Read the whole row's
+  // textContent instead — never the row's own `aria-label`, which LinkedIn
+  // sets to the *group's question*, not the option, so reusing it here would
+  // make every option's label the whole question again.
+  const row = input.closest('[role="radio"], [role="option"]');
+  if (row?.textContent && collapse(row.textContent)) return collapse(row.textContent);
   return input.value || "";
 }
 

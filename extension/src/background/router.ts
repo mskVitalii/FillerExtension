@@ -407,6 +407,18 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "SUGGEST_SEARCH_QUERY": {
+      // Adzuna's "what" is a literal keyword match, so a single LLM-derived
+      // title (e.g. "Full-Stack Developer / Backend Engineer (Go, Python,
+      // React)") routinely matches zero postings. For Adzuna, also derive the
+      // atomic tag set here (`suggestSearchTags`) so the Job Search screen
+      // can lock it straight into `tags` — otherwise a non-empty "what" from
+      // this same suggestion would later be treated as a deliberate manual
+      // override in `SEARCH_JOBS` and searched as one ungarbled phrase
+      // instead of being fanned out.
+      if (message.provider === "adzuna") {
+        const [suggestion, tags] = await Promise.all([suggestSearchQuery(), suggestSearchTags()]);
+        return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion, tags };
+      }
       const suggestion = await suggestSearchQuery();
       return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion };
     }

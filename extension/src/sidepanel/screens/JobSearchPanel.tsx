@@ -53,11 +53,24 @@ export function JobSearchPanel({ hasApiKey, onBack }: JobSearchPanelProps) {
     setSuggesting(true);
     setError(null);
     try {
-      const suggestion = await sendMessage<{ type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string }>({
+      const suggestion = await sendMessage<{
+        type: "SEARCH_QUERY_SUGGESTION";
+        what: string;
+        where: string;
+        tags?: string[];
+      }>({
         type: "SUGGEST_SEARCH_QUERY",
+        provider,
       });
       if (!what) setWhat(suggestion.what);
       if (!where) setWhere(suggestion.where);
+      // Lock the AI-derived atomic tags in now (Adzuna only) so Search fans
+      // out over them instead of later treating the single combined "what"
+      // text above as a deliberate manual keyword override — see the
+      // `SUGGEST_SEARCH_QUERY` handler in router.ts.
+      if (provider === "adzuna" && tags.length === 0 && suggestion.tags?.length) {
+        setTags(suggestion.tags);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't suggest a query from your CV.");
     } finally {
