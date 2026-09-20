@@ -6,7 +6,7 @@ import { JobSearchPanel } from "./screens/JobSearchPanel";
 import { MainView } from "./screens/MainView";
 import { SettingsPanel } from "./screens/SettingsPanel";
 import { useActiveTab } from "./hooks/useActiveTab";
-import { getOpenAiApiKey, recordUrlActivation } from "@/features/storage/local";
+import { getOpenAiApiKey } from "@/features/storage/local";
 import { isGoogleConnected } from "@/features/google-drive/auth";
 import {
   getCandidateSummary,
@@ -41,21 +41,6 @@ export function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
-
-  useEffect(() => {
-    // spec_6 — the background only records an activation on the *icon
-    // click* that opens the panel, so navigating onward inside the same tab
-    // (an ATS's own "Overview" -> "Application" tab, a client-side route
-    // change that never fires a new click) was invisible to the submissions
-    // chart. The panel stays mounted across that navigation and
-    // `useActiveTab` already re-syncs `url` on it (`chrome.tabs.onUpdated`
-    // fires for History API navigation too, not just full page loads), so
-    // this is the one place that sees every URL the user's session actually
-    // reaches. `recordUrlActivation` is a per-URL no-op past the first call,
-    // so this double-recording the panel's original URL alongside the
-    // background's own call is harmless.
-    if (activeTab.url) void recordUrlActivation(activeTab.url);
-  }, [activeTab.url]);
 
   useEffect(() => {
     void bootstrap();

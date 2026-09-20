@@ -50,12 +50,19 @@ export const EMPTY_PROFILE: Profile = {
 export type ProfileFieldKey = keyof Profile;
 
 export interface CvMeta {
+  id: string;
   fileName: string;
   mimeType: string;
   driveFileId: string | null;
   /** Locally extracted plain text, used as AI context instead of sending the PDF. */
   text: string;
   uploadedAt: string;
+}
+
+/** Every CV the user has uploaded, plus which one autofill/AI currently treats as "the" CV. */
+export interface CvLibrary {
+  items: CvMeta[];
+  activeId: string | null;
 }
 
 export interface PersonalLegend {

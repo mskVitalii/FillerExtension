@@ -1,4 +1,4 @@
-import type { CandidateSummary, CustomField, CvMeta, FaqEntry, LanguageLevel, PersonalLegend, Profile } from "@/types/profile";
+import type { CandidateSummary, CustomField, CvLibrary, CvMeta, FaqEntry, LanguageLevel, PersonalLegend, Profile } from "@/types/profile";
 import type { UrlActivation } from "@/types/application";
 import type { Job } from "@/types/job";
 import { mergeBackfilledActivations } from "@/features/applications/stats";
@@ -17,7 +17,9 @@ interface LocalStorageSchema {
   adzunaAppId: string;
   adzunaAppKey: string;
   profileCache: Profile;
+  /** @deprecated superseded by `cvLibraryCache` — read once for migration, never written again. */
   cvMetaCache: CvMeta;
+  cvLibraryCache: CvLibrary;
   legendCache: PersonalLegend;
   customFieldsCache: CustomField[];
   languageLevelsCache: LanguageLevel[];
@@ -89,9 +91,10 @@ export async function setJobSearchCredentials(credentials: JobSearchCredentials)
 }
 
 /**
- * Records the first time the extension is activated on `url` (spec_6) — a
- * no-op for a URL already logged, so re-opening the panel on the same job
- * posting never inflates the count. Query-string/hash variations of the
+ * Records that the user actually acted on `url` — ran Autofill or started a
+ * cover letter — not merely that the panel was opened there (spec_6); a
+ * no-op for a URL already logged, so repeating either action on the same
+ * job posting never inflates the count. Query-string/hash variations of the
  * same posting are deliberately NOT normalized here: the caller passes
  * whatever `tab.url` the browser reports, matching how `applicationIdForUrl`
  * treats URLs elsewhere in the extension.
@@ -104,6 +107,15 @@ export async function recordUrlActivation(url: string): Promise<void> {
 
 export async function getUrlActivations(): Promise<UrlActivation[]> {
   return (await getLocal("activationLog")) ?? [];
+}
+
+/** Removes one URL's activation entry — used when the user deletes it from the Applications list. */
+export async function removeUrlActivation(url: string): Promise<void> {
+  const log = (await getLocal("activationLog")) ?? [];
+  await setLocal(
+    "activationLog",
+    log.filter((entry) => entry.url !== url),
+  );
 }
 
 /**

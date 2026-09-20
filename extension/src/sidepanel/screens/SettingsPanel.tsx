@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   EMPTY_PROFILE,
   SALUTATION_OPTIONS,
@@ -17,12 +18,14 @@ import {
 import { CEFR_LEVELS } from "@/lib/language-level";
 import {
   deleteCv,
+  getCvLibrary,
   saveCandidateSummary,
   saveCustomFields,
   saveFaqAnswers,
   saveLanguageLevels,
   saveProfile,
   savePersonalLegend,
+  setActiveCv,
   uploadCv,
 } from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
@@ -89,6 +92,8 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [cvList, setCvList] = useState<CvMeta[]>([]);
+  const [switchingCvId, setSwitchingCvId] = useState<string | null>(null);
   const [legendDraft, setLegendDraft] = useState(legendContent);
   const [savingLegend, setSavingLegend] = useState(false);
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
@@ -118,6 +123,10 @@ export function SettingsPanel({
   }, []);
 
   useEffect(() => {
+    void getCvLibrary().then((library) => setCvList(library.items));
+  }, []);
+
+  useEffect(() => {
     void getPreferences().then((prefs) => setAutofillOnOpen(prefs.autofillOnOpen));
   }, []);
 
@@ -131,15 +140,28 @@ export function SettingsPanel({
     try {
       const text = await extractPdfText(file);
       const meta = await uploadCv(file, text);
+      setCvList((list) => [...list, meta]);
       onCvChange(meta);
     } finally {
       setUploading(false);
     }
   }
 
-  async function handleDeleteCv() {
-    await deleteCv();
-    onCvChange(null);
+  async function handleSetActiveCv(id: string) {
+    setSwitchingCvId(id);
+    try {
+      const meta = await setActiveCv(id);
+      onCvChange(meta);
+    } finally {
+      setSwitchingCvId(null);
+    }
+  }
+
+  async function handleDeleteCv(id: string) {
+    await deleteCv(id);
+    const remaining = cvList.filter((cv) => cv.id !== id);
+    setCvList(remaining);
+    if (cvMeta?.id === id) onCvChange(remaining[0] ?? null);
   }
 
   async function handleSaveLegend() {
@@ -318,14 +340,51 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>CV</CardTitle>
+          <CardTitle>CVs</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {cvMeta ? (
-            <p className="text-sm">{cvMeta.fileName}</p>
-          ) : (
+          {cvList.length === 0 ? (
             <p className="text-sm text-muted-foreground">No CV uploaded yet.</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Autofill and cover-letter generation use whichever one is active.
+            </p>
           )}
+          <div className="flex flex-col gap-1.5">
+            {cvList.map((cv) => {
+              const isActive = cv.id === cvMeta?.id;
+              return (
+                <div
+                  key={cv.id}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border p-2",
+                    isActive ? "border-primary bg-primary/5" : "border-border",
+                  )}
+                >
+                  <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="active-cv"
+                      checked={isActive}
+                      disabled={switchingCvId === cv.id}
+                      onChange={() => void handleSetActiveCv(cv.id)}
+                    />
+                    <span className="min-w-0 flex-1 truncate" title={cv.fileName}>
+                      {cv.fileName}
+                    </span>
+                    {isActive && (
+                      <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        Active
+                      </span>
+                    )}
+                  </label>
+                  <Button size="sm" variant="ghost" onClick={() => void handleDeleteCv(cv.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -334,18 +393,18 @@ export function SettingsPanel({
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) void handleCvSelected(file);
+              e.target.value = "";
             }}
           />
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-              {uploading ? "Processing…" : cvMeta ? "Replace CV" : "Upload CV"}
-            </Button>
-            {cvMeta && (
-              <Button size="sm" variant="ghost" onClick={handleDeleteCv}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-fit"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? "Processing…" : "Upload another CV"}
+          </Button>
         </CardContent>
       </Card>
 

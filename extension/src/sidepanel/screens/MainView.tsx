@@ -19,7 +19,7 @@ import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { formatProfileValueForDisplay } from "@/features/profile/format-value";
 import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
 import { fileToBase64 } from "@/lib/base64";
-import { setLocal } from "@/features/storage/local";
+import { recordUrlActivation, setLocal } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { saveCoverLetterDraft } from "@/features/applications/repository";
@@ -806,6 +806,7 @@ export function MainView({
         cleaned: boolean;
       }>({ type: "GENERATE_COVER_LETTER", job });
       setCoverLetter(response.content);
+      if (job.url) void recordUrlActivation(job.url);
       if (response.cleaned) {
         const patterns = Array.from(new Set(response.slopFindings.map((f) => f.pattern))).join(", ");
         setCleanedNotice(`Cleaned up AI-sounding phrasing before showing you this draft (${patterns}).`);
@@ -949,6 +950,9 @@ export function MainView({
       });
       setAutofillStatus(`Filled ${response.filled} of ${response.total} detected fields.`);
       if (response.generatedPassword) await handleGeneratedPassword(response.generatedPassword);
+      // spec_6 — only an actual fill counts as "worked this posting", not
+      // every panel open (see recordUrlActivation's own doc comment).
+      if (response.filled > 0 && job.url) void recordUrlActivation(job.url);
     } catch {
       setAutofillStatus("Autofill failed on this page.");
     }

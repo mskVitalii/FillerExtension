@@ -2,6 +2,7 @@ import {
   EMPTY_PROFILE,
   type CandidateSummary,
   type CustomField,
+  type CvLibrary,
   type CvMeta,
   type FaqEntry,
   type LanguageLevel,
@@ -61,35 +62,108 @@ export async function savePersonalLegend(content: string): Promise<void> {
   await drive.writeTextFile("legend.md", content);
 }
 
+/** `${cvFileName(id)}` names each library entry's Drive PDF uniquely — the legacy single-CV extension only ever wrote "cv.pdf". */
+function cvFileName(id: string): string {
+  return `cv-${id}.pdf`;
+}
+
+async function saveCvLibrary(library: CvLibrary): Promise<void> {
+  await setLocal("cvLibraryCache", library);
+  await drive.writeJsonFile("cvLibrary.json", library);
+}
+
+/**
+ * One-time upgrade from the pre-multi-CV format (a single `cvMetaCache` +
+ * Drive `cv.pdf`) into a library of one entry, so a user who already had a
+ * CV uploaded doesn't lose it when this ships. Runs at most once: the first
+ * call that finds no library persists one going forward (even an empty
+ * one), so later calls skip straight to reading it.
+ */
+async function migrateLegacyCv(): Promise<CvLibrary> {
+  const legacyMeta = await getLocal("cvMetaCache");
+  if (!legacyMeta) return { items: [], activeId: null };
+  const id = crypto.randomUUID();
+  const meta: CvMeta = { ...legacyMeta, id };
+  try {
+    const blob = await drive.readBinaryFile("cv.pdf");
+    if (blob) {
+      await drive.writeBinaryFile(cvFileName(id), new File([blob], meta.fileName, { type: meta.mimeType }));
+    }
+  } catch {
+    // Google not connected yet — the metadata still migrates; the file copies over next time Drive is reachable.
+  }
+  return { items: [meta], activeId: id };
+}
+
+export async function getCvLibrary(): Promise<CvLibrary> {
+  const cached = await getLocal("cvLibraryCache");
+  if (cached) return cached;
+  try {
+    const remote = await drive.readJsonFile<CvLibrary>("cvLibrary.json");
+    if (remote) {
+      await setLocal("cvLibraryCache", remote);
+      return remote;
+    }
+  } catch {
+    // Google not connected yet — fall through to the legacy migration/empty library.
+  }
+  const migrated = await migrateLegacyCv();
+  await saveCvLibrary(migrated);
+  return migrated;
+}
+
+/** The CV autofill/AI/context-menu treat as "the" CV — the library's active entry. */
 export async function getCvMeta(): Promise<CvMeta | null> {
-  const cached = await getLocal("cvMetaCache");
-  return cached ?? null;
+  const library = await getCvLibrary();
+  return library.items.find((cv) => cv.id === library.activeId) ?? null;
 }
 
 export async function uploadCv(file: File, extractedText: string): Promise<CvMeta> {
-  const driveFileId = await drive.writeBinaryFile("cv.pdf", file);
+  const id = crypto.randomUUID();
+  const driveFileId = await drive.writeBinaryFile(cvFileName(id), file);
   const meta: CvMeta = {
+    id,
     fileName: file.name,
     mimeType: file.type,
     driveFileId,
     text: extractedText,
     uploadedAt: new Date().toISOString(),
   };
-  await setLocal("cvMetaCache", meta);
+  const library = await getCvLibrary();
+  const next: CvLibrary = { items: [...library.items, meta], activeId: id };
+  await saveCvLibrary(next);
   return meta;
 }
 
-export async function getCvFile(): Promise<File | null> {
-  const meta = await getCvMeta();
+/** Switches which uploaded CV autofill/AI use — returns the newly active entry, or null if `id` isn't in the library. */
+export async function setActiveCv(id: string): Promise<CvMeta | null> {
+  const library = await getCvLibrary();
+  const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return null;
-  const blob = await drive.readBinaryFile("cv.pdf");
+  await saveCvLibrary({ ...library, activeId: id });
+  return meta;
+}
+
+/** Defaults to the active CV; pass `id` to fetch a specific library entry's file instead. */
+export async function getCvFile(id?: string): Promise<File | null> {
+  const library = await getCvLibrary();
+  const targetId = id ?? library.activeId;
+  const meta = library.items.find((cv) => cv.id === targetId);
+  if (!meta) return null;
+  const blob = await drive.readBinaryFile(cvFileName(meta.id));
   if (!blob) return null;
   return new File([blob], meta.fileName, { type: meta.mimeType });
 }
 
-export async function deleteCv(): Promise<void> {
-  await drive.deleteFile("cv.pdf");
-  await chrome.storage.local.remove("cvMetaCache");
+/** Removes one CV from the library. If it was active, the next remaining entry (if any) becomes active. */
+export async function deleteCv(id: string): Promise<void> {
+  const library = await getCvLibrary();
+  const meta = library.items.find((cv) => cv.id === id);
+  if (!meta) return;
+  await drive.deleteFile(cvFileName(meta.id));
+  const items = library.items.filter((cv) => cv.id !== id);
+  const activeId = library.activeId === id ? (items[0]?.id ?? null) : library.activeId;
+  await saveCvLibrary({ items, activeId });
 }
 
 /**

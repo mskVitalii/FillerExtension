@@ -23,6 +23,22 @@ describe("computeSubmissionStats", () => {
     vi.useRealTimers();
   });
 
+  it("dedupes by URL, keeping each URL's earliest date, if the log ever has a repeated URL", () => {
+    vi.setSystemTime(new Date("2026-03-01T12:00:00"));
+    const activations: UrlActivation[] = [
+      { url: "https://a.example/job/1", date: "2026-02-28" },
+      { url: "https://a.example/job/1", date: "2026-03-01" },
+      { url: "https://a.example/job/2", date: "2026-03-01" },
+    ];
+    const stats = computeSubmissionStats(activations);
+    expect(stats.total).toBe(2);
+    expect(stats.byDay).toEqual([
+      { date: "2026-02-28", count: 1 },
+      { date: "2026-03-01", count: 1 },
+    ]);
+    vi.useRealTimers();
+  });
+
   it("computes the average per calendar day from the first activation through today, inclusive", () => {
     vi.setSystemTime(new Date("2026-03-05T09:00:00"));
     const activations: UrlActivation[] = [

@@ -61,3 +61,8 @@ export async function setApplicationStatus(id: string, status: ApplicationStatus
   if (!existing) return;
   await drive.writeJsonFile(fileName(id), { ...existing, status, updatedAt: new Date().toISOString() });
 }
+
+/** Removes a saved application record from Drive — the "delete" action on an Applications list row. */
+export async function deleteApplication(id: string): Promise<void> {
+  await drive.deleteFile(fileName(id));
+}

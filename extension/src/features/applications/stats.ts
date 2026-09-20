@@ -18,17 +18,30 @@ function daySpan(first: string, last: string): number {
   return Math.round((end - start) / DAY_MS) + 1;
 }
 
-/** Pure — used by both the sidepanel display and its tests without touching chrome.storage. */
+/**
+ * Pure — used by both the sidepanel display and its tests without touching
+ * chrome.storage. Deduplicates by URL first (keeping each URL's earliest
+ * date) rather than trusting `activations` is already one-entry-per-URL —
+ * `recordUrlActivation` enforces that going forward, but a log written
+ * before that dedup existed could still have leftover duplicates, and this
+ * keeps the chart/total correct either way.
+ */
 export function computeSubmissionStats(activations: UrlActivation[]): SubmissionStats {
   if (activations.length === 0) return { total: 0, avgPerDay: 0, byDay: [] };
 
+  const dateByUrl = new Map<string, string>();
+  for (const { url, date } of activations) {
+    const earliest = dateByUrl.get(url);
+    if (!earliest || date < earliest) dateByUrl.set(url, date);
+  }
+
   const counts = new Map<string, number>();
-  for (const { date } of activations) counts.set(date, (counts.get(date) ?? 0) + 1);
+  for (const date of dateByUrl.values()) counts.set(date, (counts.get(date) ?? 0) + 1);
   const byDay = [...counts.entries()]
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const total = activations.length;
+  const total = dateByUrl.size;
   const span = Math.max(1, daySpan(byDay[0].date, todayISO()));
 
   return { total, avgPerDay: Math.round((total / span) * 10) / 10, byDay };

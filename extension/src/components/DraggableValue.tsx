@@ -1,5 +1,5 @@
-import type { DragEvent, ReactNode } from "react";
-import { GripVertical } from "lucide-react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Check, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DraggableValueProps {
@@ -30,6 +30,8 @@ interface DraggableValueProps {
  */
 export function DraggableValue({ value, children, className, variant = "row", onDragStart }: DraggableValueProps) {
   const draggable = Boolean(value);
+  const [copied, setCopied] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleDragStart(e: DragEvent<HTMLDivElement>) {
     if (!value) return;
@@ -38,12 +40,25 @@ export function DraggableValue({ value, children, className, variant = "row", on
     onDragStart?.(e);
   }
 
+  async function handleClick() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard access unavailable — dragging the card still works.
+    }
+  }
+
   if (variant === "card") {
     return (
       <div
         draggable={draggable}
         onDragStart={handleDragStart}
-        title={draggable ? "Drag onto the page to insert this value" : undefined}
+        onClick={() => void handleClick()}
+        title={draggable ? "Click to copy, or drag onto the page to insert this value" : undefined}
         className={cn(
           "group relative min-w-0 rounded-md border border-border p-2 transition-colors",
           draggable &&
@@ -51,9 +66,12 @@ export function DraggableValue({ value, children, className, variant = "row", on
           className,
         )}
       >
-        {draggable && (
-          <GripVertical className="absolute right-1 top-1 h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-        )}
+        {draggable &&
+          (copied ? (
+            <Check className="absolute right-1 top-1 h-3 w-3 text-primary" />
+          ) : (
+            <GripVertical className="absolute right-1 top-1 h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+          ))}
         {children}
       </div>
     );
