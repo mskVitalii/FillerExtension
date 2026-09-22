@@ -426,7 +426,7 @@ function JobResultCard({
   onVisit: () => void;
 }) {
   return (
-    <Card className={cn(visited && "border-muted-foreground/30 bg-muted/20")}>
+    <Card className={cn(visited && "border-transparent bg-muted opacity-70")}>
       <CardContent className="flex flex-col gap-1 p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">

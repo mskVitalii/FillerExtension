@@ -43,6 +43,9 @@ import { cn } from "@/lib/utils";
 const PICKER_HOTKEY_LABEL =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌥P" : "Alt+P";
 
+/** Kept identical to the gradient `element-picker.ts` draws around a picked block on the page. */
+const PICKER_GRADIENT = "linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #ec4899)";
+
 interface MainViewProps {
   tabId: number;
   tabUrl: string;
@@ -1356,21 +1359,37 @@ export function MainView({
 
       <div>
         <p className="text-sm font-medium">Application Questions</p>
-        {picking ? (
-          <Button size="lg" variant="outline" className="mt-1.5 w-full" onClick={handleStopPicker}>
-            Stop picking
-            <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-              {PICKER_HOTKEY_LABEL}
-            </kbd>
-          </Button>
-        ) : (
-          <Button size="lg" variant="outline" className="mt-1.5 w-full" onClick={() => void handleStartPicker()}>
-            Pick fields on page
-            <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-              {PICKER_HOTKEY_LABEL}
-            </kbd>
-          </Button>
-        )}
+        {/* Same gradient the on-page picker overlay draws around a picked block
+            (element-picker.ts) — so the button itself visually promises what
+            clicking it does to the page, instead of blending in as one more
+            outline button. */}
+        <div className="mt-1.5 rounded-md p-[2px]" style={{ background: PICKER_GRADIENT }}>
+          {picking ? (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full rounded-[5px] border-0"
+              onClick={handleStopPicker}
+            >
+              Stop picking
+              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                {PICKER_HOTKEY_LABEL}
+              </kbd>
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full rounded-[5px] border-0"
+              onClick={() => void handleStartPicker()}
+            >
+              Pick fields on page
+              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                {PICKER_HOTKEY_LABEL}
+              </kbd>
+            </Button>
+          )}
+        </div>
         {picking && (
           <p className="mt-1 text-xs text-muted-foreground">
             Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
