@@ -81,11 +81,16 @@ export function DraggableValue({ value, children, className, variant = "row", on
     <div
       draggable={draggable}
       onDragStart={handleDragStart}
+      onClick={() => void handleClick()}
       className={cn("flex items-center gap-1.5", draggable && "cursor-grab active:cursor-grabbing")}
-      title={draggable ? "Drag onto the page to insert this value" : undefined}
+      title={draggable ? "Click to copy, or drag onto the page to insert this value" : undefined}
     >
       {draggable ? (
-        <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        copied ? (
+          <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+        ) : (
+          <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )
       ) : (
         <span className="w-3.5 shrink-0" />
       )}

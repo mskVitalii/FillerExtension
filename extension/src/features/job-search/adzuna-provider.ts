@@ -47,8 +47,15 @@ export interface AdzunaCredentials {
  * `what` — via `suggestSearchQuery()` from the candidate's own CV when the
  * user left it blank — rather than ever sending Adzuna an empty keyword.
  */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Gap between sequential Adzuna requests (see `searchAdzunaJobs`) — enough to stay clear of their per-second rate limit without noticeably slowing a 2-4 tag search. */
+const REQUEST_GAP_MS = 350;
+
 async function searchOneTag(
-  what: string,
+  tag: string,
   where: string,
   credentials: AdzunaCredentials,
   countryCode: string,
@@ -59,7 +66,7 @@ async function searchOneTag(
   url.searchParams.set("app_key", credentials.appKey);
   url.searchParams.set("results_per_page", "15");
   url.searchParams.set("content-type", "application/json");
-  if (what) url.searchParams.set("what", what);
+  if (tag) url.searchParams.set("what", tag);
   if (where) url.searchParams.set("where", where);
 
   const res = await fetch(url.toString());
@@ -77,7 +84,14 @@ async function searchOneTag(
     salary: formatSalary(job.salary_min, job.salary_max),
     snippet: (job.description ?? "").slice(0, 300),
     source: "adzuna" as const,
+    tag,
   }));
+}
+
+export interface AdzunaSearchOutcome {
+  results: JobSearchResult[];
+  /** One message per tag whose request failed (spec_7 item 13) — a 429 on one tag no longer aborts the whole search. */
+  warnings: string[];
 }
 
 /**
@@ -88,22 +102,38 @@ async function searchOneTag(
  * `what_or` itself is avoided). Falls back to the single `query.what` search
  * when no tags were resolved (a user-typed "what", or a provider other than
  * Adzuna's tag flow never ran).
+ *
+ * Requests run **sequentially**, not `Promise.all` — firing every tag at
+ * once routinely tripped Adzuna's rate limit (spec_7 item 13). Each tag is
+ * independently try/caught: one 429 no longer aborts the whole search, it
+ * just contributes a warning and the rest still come back.
  */
 export async function searchAdzunaJobs(
   query: JobSearchQuery,
   credentials: AdzunaCredentials,
   countryCode: string,
   page = 1,
-): Promise<JobSearchResult[]> {
+): Promise<AdzunaSearchOutcome> {
   const tags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
-  const perTag = await Promise.all(tags.map((tag) => searchOneTag(tag, query.where, credentials, countryCode, page)));
 
   const seen = new Set<string>();
   const merged: JobSearchResult[] = [];
-  for (const job of perTag.flat()) {
-    if (seen.has(job.url)) continue;
-    seen.add(job.url);
-    merged.push(job);
+  const warnings: string[] = [];
+
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    try {
+      const jobs = await searchOneTag(tag, query.where, credentials, countryCode, page);
+      for (const job of jobs) {
+        if (seen.has(job.url)) continue;
+        seen.add(job.url);
+        merged.push(job);
+      }
+    } catch (err) {
+      warnings.push(`"${tag}" — ${err instanceof Error ? err.message : "search failed"}`);
+    }
+    if (i < tags.length - 1) await sleep(REQUEST_GAP_MS);
   }
-  return merged;
+
+  return { results: merged, warnings };
 }

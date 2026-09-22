@@ -8,6 +8,8 @@ export interface JobSearchResult {
   salary: string;
   snippet: string;
   source: "openai" | "tavily" | "adzuna";
+  /** Adzuna only: the search tag/category this result came from (spec_7 item 13) — lets the UI group results by category. */
+  tag?: string;
 }
 
 export type JobSearchProvider = "openai" | "tavily" | "adzuna";

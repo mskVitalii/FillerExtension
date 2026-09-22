@@ -85,7 +85,13 @@ export type RuntimeMessage =
   | { type: "GENERATE_FAQ_ANSWERS"; questions: string[] }
   | { type: "FAQ_ANSWERS_RESULT"; entries: FaqEntry[] }
   | { type: "SEARCH_JOBS"; query: JobSearchQuery; page?: number; excludeResults?: JobSearchResult[] }
-  | { type: "JOB_SEARCH_RESULTS"; results: JobSearchResult[]; resolvedQuery: JobSearchQuery }
+  | {
+      type: "JOB_SEARCH_RESULTS";
+      results: JobSearchResult[];
+      resolvedQuery: JobSearchQuery;
+      /** Adzuna only: one message per search tag whose request failed (spec_7 item 13) — a partial-results notice, not a hard error. */
+      warnings?: string[];
+    }
   | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
   | { type: "GENERATE_CANDIDATE_SUMMARY" }

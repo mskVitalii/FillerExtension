@@ -5,12 +5,16 @@ import {
   type CvLibrary,
   type CvMeta,
   type FaqEntry,
+  type GenerationRules,
   type LanguageLevel,
+  type LegendLibrary,
+  type LegendMeta,
   type PersonalLegend,
   type Profile,
 } from "@/types/profile";
 import { getLocal, setLocal } from "@/features/storage/local";
 import * as drive from "@/features/google-drive/client";
+import { extractPdfText } from "@/lib/pdf-text";
 
 /**
  * Profile/CV/Personal Legend live in Google Drive appDataFolder (source of
@@ -40,26 +44,112 @@ export async function saveProfile(profile: Profile): Promise<void> {
   await drive.writeJsonFile("profile.json", profile);
 }
 
-export async function getPersonalLegend(): Promise<PersonalLegend | null> {
-  const cached = await getLocal("legendCache");
-  if (cached) return cached;
-  try {
-    const content = await drive.readTextFile("legend.md");
-    if (content !== null) {
-      const legend: PersonalLegend = { content, updatedAt: new Date().toISOString() };
-      await setLocal("legendCache", legend);
-      return legend;
-    }
-  } catch {
-    // Google not connected yet.
-  }
-  return null;
+/** `${legendFileName(id)}` names each library entry's Drive text file uniquely — the legacy single-legend extension only ever wrote "legend.md". */
+function legendFileName(id: string): string {
+  return `legend-${id}.md`;
 }
 
-export async function savePersonalLegend(content: string): Promise<void> {
-  const legend: PersonalLegend = { content, updatedAt: new Date().toISOString() };
-  await setLocal("legendCache", legend);
-  await drive.writeTextFile("legend.md", content);
+async function saveLegendLibrary(library: LegendLibrary): Promise<void> {
+  await setLocal("legendLibraryCache", library);
+  await drive.writeJsonFile("legendLibrary.json", library);
+}
+
+/**
+ * One-time upgrade from the pre-multi-legend format (a single `legendCache`
+ * + Drive `legend.md`) into a library of one entry, mirroring
+ * `migrateLegacyCv` — a user who already had a Personal Legend written
+ * doesn't lose it when this ships.
+ */
+async function migrateLegacyLegend(): Promise<LegendLibrary> {
+  const cached = await getLocal("legendCache");
+  let content = cached?.content;
+  const uploadedAt = cached?.updatedAt ?? new Date().toISOString();
+  if (!content) {
+    try {
+      const remote = await drive.readTextFile("legend.md");
+      if (remote !== null) content = remote;
+    } catch {
+      // Google not connected yet.
+    }
+  }
+  if (!content) return { items: [], activeId: null };
+  const id = crypto.randomUUID();
+  const meta: LegendMeta = { id, name: "Personal Legend", content, uploadedAt };
+  await drive.writeTextFile(legendFileName(id), content);
+  return { items: [meta], activeId: id };
+}
+
+export async function getLegendLibrary(): Promise<LegendLibrary> {
+  const cached = await getLocal("legendLibraryCache");
+  if (cached) return cached;
+  try {
+    const remote = await drive.readJsonFile<LegendLibrary>("legendLibrary.json");
+    if (remote) {
+      await setLocal("legendLibraryCache", remote);
+      return remote;
+    }
+  } catch {
+    // Google not connected yet — fall through to the legacy migration/empty library.
+  }
+  const migrated = await migrateLegacyLegend();
+  await saveLegendLibrary(migrated);
+  return migrated;
+}
+
+/** The legend generation currently treats as "the" Personal Legend — kept as the same `PersonalLegend` shape every existing caller already expects. */
+export async function getPersonalLegend(): Promise<PersonalLegend | null> {
+  const library = await getLegendLibrary();
+  const active = library.items.find((legend) => legend.id === library.activeId);
+  if (!active) return null;
+  return { content: active.content, updatedAt: active.uploadedAt };
+}
+
+export async function createLegend(name: string, content: string): Promise<LegendMeta> {
+  const id = crypto.randomUUID();
+  const meta: LegendMeta = { id, name, content, uploadedAt: new Date().toISOString() };
+  await drive.writeTextFile(legendFileName(id), content);
+  const library = await getLegendLibrary();
+  const next: LegendLibrary = { items: [...library.items, meta], activeId: id };
+  await saveLegendLibrary(next);
+  return meta;
+}
+
+/** `.txt`/`.md` are read as plain text; `.pdf` is parsed via the same `extractPdfText` used for CVs. */
+export async function uploadLegendFile(file: File): Promise<LegendMeta> {
+  const content =
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+      ? await extractPdfText(file)
+      : await file.text();
+  return createLegend(file.name, content);
+}
+
+/** Switches which legend generation uses — returns the newly active entry, or null if `id` isn't in the library. */
+export async function setActiveLegend(id: string): Promise<LegendMeta | null> {
+  const library = await getLegendLibrary();
+  const meta = library.items.find((legend) => legend.id === id);
+  if (!meta) return null;
+  await saveLegendLibrary({ ...library, activeId: id });
+  return meta;
+}
+
+export async function updateLegendContent(id: string, content: string): Promise<void> {
+  const library = await getLegendLibrary();
+  const meta = library.items.find((legend) => legend.id === id);
+  if (!meta) return;
+  await drive.writeTextFile(legendFileName(id), content);
+  const items = library.items.map((legend) => (legend.id === id ? { ...legend, content } : legend));
+  await saveLegendLibrary({ ...library, items });
+}
+
+/** Removes one legend from the library. If it was active, the next remaining entry (if any) becomes active. */
+export async function deleteLegend(id: string): Promise<void> {
+  const library = await getLegendLibrary();
+  const meta = library.items.find((legend) => legend.id === id);
+  if (!meta) return;
+  await drive.deleteFile(legendFileName(id));
+  const items = library.items.filter((legend) => legend.id !== id);
+  const activeId = library.activeId === id ? (items[0]?.id ?? null) : library.activeId;
+  await saveLegendLibrary({ items, activeId });
 }
 
 /** `${cvFileName(id)}` names each library entry's Drive PDF uniquely — the legacy single-CV extension only ever wrote "cv.pdf". */
@@ -263,4 +353,31 @@ export async function saveCandidateSummary(content: string): Promise<void> {
   const summary: CandidateSummary = { content, updatedAt: new Date().toISOString() };
   await setLocal("candidateSummaryCache", summary);
   await drive.writeTextFile("candidateSummary.md", content);
+}
+
+/**
+ * Applicant-authored instructions for how generated text should be written
+ * (spec_7 item 7) — same cache-then-Drive pattern as Personal Legend/
+ * Candidate Summary.
+ */
+export async function getGenerationRules(): Promise<GenerationRules | null> {
+  const cached = await getLocal("generationRulesCache");
+  if (cached) return cached;
+  try {
+    const content = await drive.readTextFile("generationRules.md");
+    if (content !== null) {
+      const rules: GenerationRules = { content, updatedAt: new Date().toISOString() };
+      await setLocal("generationRulesCache", rules);
+      return rules;
+    }
+  } catch {
+    // Google not connected yet.
+  }
+  return null;
+}
+
+export async function saveGenerationRules(content: string): Promise<void> {
+  const rules: GenerationRules = { content, updatedAt: new Date().toISOString() };
+  await setLocal("generationRulesCache", rules);
+  await drive.writeTextFile("generationRules.md", content);
 }

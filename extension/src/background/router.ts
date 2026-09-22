@@ -386,13 +386,13 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
             };
           }
         }
-        const results = await searchAdzunaJobs(
+        const { results, warnings } = await searchAdzunaJobs(
           query,
           { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
           adzunaCountryCode(profile.country),
           message.page ?? 1,
         );
-        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query };
+        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings };
       }
       if (provider === "tavily") {
         const creds = await getJobSearchCredentials();

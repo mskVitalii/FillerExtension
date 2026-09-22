@@ -1,6 +1,7 @@
 import type { Job, JobLanguageInfo } from "@/types/job";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
+import type { JobSearchProvider, JobSearchResult } from "@/types/job-search";
 
 /**
  * chrome.storage.session — per-tab UI state (current job + cover-letter
@@ -49,4 +50,36 @@ export async function setTabState(tabId: number, state: TabState): Promise<void>
 
 export async function clearTabState(tabId: number): Promise<void> {
   await chrome.storage.session.remove(key(tabId));
+}
+
+/**
+ * The Job Search tab's query + results (spec_7 item 15) — deliberately
+ * *not* tab-keyed, unlike `TabState` above: opening the Side Panel on a
+ * different tab gets its own fresh document (see `background/index.ts`'s
+ * per-tab `sidePanel.setOptions`), which would otherwise reset this tool
+ * back to empty every time. It's one shared state across every tab, same
+ * tier (session storage — cleared on browser restart, not durable like
+ * Drive) as `TabState`.
+ */
+export interface JobSearchState {
+  provider: JobSearchProvider;
+  what: string;
+  where: string;
+  remoteOnly: boolean;
+  tags: string[];
+  results: JobSearchResult[];
+  searched: boolean;
+  page: number;
+  warnings: string[];
+}
+
+const JOB_SEARCH_STATE_KEY = "jobSearchState";
+
+export async function getJobSearchState(): Promise<JobSearchState | undefined> {
+  const result = await chrome.storage.session.get(JOB_SEARCH_STATE_KEY);
+  return result[JOB_SEARCH_STATE_KEY] as JobSearchState | undefined;
+}
+
+export async function setJobSearchState(state: JobSearchState): Promise<void> {
+  await chrome.storage.session.set({ [JOB_SEARCH_STATE_KEY]: state });
 }

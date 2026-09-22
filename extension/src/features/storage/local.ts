@@ -1,4 +1,15 @@
-import type { CandidateSummary, CustomField, CvLibrary, CvMeta, FaqEntry, LanguageLevel, PersonalLegend, Profile } from "@/types/profile";
+import type {
+  CandidateSummary,
+  CustomField,
+  CvLibrary,
+  CvMeta,
+  FaqEntry,
+  GenerationRules,
+  LanguageLevel,
+  LegendLibrary,
+  PersonalLegend,
+  Profile,
+} from "@/types/profile";
 import type { UrlActivation } from "@/types/application";
 import type { Job } from "@/types/job";
 import { mergeBackfilledActivations } from "@/features/applications/stats";
@@ -20,11 +31,14 @@ interface LocalStorageSchema {
   /** @deprecated superseded by `cvLibraryCache` — read once for migration, never written again. */
   cvMetaCache: CvMeta;
   cvLibraryCache: CvLibrary;
+  /** @deprecated superseded by `legendLibraryCache` — read once for migration, never written again. */
   legendCache: PersonalLegend;
+  legendLibraryCache: LegendLibrary;
   customFieldsCache: CustomField[];
   languageLevelsCache: LanguageLevel[];
   faqAnswersCache: FaqEntry[];
   candidateSummaryCache: CandidateSummary;
+  generationRulesCache: GenerationRules;
   /** Most recently generated/edited cover letter, so the context menu can insert it. */
   lastCoverLetter: string;
   /** spec_6 — every job URL the extension was activated on, one entry per unique URL, for the submissions chart. */
@@ -39,6 +53,8 @@ interface LocalStorageSchema {
    * covers everything that outlives a tab.
    */
   jobExtractionCache: Record<string, Job>;
+  /** spec_7 item 17 — job-search result URLs the user has clicked into, so a repeat search can highlight them; not a timestamped log, just membership. */
+  jobSearchVisitedLinks: string[];
 }
 
 export async function getLocal<K extends keyof LocalStorageSchema>(
@@ -141,4 +157,20 @@ export async function getCachedJob(url: string): Promise<Job | undefined> {
 export async function setCachedJob(url: string, job: Job): Promise<void> {
   const cache = (await getLocal("jobExtractionCache")) ?? {};
   await setLocal("jobExtractionCache", { ...cache, [url]: job });
+}
+
+/**
+ * Job-search result links the user has actually clicked into (spec_7 item
+ * 17) — recorded on click, not derived from a full browsing history, so a
+ * later search that resurfaces the same posting can highlight it as
+ * already-seen without keeping a growing timestamped log.
+ */
+export async function getJobSearchVisitedLinks(): Promise<string[]> {
+  return (await getLocal("jobSearchVisitedLinks")) ?? [];
+}
+
+export async function recordJobSearchLinkVisit(url: string): Promise<void> {
+  const visited = await getJobSearchVisitedLinks();
+  if (visited.includes(url)) return;
+  await setLocal("jobSearchVisitedLinks", [...visited, url]);
 }

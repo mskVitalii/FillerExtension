@@ -1,4 +1,10 @@
-import { getCustomFields, getCvMeta, getPersonalLegend, getProfile } from "@/features/profile/repository";
+import {
+  getCustomFields,
+  getCvMeta,
+  getGenerationRules,
+  getPersonalLegend,
+  getProfile,
+} from "@/features/profile/repository";
 import type { FaqEntry } from "@/types/profile";
 import { MODEL_LUNA, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
@@ -16,6 +22,9 @@ Ground rules:
   than fabricating specifics — the applicant can always sharpen it later.
 - Keep each answer 2-5 sentences: concrete and confident, never generic
   corporate filler, no restating the question.
+- If "generationRules" contains applicant-specified instructions for how
+  their text should be written (tone, things to include/avoid), follow them
+  as long as they don't conflict with the Ground rules above.
 - Output plain text per answer, no markdown, no numbering.
 
 ${HOUSE_STYLE_RULES}`;
@@ -45,10 +54,11 @@ function schemaFor(count: number) {
 export async function generateFaqAnswers(questions: string[]): Promise<FaqEntry[]> {
   if (questions.length === 0) return [];
 
-  const [profile, cvMeta, legend, customFields] = await Promise.all([
+  const [profile, cvMeta, legend, generationRules, customFields] = await Promise.all([
     getProfile(),
     getCvMeta(),
     getPersonalLegend(),
+    getGenerationRules(),
     getCustomFields(),
   ]);
 
@@ -58,6 +68,7 @@ export async function generateFaqAnswers(questions: string[]): Promise<FaqEntry[
       profile,
       cvText: cvMeta?.text ?? "",
       personalLegend: legend?.content ?? "",
+      generationRules: generationRules?.content ?? "",
       customFields,
     },
     null,

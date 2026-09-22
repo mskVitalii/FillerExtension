@@ -8,6 +8,8 @@ export interface CoverLetterInput {
   profile: Profile;
   cvText: string;
   personalLegend: string;
+  /** Applicant-authored instructions for tone/length/structure (spec_7 item 7) — distinct from the factual Personal Legend. */
+  generationRules: string;
   job: Job;
   analysis: JobAnalysis;
 }
@@ -29,6 +31,9 @@ Ground rules:
 - If information needed to be compelling is missing, write around it honestly
   rather than fabricating it.
 - Tailor tone and emphasis to the job analysis provided.
+- If "generationRules" contains applicant-specified instructions for how to
+  write this letter (tone, length, structure, things to include/avoid),
+  follow them as long as they don't conflict with the Ground rules above.
 - Output plain prose paragraphs, no markdown headers.
 
 ${HOUSE_STYLE_RULES}`;
@@ -44,6 +49,7 @@ export async function generateCoverLetter(input: CoverLetterInput): Promise<stri
       profile: input.profile,
       cvText: input.cvText,
       personalLegend: input.personalLegend,
+      generationRules: input.generationRules,
       job: input.job,
       analysis: input.analysis,
     },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
 import { FileText, GripVertical, ListChecks, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
@@ -22,7 +23,8 @@ import { fileToBase64 } from "@/lib/base64";
 import { recordUrlActivation, setLocal } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
-import { saveCoverLetterDraft } from "@/features/applications/repository";
+import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
+import type { Application } from "@/types/application";
 import { getCvFile } from "@/features/profile/repository";
 import { questionAnswerKey, type CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField } from "@/features/autofill/pick-questions";
@@ -84,6 +86,10 @@ export function MainView({
 }: MainViewProps) {
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [loadingJob, setLoadingJob] = useState(true);
+  // spec_7 item 8 — a previously-saved Drive record for the current job URL,
+  // surfaced as a badge so re-opening a posting already applied to is
+  // obvious before generating a duplicate cover letter.
+  const [existingApplication, setExistingApplication] = useState<Application | null>(null);
   const [coverLetter, setCoverLetter] = useState("");
   const [generating, setGenerating] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<string | null>(null);
@@ -109,6 +115,11 @@ export function MainView({
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([]);
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [answeringAllQuestions, setAnsweringAllQuestions] = useState(false);
+  // spec_7 item 12 — a manual fallback for when the picker/automatic
+  // detection can't find a question on the page: typed by hand, answered the
+  // same way, then copy/pasted since there's no page element to target.
+  const [manualQuestionText, setManualQuestionText] = useState("");
+  const [addingManualQuestion, setAddingManualQuestion] = useState(false);
   const [detectingQuestions, setDetectingQuestions] = useState(false);
   const [picking, setPicking] = useState(false);
   // Questions the AI answered but whose field refused every autofill attempt
@@ -197,6 +208,7 @@ export function MainView({
         setQuestionAnswers(cached.customQuestionAnswers);
         setCheckboxDecisions(cached.checkboxDecisions ?? []);
         setJobLanguage(cached.jobLanguage);
+        void checkExistingApplication(cached.job.url);
         setLoadingJob(false);
         hasLoadedRef.current = true;
         // A password is always ready to drag/copy by default — no reason to
@@ -256,11 +268,21 @@ export function MainView({
       setCheckboxDecisions([]);
       setJobLanguage(null);
       void handleDetectJobLanguage(newJob);
+      void checkExistingApplication(newJob.url);
       const prefs = await getPreferences();
       if (prefs.autofillOnOpen) await runAutofill();
     }
     void handleDetectQuestions(newJob ?? job);
     void handleDecideCheckboxes();
+  }
+
+  /** Looks up a previously-saved Drive application for `url` (spec_7 item 8) — tolerant of Drive not being connected yet. */
+  async function checkExistingApplication(url: string) {
+    try {
+      setExistingApplication(url ? await getApplicationByUrl(url) : null);
+    } catch {
+      setExistingApplication(null);
+    }
   }
 
   async function handleReset() {
@@ -275,6 +297,7 @@ export function MainView({
     setQuestionAnswers({});
     setCheckboxDecisions([]);
     setJobLanguage(null);
+    setExistingApplication(null);
     setPasteMode(false);
     setPasteText("");
     setError(null);
@@ -411,6 +434,7 @@ export function MainView({
         detectedJob = response.job;
         setJob(response.job);
         void handleDetectJobLanguage(response.job);
+        void checkExistingApplication(response.job.url);
         const prefs = await getPreferences();
         if (prefs.autofillOnOpen) await runAutofill();
       }
@@ -541,6 +565,27 @@ export function MainView({
       setError(err instanceof Error ? err.message : "Could not answer the application questions.");
     } finally {
       setAnsweringAllQuestions(false);
+    }
+  }
+
+  /**
+   * Manual fallback (spec_7 item 12) for a question the picker/automatic
+   * detection couldn't find: typed by hand, with no `locator`, so it's
+   * answered the same way any locator-less question is — a text-match fill
+   * is attempted against the page (a harmless no-op if nothing matches) and
+   * the answer is always shown in the list below, ready to copy or drag.
+   */
+  async function handleAddManualQuestion() {
+    const question = manualQuestionText.trim();
+    if (!question) return;
+    setAddingManualQuestion(true);
+    try {
+      const newQuestion: CustomQuestion = { id: `manual-${Date.now().toString(36)}`, question };
+      setCustomQuestions((prev) => [...prev, newQuestion]);
+      setManualQuestionText("");
+      await answerAndFillQuestions([newQuestion], job);
+    } finally {
+      setAddingManualQuestion(false);
     }
   }
 
@@ -1030,6 +1075,20 @@ export function MainView({
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
+      {existingApplication && (
+        <p className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+          <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+            Already applied
+          </span>
+          You generated a cover letter for this posting on{" "}
+          {new Date(existingApplication.createdAt).toLocaleDateString()} (status: {existingApplication.status}) —{" "}
+          <button onClick={onOpenApplications} className="underline underline-offset-2">
+            view it
+          </button>
+          .
+        </p>
+      )}
+
       <div className="grid grid-cols-1 gap-2 text-sm">
         <Field label="Company" value={job.company} loading={loadingJob} />
         <Field label="Position" value={job.position} loading={loadingJob} />
@@ -1134,9 +1193,24 @@ export function MainView({
         </div>
       )}
 
-      <Button onClick={handleGenerate} disabled={generating || !job.position}>
-        {generating ? "Generating…" : "Generate Cover Letter"}
-      </Button>
+      <div className="flex gap-2">
+        <Button className="flex-1" onClick={handleGenerate} disabled={generating || !job.position}>
+          {generating ? "Generating…" : "Generate Cover Letter"}
+        </Button>
+        <Button className="flex-1" onClick={() => void runAutofill(true)}>
+          Autofill Application
+        </Button>
+      </div>
+      {!cvMeta && (
+        <p className="text-xs text-muted-foreground">
+          No CV on file yet —{" "}
+          <button onClick={onOpenSettings} className="underline underline-offset-2">
+            add one in Settings
+          </button>{" "}
+          so it can be attached to applications.
+        </p>
+      )}
+      {autofillStatus && <p className="text-xs text-muted-foreground">{autofillStatus}</p>}
 
       {coverLetter && (
         <div className="flex flex-col gap-2">
@@ -1281,24 +1355,22 @@ export function MainView({
       )}
 
       <div>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Application Questions</p>
-          {picking ? (
-            <Button size="sm" variant="outline" onClick={handleStopPicker}>
-              Stop picking
-              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-                {PICKER_HOTKEY_LABEL}
-              </kbd>
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => void handleStartPicker()}>
-              Pick fields on page
-              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-                {PICKER_HOTKEY_LABEL}
-              </kbd>
-            </Button>
-          )}
-        </div>
+        <p className="text-sm font-medium">Application Questions</p>
+        {picking ? (
+          <Button size="lg" variant="outline" className="mt-1.5 w-full" onClick={handleStopPicker}>
+            Stop picking
+            <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+              {PICKER_HOTKEY_LABEL}
+            </kbd>
+          </Button>
+        ) : (
+          <Button size="lg" variant="outline" className="mt-1.5 w-full" onClick={() => void handleStartPicker()}>
+            Pick fields on page
+            <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+              {PICKER_HOTKEY_LABEL}
+            </kbd>
+          </Button>
+        )}
         {picking && (
           <p className="mt-1 text-xs text-muted-foreground">
             Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
@@ -1347,6 +1419,25 @@ export function MainView({
             {unfillableQuestions.join(", ")}
           </p>
         )}
+        <div className="mt-2 flex items-center gap-2">
+          <Input
+            value={manualQuestionText}
+            onChange={(e) => setManualQuestionText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleAddManualQuestion();
+            }}
+            placeholder="Type a question the picker/automation missed…"
+            className="h-8 flex-1 text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleAddManualQuestion()}
+            disabled={addingManualQuestion || !manualQuestionText.trim()}
+          >
+            Add
+          </Button>
+        </div>
       </div>
       {detectingQuestions && <p className="text-xs text-muted-foreground">Scanning page for questions…</p>}
 
@@ -1452,17 +1543,6 @@ export function MainView({
         </div>
       )}
 
-      <Button onClick={() => void runAutofill(true)}>Autofill Application</Button>
-      {!cvMeta && (
-        <p className="text-xs text-muted-foreground">
-          No CV on file yet —{" "}
-          <button onClick={onOpenSettings} className="underline underline-offset-2">
-            add one in Settings
-          </button>{" "}
-          so it can be attached to applications.
-        </p>
-      )}
-      {autofillStatus && <p className="text-xs text-muted-foreground">{autofillStatus}</p>}
     </div>
   );
 }

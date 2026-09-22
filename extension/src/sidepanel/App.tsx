@@ -13,8 +13,8 @@ import {
   getCustomFields,
   getCvMeta,
   getFaqAnswers,
+  getGenerationRules,
   getLanguageLevels,
-  getPersonalLegend,
   getProfile,
 } from "@/features/profile/repository";
 import {
@@ -33,11 +33,11 @@ export function App() {
   const [step, setStep] = useState<Step>("loading");
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [cvMeta, setCvMeta] = useState<CvMeta | null>(null);
-  const [legend, setLegend] = useState("");
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [languageLevels, setLanguageLevels] = useState<LanguageLevel[]>([]);
   const [faqAnswers, setFaqAnswers] = useState<FaqEntry[]>([]);
   const [candidateSummary, setCandidateSummary] = useState("");
+  const [generationRules, setGenerationRules] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
@@ -65,27 +65,27 @@ export function App() {
     const [
       loadedProfile,
       loadedCv,
-      loadedLegend,
       loadedCustomFields,
       loadedLanguageLevels,
       loadedFaqAnswers,
       loadedCandidateSummary,
+      loadedGenerationRules,
     ] = await Promise.all([
       getProfile(),
       getCvMeta(),
-      getPersonalLegend(),
       getCustomFields(),
       getLanguageLevels(),
       getFaqAnswers(),
       getCandidateSummary(),
+      getGenerationRules(),
     ]);
     setProfile(loadedProfile);
     setCvMeta(loadedCv);
-    setLegend(loadedLegend?.content ?? "");
     setCustomFields(loadedCustomFields);
     setLanguageLevels(loadedLanguageLevels);
     setFaqAnswers(loadedFaqAnswers);
     setCandidateSummary(loadedCandidateSummary?.content ?? "");
+    setGenerationRules(loadedGenerationRules?.content ?? "");
   }
 
   if (step === "loading") return null;
@@ -118,7 +118,14 @@ export function App() {
   }
 
   if (step === "job-search") {
-    return <JobSearchPanel hasApiKey={hasApiKey} onBack={() => setStep("main")} />;
+    return (
+      <JobSearchPanel
+        hasApiKey={hasApiKey}
+        candidateSummary={candidateSummary}
+        onBack={() => setStep("main")}
+        onOpenSettings={() => setStep("settings")}
+      />
+    );
   }
 
   if (step === "settings") {
@@ -126,19 +133,19 @@ export function App() {
       <SettingsPanel
         profile={profile}
         cvMeta={cvMeta}
-        legendContent={legend}
         customFields={customFields}
         languageLevels={languageLevels}
         faqAnswers={faqAnswers}
         candidateSummary={candidateSummary}
+        generationRules={generationRules}
         onBack={() => setStep("main")}
         onProfileChange={setProfile}
         onCvChange={setCvMeta}
-        onLegendChange={setLegend}
         onCustomFieldsChange={setCustomFields}
         onLanguageLevelsChange={setLanguageLevels}
         onFaqAnswersChange={setFaqAnswers}
         onCandidateSummaryChange={setCandidateSummary}
+        onGenerationRulesChange={setGenerationRules}
         onApiKeyDeleted={() => {
           setHasApiKey(false);
           setStep("api-key");

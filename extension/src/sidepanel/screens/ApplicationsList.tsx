@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ExternalLink, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Search, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { deleteApplication, getAllApplications, setApplicationStatus } from "@/features/applications/repository";
 import { computeSubmissionStats, type SubmissionStats } from "@/features/applications/stats";
+import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
 import { getUrlActivationsWithBackfill, removeUrlActivation } from "@/features/storage/local";
 import type { Application, ApplicationStatus, UrlActivation } from "@/types/application";
 
@@ -103,6 +104,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -129,6 +131,17 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   async function handleStatusChange(app: Application, status: ApplicationStatus) {
     setApplications((apps) => apps.map((a) => (a.id === app.id ? { ...a, status } : a)));
     await setApplicationStatus(app.id, status);
+  }
+
+  async function handleDownload(application: Application) {
+    setDownloadingId(application.id);
+    try {
+      const fileName = `Cover Letter - ${application.company || application.position || "application"}.pdf`;
+      const file = await renderCoverLetterPdf(application.coverLetter, fileName);
+      await downloadFile(file);
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   async function handleDelete(row: ActivityRow) {
@@ -222,6 +235,16 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {row.application?.coverLetter && (
+                    <button
+                      onClick={() => void handleDownload(row.application!)}
+                      disabled={downloadingId === row.application.id}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      aria-label="Download cover letter PDF"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                  )}
                   <a
                     href={row.url}
                     target="_blank"

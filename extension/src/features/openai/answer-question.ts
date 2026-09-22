@@ -4,6 +4,7 @@ import {
   getCustomFields,
   getCvMeta,
   getFaqAnswers,
+  getGenerationRules,
   getLanguageLevels,
   getPersonalLegend,
   getProfile,
@@ -42,6 +43,9 @@ Ground rules:
   than being re-derived from scratch each time.
 - Match the question's expected length: a short field gets a short answer, an
   open-ended "tell us about..." field gets a fuller one.
+- If "generationRules" contains applicant-specified instructions for how
+  their text should be written (tone, things to include/avoid), follow them
+  as long as they don't conflict with the Ground rules above.
 - Output plain text, no markdown, no restating the question.
 
 ${HOUSE_STYLE_RULES}`;
@@ -142,15 +146,17 @@ export async function answerCustomQuestion(
   dateKind?: DateInputKind,
   multi?: boolean,
 ): Promise<string> {
-  const [profile, cvMeta, legend, coverLetter, languageLevels, customFields, faq] = await Promise.all([
-    getProfile(),
-    getCvMeta(),
-    getPersonalLegend(),
-    getLocal("lastCoverLetter"),
-    getLanguageLevels(),
-    getCustomFields(),
-    getFaqAnswers(),
-  ]);
+  const [profile, cvMeta, legend, generationRules, coverLetter, languageLevels, customFields, faq] =
+    await Promise.all([
+      getProfile(),
+      getCvMeta(),
+      getPersonalLegend(),
+      getGenerationRules(),
+      getLocal("lastCoverLetter"),
+      getLanguageLevels(),
+      getCustomFields(),
+      getFaqAnswers(),
+    ]);
 
   const userPrompt = JSON.stringify(
     {
@@ -161,6 +167,7 @@ export async function answerCustomQuestion(
       profile,
       cvText: cvMeta?.text ?? "",
       personalLegend: legend?.content ?? "",
+      generationRules: generationRules?.content ?? "",
       coverLetter: coverLetter ?? "",
       languageLevels,
       customFields,

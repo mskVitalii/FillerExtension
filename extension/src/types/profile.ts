@@ -70,6 +70,30 @@ export interface PersonalLegend {
   updatedAt: string;
 }
 
+export interface LegendMeta {
+  id: string;
+  name: string;
+  content: string;
+  uploadedAt: string;
+}
+
+/** Every Personal Legend the user has written/uploaded, plus which one generation currently treats as "the" legend (spec_7 item 5). */
+export interface LegendLibrary {
+  items: LegendMeta[];
+  activeId: string | null;
+}
+
+/**
+ * Applicant-authored instructions for *how* AI-generated text (cover letter,
+ * FAQ answers, custom-question answers) should be written — tone, length,
+ * structure, things to include/avoid — kept separate from the factual
+ * Personal Legend (spec_7 item 7).
+ */
+export interface GenerationRules {
+  content: string;
+  updatedAt: string;
+}
+
 /**
  * spec_5 section C: a condensed "who this candidate is" digest — profile,
  * CV, Personal Legend, custom fields, and language levels distilled into
@@ -105,8 +129,13 @@ export interface LanguageLevel {
  * `lib/faq-questions.ts`), pre-generated from CV + Personal Legend so a real
  * form's version of the same question can reuse a consistent, reviewed
  * answer instead of a fresh guess every time.
+ *
+ * `id` is present only for a user-added custom question (spec_7 item 2) —
+ * the 21 fixed questions stay keyed by their literal `question` text, same
+ * as before, so existing saved data needs no migration.
  */
 export interface FaqEntry {
+  id?: string;
   question: string;
   answer: string;
 }

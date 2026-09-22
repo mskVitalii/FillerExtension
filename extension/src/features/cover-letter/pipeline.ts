@@ -2,7 +2,7 @@ import type { Job } from "@/types/job";
 import { analyzeJob } from "@/features/openai/job-analysis";
 import { generateCoverLetter } from "@/features/openai/cover-letter";
 import { polishCoverLetter } from "@/features/openai/polish-cover-letter";
-import { getCvMeta, getPersonalLegend, getProfile } from "@/features/profile/repository";
+import { getCvMeta, getGenerationRules, getPersonalLegend, getProfile } from "@/features/profile/repository";
 import { detectSlop, type SlopFinding } from "./slop-detector";
 
 export interface CoverLetterPipelineResult {
@@ -22,7 +22,12 @@ export interface CoverLetterPipelineResult {
  * when the draft actually trips one of those patterns.
  */
 export async function runCoverLetterPipeline(job: Job): Promise<CoverLetterPipelineResult> {
-  const [profile, cvMeta, legend] = await Promise.all([getProfile(), getCvMeta(), getPersonalLegend()]);
+  const [profile, cvMeta, legend, generationRules] = await Promise.all([
+    getProfile(),
+    getCvMeta(),
+    getPersonalLegend(),
+    getGenerationRules(),
+  ]);
 
   const analysis = await analyzeJob(job);
 
@@ -30,6 +35,7 @@ export async function runCoverLetterPipeline(job: Job): Promise<CoverLetterPipel
     profile,
     cvText: cvMeta?.text ?? "",
     personalLegend: legend?.content ?? "",
+    generationRules: generationRules?.content ?? "",
     job,
     analysis,
   });
