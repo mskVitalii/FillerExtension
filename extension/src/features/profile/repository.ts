@@ -1,6 +1,5 @@
 import {
   EMPTY_PROFILE,
-  type CandidateSummary,
   type CustomField,
   type CvLibrary,
   type CvMeta,
@@ -326,33 +325,6 @@ export async function getFaqAnswers(): Promise<FaqEntry[]> {
 export async function saveFaqAnswers(entries: FaqEntry[]): Promise<void> {
   await setLocal("faqAnswersCache", entries);
   await drive.writeJsonFile("faq.json", entries);
-}
-
-/**
- * The candidate-summary digest (spec_5 section C) — same cache-then-Drive
- * pattern as Personal Legend, stored as plain text (`candidateSummary.md`)
- * rather than JSON since it's prose, not structured data.
- */
-export async function getCandidateSummary(): Promise<CandidateSummary | null> {
-  const cached = await getLocal("candidateSummaryCache");
-  if (cached) return cached;
-  try {
-    const content = await drive.readTextFile("candidateSummary.md");
-    if (content !== null) {
-      const summary: CandidateSummary = { content, updatedAt: new Date().toISOString() };
-      await setLocal("candidateSummaryCache", summary);
-      return summary;
-    }
-  } catch {
-    // Google not connected yet.
-  }
-  return null;
-}
-
-export async function saveCandidateSummary(content: string): Promise<void> {
-  const summary: CandidateSummary = { content, updatedAt: new Date().toISOString() };
-  await setLocal("candidateSummaryCache", summary);
-  await drive.writeTextFile("candidateSummary.md", content);
 }
 
 /**

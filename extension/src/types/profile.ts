@@ -95,18 +95,6 @@ export interface GenerationRules {
 }
 
 /**
- * spec_5 section C: a condensed "who this candidate is" digest — profile,
- * CV, Personal Legend, custom fields, and language levels distilled into
- * one grounded summary — generated once and reused as the context handed
- * to a job-search query, instead of a bare role/location string or the raw
- * CV text re-sent on every search.
- */
-export interface CandidateSummary {
-  content: string;
-  updatedAt: string;
-}
-
-/**
  * User-defined label/value pairs (spec_2 item 1) — draggable onto the page
  * like Profile fields, but deliberately never matched by the autofill engine
  * since there's no reliable semantic signal to detect them against.

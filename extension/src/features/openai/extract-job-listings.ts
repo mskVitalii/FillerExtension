@@ -1,5 +1,5 @@
 import type { JobSearchResult } from "@/types/job-search";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { requestStructured } from "./client";
 
 const SCHEMA = {
   type: "object",
@@ -49,17 +49,18 @@ Rules:
  * spec_5 section C: shared second pass for both the OpenAI-web-search and
  * Tavily providers — neither returns already-structured job listings, so
  * their raw text/results get parsed into the app's normalized shape here.
- * `candidateSummary`, when given, lets this pass also rank/filter for fit
- * and write a fit-focused snippet, rather than blindly extracting every
- * posting-shaped thing in the text.
+ * `candidateBackground` (the applicant's own Personal Legend, spec_8 item
+ * 8), when given, lets this pass also rank/filter for fit and write a
+ * fit-focused snippet, rather than blindly extracting every posting-shaped
+ * thing in the text.
  */
 export async function extractJobListings(
   rawText: string,
   source: "openai" | "tavily",
-  candidateSummary?: string,
+  candidateBackground?: string,
 ): Promise<JobSearchResult[]> {
-  const userPrompt = candidateSummary
-    ? `candidate:\n${candidateSummary}\n\n---\n\n${rawText.slice(0, 40000)}`
+  const userPrompt = candidateBackground
+    ? `candidate:\n${candidateBackground}\n\n---\n\n${rawText.slice(0, 40000)}`
     : rawText.slice(0, 40000);
 
   const result = await requestStructured<{
@@ -67,7 +68,6 @@ export async function extractJobListings(
   }>({
     schemaName: "job_listings",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { jobs: Omit<JobSearchResult, "source">[] },

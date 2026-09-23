@@ -1,5 +1,5 @@
 import type { FieldDescriptor } from "@/features/autofill/pick-questions";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { requestStructured } from "./client";
 
 const SCHEMA = {
   type: "object",
@@ -58,7 +58,6 @@ export async function decomposeBlock(
   const result = await requestStructured<{ questions: RawQuestion[] }>({
     schemaName: "block_questions",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { questions: RawQuestion[] },

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
+import { SetupBanner } from "@/components/SetupBanner";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
 const CoverLetterEditor = lazy(() =>
@@ -12,10 +13,10 @@ const CoverLetterEditor = lazy(() =>
 const EditorFallback = () => (
   <p className="text-xs text-muted-foreground">Loading editor…</p>
 );
-import { EMPTY_JOB, type Job, type JobLanguageInfo } from "@/types/job";
+import { EMPTY_JOB, type Job, type JobKeyword, type JobLanguageInfo } from "@/types/job";
 import type { CustomField, CvMeta, LanguageLevel, Profile } from "@/types/profile";
 import { meetsLevel } from "@/lib/language-level";
-import { sendMessage } from "@/types/messages";
+import { sendMessage, type RuntimeMessage } from "@/types/messages";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { formatProfileValueForDisplay } from "@/features/profile/format-value";
 import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
@@ -87,6 +88,12 @@ export function MainView({
   onRequestApiKey,
   onRequestGoogleConnect,
 }: MainViewProps) {
+  // Gates every AI-only and Drive-only section of the panel (spec_8): with
+  // either missing, cover letters/auto-answers/keyword highlighting/job
+  // search/saved applications can't work, so hiding them instead of letting
+  // them silently error keeps the panel down to what actually works —
+  // extraction + Autofill Application, neither of which needs either.
+  const setupComplete = hasApiKey && googleConnected;
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [loadingJob, setLoadingJob] = useState(true);
   // spec_7 item 8 — a previously-saved Drive record for the current job URL,
@@ -130,6 +137,11 @@ export function MainView({
   // which a content script can't fabricate — see combobox.ts) — surfaced so
   // the user knows to answer these by hand instead of assuming they're done.
   const [unfillableQuestions, setUnfillableQuestions] = useState<string[]>([]);
+  // Keyed by `questionAnswerKey` — questions the model reported it couldn't
+  // answer for lack of profile/CV/etc information (spec_8 item 6), shown as
+  // a distinct "not enough info" badge instead of the generic "no answer
+  // yet" placeholder. Nothing about this is written onto the page itself.
+  const [insufficientInfoQuestions, setInsufficientInfoQuestions] = useState<Set<string>>(new Set());
   // Not rendered in the UI (spec: checkboxes are decided and ticked directly
   // on the page — the applicant reviews/changes them there like any other
   // field), but still persisted to the per-tab cache so a re-open doesn't
@@ -138,6 +150,11 @@ export function MainView({
 
   const [showJobText, setShowJobText] = useState(false);
   const [jobLanguage, setJobLanguage] = useState<JobLanguageInfo | null>(null);
+  const [jobKeywords, setJobKeywords] = useState<JobKeyword[]>([]);
+  // On by default (spec_8 item 2: "make reading the posting cooler") — the
+  // toggle just lets the user turn it back off if they don't like it, or
+  // re-run it after `handleReset`.
+  const [highlightOnPage, setHighlightOnPage] = useState(true);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
 
@@ -268,9 +285,12 @@ export function MainView({
       setCustomQuestions([]);
       ingestedTagsRef.current.clear();
       setQuestionAnswers({});
+      setInsufficientInfoQuestions(new Set());
       setCheckboxDecisions([]);
       setJobLanguage(null);
-      void handleDetectJobLanguage(newJob);
+      setJobKeywords([]);
+      void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
+      void handleDetectJobBrief(newJob);
       void checkExistingApplication(newJob.url);
       const prefs = await getPreferences();
       if (prefs.autofillOnOpen) await runAutofill();
@@ -298,8 +318,11 @@ export function MainView({
     setCustomQuestions([]);
     ingestedTagsRef.current.clear();
     setQuestionAnswers({});
+    setInsufficientInfoQuestions(new Set());
     setCheckboxDecisions([]);
     setJobLanguage(null);
+    setJobKeywords([]);
+    void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
     setExistingApplication(null);
     setPasteMode(false);
     setPasteText("");
@@ -436,7 +459,7 @@ export function MainView({
       if (response?.job) {
         detectedJob = response.job;
         setJob(response.job);
-        void handleDetectJobLanguage(response.job);
+        void handleDetectJobBrief(response.job);
         void checkExistingApplication(response.job.url);
         const prefs = await getPreferences();
         if (prefs.autofillOnOpen) await runAutofill();
@@ -451,16 +474,39 @@ export function MainView({
     void handleDecideCheckboxes();
   }
 
-  async function handleDetectJobLanguage(currentJob: Job) {
+  /**
+   * Language detection + keyword extraction (spec_8 item 2) run automatically on every job
+   * load, combined into one MODEL_LUNA call (`analyzeJobBrief`) instead of two independent
+   * round trips over the same job/applicant context.
+   */
+  async function handleDetectJobBrief(currentJob: Job) {
+    if (!hasApiKey) return;
     try {
-      const response = await sendMessage<{ type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo }>({
-        type: "DETECT_JOB_LANGUAGE",
+      const response = await sendMessage<{ type: "JOB_BRIEF_DATA"; language: JobLanguageInfo; keywords: JobKeyword[] }>({
+        type: "DETECT_JOB_BRIEF",
         job: currentJob,
       });
-      setJobLanguage(response?.info ?? null);
+      setJobLanguage(response?.language ?? null);
+      const keywords = response?.keywords ?? [];
+      setJobKeywords(keywords);
+      if (keywords.length > 0 && highlightOnPage) {
+        await sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords }).catch(() => undefined);
+      }
     } catch {
-      // No API key yet, or the request failed — leave the brief without a language badge.
+      // No API key yet, or the request failed — leave the brief/keyword list empty.
     }
+  }
+
+  function handleToggleHighlightOnPage() {
+    setHighlightOnPage((prev) => {
+      const next = !prev;
+      if (next && jobKeywords.length > 0) {
+        void sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords: jobKeywords }).catch(() => undefined);
+      } else {
+        void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
+      }
+      return next;
+    });
   }
 
   async function handleDetectQuestions(currentJob: Job = job) {
@@ -478,7 +524,9 @@ export function MainView({
     } finally {
       setDetectingQuestions(false);
     }
-    if (questions.length > 0) void answerAndFillQuestions(questions, currentJob);
+    // Detection itself is a local DOM scan (harmless without a key); only the
+    // answering pass needs OpenAI, and its JSX is hidden without one anyway.
+    if (questions.length > 0 && hasApiKey) void answerAndFillQuestions(questions, currentJob);
   }
 
   /**
@@ -508,9 +556,10 @@ export function MainView({
     setAnsweringAllQuestions(true);
     try {
       if (pending.length > 0) {
+        const postingLanguage = jobLanguage?.postingLanguages[0];
         const results = await Promise.allSettled(
           pending.map((q) =>
-            sendMessage<{ type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }>({
+            sendMessage<{ type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string; sufficientInfo: boolean }>({
               type: "ANSWER_CUSTOM_QUESTION",
               question: q.question,
               job: currentJob,
@@ -518,17 +567,24 @@ export function MainView({
               multi: q.multi,
               numeric: q.numeric,
               dateKind: q.dateKind,
+              postingLanguage,
             }),
           ),
         );
         const failures: string[] = [];
+        const insufficient = new Set<string>();
         results.forEach((result, i) => {
           if (result.status === "fulfilled" && result.value?.answer) {
             answersByQuestion[questionAnswerKey(pending[i])] = result.value.answer;
+          } else if (result.status === "fulfilled" && result.value && !result.value.sufficientInfo) {
+            insufficient.add(questionAnswerKey(pending[i]));
           } else if (result.status === "rejected") {
             failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
           }
         });
+        if (insufficient.size > 0) {
+          setInsufficientInfoQuestions((prev) => new Set([...prev, ...insufficient]));
+        }
         // Merge over the latest state, not the closure's snapshot — the
         // picker fires this concurrently across picks without a re-render in
         // between, so a plain replace would drop a sibling pick's answers.
@@ -735,6 +791,15 @@ export function MainView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Tab switch / panel close: don't leave keyword highlights painted on a
+  // page the user has moved away from (spec_8 item 2).
+  useEffect(() => {
+    return () => {
+      void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Alt+P toggles the picker — press again to end the mode (issue: reaching
   // for the button after every pick). Only fires while the Side Panel holds
   // focus, which is where the button lives anyway.
@@ -759,6 +824,7 @@ export function MainView({
    * they'd do by hand anyway.
    */
   async function handleDecideCheckboxes() {
+    if (!hasApiKey) return;
     let checkboxes: PageCheckbox[] = [];
     try {
       const response = await sendMessage<{ type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }>({
@@ -831,7 +897,7 @@ export function MainView({
       });
       if (response?.job) {
         setJob(response.job);
-        void handleDetectJobLanguage(response.job);
+        void handleDetectJobBrief(response.job);
       }
       setPasteMode(false);
       setPasteText("");
@@ -842,17 +908,32 @@ export function MainView({
     }
   }
 
+  // Cover-letter generation is streamed (spec: the longest, most-watched AI call in the app) —
+  // `COVER_LETTER_STREAM_CHUNK` broadcasts arrive via the listener below and append live to
+  // `coverLetter` while this request is in flight; the request itself still resolves with the
+  // final, authoritative text (possibly AI-slop-cleaned, which the stream can't reflect).
+  useEffect(() => {
+    function handleStreamChunk(message: RuntimeMessage) {
+      if (message.type === "COVER_LETTER_STREAM_CHUNK" && message.tabId === tabId) {
+        setCoverLetter((prev) => prev + message.delta);
+      }
+    }
+    chrome.runtime.onMessage.addListener(handleStreamChunk);
+    return () => chrome.runtime.onMessage.removeListener(handleStreamChunk);
+  }, [tabId]);
+
   async function handleGenerate() {
     setGenerating(true);
     setError(null);
     setCleanedNotice(null);
+    setCoverLetter("");
     try {
       const response = await sendMessage<{
         type: "COVER_LETTER_RESULT";
         content: string;
         slopFindings: { pattern: string; match: string }[];
         cleaned: boolean;
-      }>({ type: "GENERATE_COVER_LETTER", job });
+      }>({ type: "GENERATE_COVER_LETTER", tabId, job, postingLanguage: jobLanguage?.postingLanguages[0] });
       setCoverLetter(response.content);
       if (job.url) void recordUrlActivation(job.url);
       if (response.cleaned) {
@@ -1045,36 +1126,28 @@ export function MainView({
           <button onClick={() => void handleReset()} aria-label="Reset">
             <RotateCcw className="h-4 w-4 text-muted-foreground" />
           </button>
-          <button onClick={onOpenJobSearch} aria-label="Job Search">
-            <Search className="h-4 w-4 text-muted-foreground" />
-          </button>
-          <button onClick={onOpenApplications} aria-label="Applications">
-            <ListChecks className="h-4 w-4 text-muted-foreground" />
-          </button>
+          {setupComplete && (
+            <>
+              <button onClick={onOpenJobSearch} aria-label="Job Search">
+                <Search className="h-4 w-4 text-muted-foreground" />
+              </button>
+              <button onClick={onOpenApplications} aria-label="Applications">
+                <ListChecks className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </>
+          )}
           <button onClick={onOpenSettings} aria-label="Settings">
             <Settings className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
       </div>
 
-      {!hasApiKey && (
-        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          Extraction works without it, but generating a cover letter needs your OpenAI key —{" "}
-          <button onClick={onRequestApiKey} className="underline underline-offset-2">
-            add it
-          </button>
-          .
-        </p>
-      )}
-      {hasApiKey && !googleConnected && (
-        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          Connect Google Drive to save your profile, CV and cover letters —{" "}
-          <button onClick={onRequestGoogleConnect} className="underline underline-offset-2">
-            connect
-          </button>
-          .
-        </p>
-      )}
+      <SetupBanner
+        googleConnected={googleConnected}
+        hasApiKey={hasApiKey}
+        onConnectGoogle={onRequestGoogleConnect}
+        onAddApiKey={onRequestApiKey}
+      />
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
@@ -1098,109 +1171,147 @@ export function MainView({
         <Field label="Location" value={job.location} loading={loadingJob} />
       </div>
 
-      {jobLanguage && (jobLanguage.postingLanguages.length > 0 || jobLanguage.requirements.length > 0) && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          {jobLanguage.postingLanguages.length > 0 && (
-            <span className="text-muted-foreground">Posting language: {jobLanguage.postingLanguages.join(", ")}</span>
+      {setupComplete && (
+        <>
+          {jobLanguage && (jobLanguage.postingLanguages.length > 0 || jobLanguage.requirements.length > 0) && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {jobLanguage.postingLanguages.length > 0 && (
+                <span className="text-muted-foreground">
+                  Posting language: {jobLanguage.postingLanguages.join(", ")}
+                </span>
+              )}
+              {jobLanguage.requirements.map((req) => {
+                const ownLevel = languageLevels.find(
+                  (l) => l.language.toLowerCase() === req.language.toLowerCase(),
+                )?.level;
+                const match = req.level && ownLevel ? meetsLevel(req.level, ownLevel) : null;
+                return (
+                  <span
+                    key={req.language}
+                    className={cn(
+                      "rounded-full px-2 py-0.5 font-medium",
+                      match === true && "bg-emerald-100 text-emerald-700",
+                      match === false && "bg-red-100 text-red-700",
+                      match === null && "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {req.language} {req.level ?? "level required"}
+                  </span>
+                );
+              })}
+            </div>
           )}
-          {jobLanguage.requirements.map((req) => {
-            const ownLevel = languageLevels.find(
-              (l) => l.language.toLowerCase() === req.language.toLowerCase(),
-            )?.level;
-            const match = req.level && ownLevel ? meetsLevel(req.level, ownLevel) : null;
-            return (
-              <span
-                key={req.language}
-                className={cn(
-                  "rounded-full px-2 py-0.5 font-medium",
-                  match === true && "bg-emerald-100 text-emerald-700",
-                  match === false && "bg-red-100 text-red-700",
-                  match === null && "bg-muted text-muted-foreground",
-                )}
-              >
-                {req.language} {req.level ?? "level required"}
-              </span>
-            );
-          })}
-        </div>
-      )}
 
-      <button
-        onClick={() => setShowJobText((v) => !v)}
-        className="w-fit text-xs text-muted-foreground underline underline-offset-2"
-      >
-        {showJobText ? "Hide job text" : "Show job text"}
-      </button>
+          {jobKeywords.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">Keywords</p>
+                <button
+                  onClick={handleToggleHighlightOnPage}
+                  className="text-xs text-muted-foreground underline underline-offset-2"
+                >
+                  {highlightOnPage ? "Stop highlighting on page" : "Highlight on page"}
+                </button>
+              </div>
+              <ul className="flex flex-wrap gap-1">
+                {jobKeywords.map((kw) => (
+                  <li
+                    key={kw.text}
+                    title={kw.matchesProfile ? "Matches your profile" : "Not found in your profile"}
+                    className={cn(
+                      "rounded-full border px-2 py-0.5 text-xs font-medium",
+                      kw.matchesProfile
+                        ? "border-emerald-300 bg-emerald-100/60 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "border-rose-300 bg-rose-100/60 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300",
+                    )}
+                  >
+                    {kw.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-      {showJobText && (
-        <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-          <p className="text-xs text-muted-foreground">
-            This is the text that's sent to the AI — edit or paste over it if the extraction got
-            something wrong before generating.
-          </p>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Description</label>
-            <textarea
-              className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
-              value={job.description}
-              onChange={(e) => setJob((j) => ({ ...j, description: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Requirements (one per line)</label>
-            <textarea
-              className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-              value={job.requirements.join("\n")}
-              onChange={(e) =>
-                setJob((j) => ({
-                  ...j,
-                  requirements: e.target.value.split("\n").map((line) => line.trim()).filter(Boolean),
-                }))
-              }
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Responsibilities (one per line)</label>
-            <textarea
-              className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-              value={job.responsibilities.join("\n")}
-              onChange={(e) =>
-                setJob((j) => ({
-                  ...j,
-                  responsibilities: e.target.value.split("\n").map((line) => line.trim()).filter(Boolean),
-                }))
-              }
-            />
-          </div>
-        </div>
-      )}
+          <button
+            onClick={() => setShowJobText((v) => !v)}
+            className="w-fit text-xs text-muted-foreground underline underline-offset-2"
+          >
+            {showJobText ? "Hide job text" : "Show job text"}
+          </button>
 
-      <button
-        onClick={() => setPasteMode((v) => !v)}
-        className="w-fit text-xs text-muted-foreground underline underline-offset-2"
-      >
-        {pasteMode ? "Cancel" : "Paste job text instead"}
-      </button>
+          {showJobText && (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+              <p className="text-xs text-muted-foreground">
+                This is the text that's sent to the AI — edit or paste over it if the extraction got
+                something wrong before generating.
+              </p>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Description</label>
+                <textarea
+                  className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                  value={job.description}
+                  onChange={(e) => setJob((j) => ({ ...j, description: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Requirements (one per line)</label>
+                <textarea
+                  className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                  value={job.requirements.join("\n")}
+                  onChange={(e) =>
+                    setJob((j) => ({
+                      ...j,
+                      requirements: e.target.value.split("\n").map((line) => line.trim()).filter(Boolean),
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Responsibilities (one per line)</label>
+                <textarea
+                  className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                  value={job.responsibilities.join("\n")}
+                  onChange={(e) =>
+                    setJob((j) => ({
+                      ...j,
+                      responsibilities: e.target.value.split("\n").map((line) => line.trim()).filter(Boolean),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          )}
 
-      {pasteMode && (
-        <div className="flex flex-col gap-2">
-          <textarea
-            className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
-            placeholder="Paste the job posting text here…"
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-          />
-          <Button size="sm" onClick={handleExtractFromPastedText} disabled={pasting || !pasteText.trim()}>
-            {pasting ? "Reading…" : "Use this text"}
-          </Button>
-        </div>
+          <button
+            onClick={() => setPasteMode((v) => !v)}
+            className="w-fit text-xs text-muted-foreground underline underline-offset-2"
+          >
+            {pasteMode ? "Cancel" : "Paste job text instead"}
+          </button>
+
+          {pasteMode && (
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                placeholder="Paste the job posting text here…"
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+              />
+              <Button size="sm" onClick={handleExtractFromPastedText} disabled={pasting || !pasteText.trim()}>
+                {pasting ? "Reading…" : "Use this text"}
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       <div className="flex gap-2">
-        <Button className="flex-1" onClick={handleGenerate} disabled={generating || !job.position}>
-          {generating ? "Generating…" : "Generate Cover Letter"}
-        </Button>
-        <Button className="flex-1" onClick={() => void runAutofill(true)}>
+        {setupComplete && (
+          <Button className="flex-1" onClick={handleGenerate} disabled={generating || !job.position}>
+            {generating ? "Generating…" : "Generate Cover Letter"}
+          </Button>
+        )}
+        <Button className="flex-1" onClick={() => void runAutofill(setupComplete)}>
           Autofill Application
         </Button>
       </div>
@@ -1357,108 +1468,117 @@ export function MainView({
         </div>
       )}
 
-      <div>
-        <p className="text-sm font-medium">Application Questions</p>
-        {/* Same gradient the on-page picker overlay draws around a picked block
-            (element-picker.ts) — so the button itself visually promises what
-            clicking it does to the page, instead of blending in as one more
-            outline button. */}
-        <div className="mt-1.5 rounded-md p-[2px]" style={{ background: PICKER_GRADIENT }}>
-          {picking ? (
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full rounded-[5px] border-0"
-              onClick={handleStopPicker}
-            >
-              Stop picking
-              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-                {PICKER_HOTKEY_LABEL}
-              </kbd>
-            </Button>
-          ) : (
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full rounded-[5px] border-0"
-              onClick={() => void handleStartPicker()}
-            >
-              Pick fields on page
-              <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
-                {PICKER_HOTKEY_LABEL}
-              </kbd>
-            </Button>
-          )}
-        </div>
-        {picking && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
-            Stays on until <kbd>Esc</kbd>, <kbd>{PICKER_HOTKEY_LABEL}</kbd>, or “Stop picking”.
-          </p>
-        )}
-        {customQuestions.length > 0 && (
-          <>
+      {setupComplete && (
+        <div>
+          <p className="text-sm font-medium">Application Questions</p>
+          {/* Same gradient the on-page picker overlay draws around a picked block
+              (element-picker.ts) — so the button itself visually promises what
+              clicking it does to the page, instead of blending in as one more
+              outline button. */}
+          <div className="mt-1.5 rounded-md p-[2px]" style={{ background: PICKER_GRADIENT }}>
+            {picking ? (
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full rounded-[5px] border-0"
+                onClick={handleStopPicker}
+              >
+                Stop picking
+                <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                  {PICKER_HOTKEY_LABEL}
+                </kbd>
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full rounded-[5px] border-0"
+                onClick={() => void handleStartPicker()}
+              >
+                Pick fields on page
+                <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
+                  {PICKER_HOTKEY_LABEL}
+                </kbd>
+              </Button>
+            )}
+          </div>
+          {picking && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {answeringAllQuestions
-                ? "Answering and filling these into the form…"
-                : "Answered automatically and filled into the form — edit and re-drag to change one."}
+              Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
+              Stays on until <kbd>Esc</kbd>, <kbd>{PICKER_HOTKEY_LABEL}</kbd>, or “Stop picking”.
             </p>
-            <ul className="mt-1 flex flex-col gap-2">
-              {customQuestions.map((q) => {
-                const { id, question, options } = q;
-                const answer = questionAnswers[questionAnswerKey(q)];
-                return (
-                  <li key={id} className="flex flex-col gap-1 rounded-md border border-border p-2">
-                    <p className="text-sm">{question}</p>
-                    {options && options.length > 0 && (
-                      <p className="text-xs text-muted-foreground">Choose one: {options.join(" · ")}</p>
-                    )}
-                    {answer ? (
-                      <DraggableValue value={answer} className="text-sm text-muted-foreground">
-                        <span>{answer}</span>
-                      </DraggableValue>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        {answeringAllQuestions
-                          ? "Generating…"
-                          : hasApiKey
-                            ? "No answer yet — see the error above, or check the OpenAI request in this panel's devtools Network tab."
-                            : "No answer yet — add your OpenAI key in Settings, then pick again."}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-        {unfillableQuestions.length > 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Couldn't fill these fields automatically — please answer them yourself:{" "}
-            {unfillableQuestions.join(", ")}
-          </p>
-        )}
-        <div className="mt-2 flex items-center gap-2">
-          <Input
-            value={manualQuestionText}
-            onChange={(e) => setManualQuestionText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleAddManualQuestion();
-            }}
-            placeholder="Type a question the picker/automation missed…"
-            className="h-8 flex-1 text-xs"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void handleAddManualQuestion()}
-            disabled={addingManualQuestion || !manualQuestionText.trim()}
-          >
-            Add
-          </Button>
+          )}
+          {customQuestions.length > 0 && (
+            <>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {answeringAllQuestions
+                  ? "Answering and filling these into the form…"
+                  : "Answered automatically and filled into the form — edit and re-drag to change one."}
+              </p>
+              <ul className="mt-1 flex flex-col gap-2">
+                {customQuestions.map((q) => {
+                  const { id, question, options } = q;
+                  const answer = questionAnswers[questionAnswerKey(q)];
+                  const insufficientInfo = insufficientInfoQuestions.has(questionAnswerKey(q));
+                  return (
+                    <li key={id} className="flex flex-col gap-1 rounded-md border border-border p-2">
+                      <p className="text-sm">{question}</p>
+                      {options && options.length > 0 && (
+                        <p className="text-xs text-muted-foreground">Choose one: {options.join(" · ")}</p>
+                      )}
+                      {answer ? (
+                        <DraggableValue value={answer} className="text-sm text-muted-foreground">
+                          <span>{answer}</span>
+                        </DraggableValue>
+                      ) : insufficientInfo ? (
+                        <p className="text-xs text-amber-600 dark:text-amber-500">
+                          ⚠ Not enough info in your profile/CV to answer this — fill it in yourself.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {answeringAllQuestions
+                            ? "Generating…"
+                            : hasApiKey
+                              ? "No answer yet — see the error above, or check the OpenAI request in this panel's devtools Network tab."
+                              : "No answer yet — add your OpenAI key in Settings, then pick again."}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+          {unfillableQuestions.length > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Couldn't fill these fields automatically — please answer them yourself:{" "}
+              {unfillableQuestions.join(", ")}
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              value={manualQuestionText}
+              onChange={(e) => setManualQuestionText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleAddManualQuestion();
+              }}
+              placeholder="Type a question the picker/automation missed…"
+              className="h-8 flex-1 text-xs"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleAddManualQuestion()}
+              disabled={addingManualQuestion || !manualQuestionText.trim()}
+            >
+              Add
+            </Button>
+          </div>
         </div>
-      </div>
-      {detectingQuestions && <p className="text-xs text-muted-foreground">Scanning page for questions…</p>}
+      )}
+      {setupComplete && detectingQuestions && (
+        <p className="text-xs text-muted-foreground">Scanning page for questions…</p>
+      )}
 
       {/* Consent checkboxes are decided and ticked on the page automatically
           (handleDecideCheckboxes) — no need to also list them here; the user
@@ -1486,7 +1606,7 @@ export function MainView({
         </div>
       </div>
 
-      {customFields.length > 0 && (
+      {setupComplete && customFields.length > 0 && (
         <div>
           <p className="text-sm font-medium">Custom Fields</p>
           <p className="text-xs text-muted-foreground">

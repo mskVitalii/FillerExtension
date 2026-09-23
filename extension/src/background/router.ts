@@ -1,9 +1,8 @@
 import type { RuntimeMessage } from "@/types/messages";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
-import { getCandidateSummary, getFaqAnswers, getProfile, saveCandidateSummary, saveFaqAnswers } from "@/features/profile/repository";
+import { getFaqAnswers, getPersonalLegend, getProfile, saveFaqAnswers } from "@/features/profile/repository";
 import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
-import { generateCandidateSummary } from "@/features/openai/summarize-candidate";
 import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
 import { searchOpenAiJobs } from "@/features/job-search/openai-provider";
 import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
@@ -18,7 +17,7 @@ import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
 import { answerCustomQuestion } from "@/features/openai/answer-question";
 import { decomposeBlock } from "@/features/openai/decompose-block";
 import { decideCheckboxes } from "@/features/openai/decide-checkboxes";
-import { detectJobLanguage } from "@/features/openai/detect-job-language";
+import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { ensureContentScript } from "./inject-content-script";
 
 /**
@@ -42,26 +41,6 @@ export async function cancelElementPicker(tabId: number): Promise<void> {
   );
 }
 
-/**
- * Lazily generates and caches the candidate-summary digest the AI-backed
- * job-search providers ground their query in, so the first search a user
- * ever runs doesn't come back empty just because they never visited
- * Settings to generate one — subsequent searches reuse the cached copy
- * (via `getCandidateSummary`) instead of re-generating it every time.
- */
-async function ensureCandidateSummary(): Promise<string> {
-  const cached = await getCandidateSummary();
-  if (cached?.content) return cached.content;
-  const content = await generateCandidateSummary();
-  try {
-    await saveCandidateSummary(content);
-  } catch {
-    // Drive not connected yet — the local cache write inside
-    // `saveCandidateSummary` still lands, so this search's own call still
-    // gets the freshly generated content either way.
-  }
-  return content;
-}
 
 async function sendToFrames(tabId: number, frameIds: number[], message: RuntimeMessage): Promise<RuntimeMessage[]> {
   const responses = await Promise.all(
@@ -157,7 +136,12 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "GENERATE_COVER_LETTER": {
-      const result = await runCoverLetterPipeline(message.job);
+      const { tabId } = message;
+      const result = await runCoverLetterPipeline(message.job, message.postingLanguage, (delta) => {
+        // Fire-and-forget: a dropped chunk (e.g. the panel closed mid-generation) shouldn't
+        // fail the generation itself — COVER_LETTER_RESULT below still carries the full text.
+        chrome.runtime.sendMessage({ type: "COVER_LETTER_STREAM_CHUNK", tabId, delta }).catch(() => {});
+      });
       await setLocal("lastCoverLetter", result.content);
       return {
         type: "COVER_LETTER_RESULT",
@@ -208,15 +192,21 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "ANSWER_CUSTOM_QUESTION": {
-      const answer = await answerCustomQuestion(
+      const result = await answerCustomQuestion(
         message.question,
         message.job,
         message.options,
         message.numeric,
         message.dateKind,
         message.multi,
+        message.postingLanguage,
       );
-      return { type: "CUSTOM_QUESTION_ANSWER", question: message.question, answer };
+      return {
+        type: "CUSTOM_QUESTION_ANSWER",
+        question: message.question,
+        answer: result.answer,
+        sufficientInfo: result.sufficientInfo,
+      };
     }
 
     case "FILL_CUSTOM_QUESTION_ANSWERS": {
@@ -252,13 +242,21 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
           for (const pick of framePicks) {
             void pick.then((result) => {
               pending -= 1;
-              // A real pick wins immediately; a `cancelled` result means the
-              // user pressed Esc in some frame (we haven't sent CANCEL yet),
-              // so end the mode. `undefined` is just a frame with no picker —
-              // it only counts down `pending`.
-              if (result && !result.cancelled && result.picked.length > 0) resolve(result);
-              else if (result?.cancelled) resolve(result);
-              else if (pending === 0) resolve(result ?? undefined);
+              // Any settled `result` means a real user interaction (a click
+              // or Esc) ended the picker in that specific frame — it wins
+              // immediately, even when the click landed on a block with no
+              // fillable fields (`picked: []`, e.g. a mis-click on a heading
+              // or wrapper div). Waiting for `picked.length > 0` here used to
+              // deadlock: every other frame's own picker promise only
+              // resolves on ITS OWN click/Esc/the CANCEL broadcast below, and
+              // that broadcast only fires after `winner` resolves — so an
+              // empty pick while any other frame's overlay was still up
+              // (near-universal: ad/analytics/tracking iframes) never
+              // resolved this Promise at all. `undefined` is just a frame
+              // with no responding picker (no content script / injection
+              // failed) — it only counts down `pending`.
+              if (result) resolve(result);
+              else if (pending === 0) resolve(undefined);
             });
           }
         },
@@ -333,9 +331,22 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       return { type: "CHECKBOX_APPLY_RESULT", changed };
     }
 
-    case "DETECT_JOB_LANGUAGE": {
-      const info = await detectJobLanguage(message.job);
-      return { type: "JOB_LANGUAGE_DATA", info };
+    case "DETECT_JOB_BRIEF": {
+      const brief = await analyzeJobBrief(message.job);
+      return { type: "JOB_BRIEF_DATA", language: brief.language, keywords: brief.keywords };
+    }
+
+    case "HIGHLIGHT_KEYWORDS": {
+      const frameIds = await ensureContentScript(message.tabId);
+      const responses = await sendToFrames(message.tabId, frameIds, message);
+      const matched = responses.reduce((sum, r) => (r.type === "KEYWORD_HIGHLIGHT_RESULT" ? sum + r.matched : sum), 0);
+      return { type: "KEYWORD_HIGHLIGHT_RESULT", matched };
+    }
+
+    case "CLEAR_KEYWORD_HIGHLIGHTS": {
+      const frameIds = await ensureContentScript(message.tabId);
+      await sendToFrames(message.tabId, frameIds, message);
+      return undefined;
     }
 
     case "GENERATE_FAQ_ANSWERS": {
@@ -394,15 +405,19 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         );
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings };
       }
+      // Per spec_8 item 8: job-search grounding uses the applicant's own
+      // Personal Legend directly rather than a separately AI-generated
+      // digest — one less thing to keep in sync, and the applicant already
+      // controls exactly what it says.
+      const legend = await getPersonalLegend();
+      const background = legend?.content ?? "";
       if (provider === "tavily") {
         const creds = await getJobSearchCredentials();
         if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
-        const summary = await ensureCandidateSummary();
-        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, summary, message.excludeResults);
+        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults);
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
       }
-      const summary = await ensureCandidateSummary();
-      const results = await searchOpenAiJobs(message.query, summary, message.excludeResults);
+      const results = await searchOpenAiJobs(message.query, background, message.excludeResults);
       return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
     }
 
@@ -421,18 +436,6 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       }
       const suggestion = await suggestSearchQuery();
       return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion };
-    }
-
-    case "GENERATE_CANDIDATE_SUMMARY": {
-      const content = await generateCandidateSummary();
-      try {
-        await saveCandidateSummary(content);
-      } catch {
-        // Local cache is already written inside `saveCandidateSummary` before
-        // the Drive call that can throw here — still hand back the freshly
-        // generated (paid) summary rather than losing it to a Drive error.
-      }
-      return { type: "CANDIDATE_SUMMARY_RESULT", content };
     }
 
     default:

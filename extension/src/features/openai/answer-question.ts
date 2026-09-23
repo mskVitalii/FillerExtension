@@ -1,24 +1,17 @@
 import type { Job } from "@/types/job";
 import { getLocal } from "@/features/storage/local";
-import {
-  getCustomFields,
-  getCvMeta,
-  getFaqAnswers,
-  getGenerationRules,
-  getLanguageLevels,
-  getPersonalLegend,
-  getProfile,
-} from "@/features/profile/repository";
+import { getApplicantContext } from "@/features/profile/context";
 import { DATE_FORMAT_EXAMPLE, todayISO, type DateInputKind } from "@/lib/date-format";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer"],
+  required: ["answer", "sufficientInfo"],
   properties: {
     answer: { type: "string" },
+    sufficientInfo: { type: "boolean" },
   },
 } as const;
 
@@ -33,8 +26,26 @@ Ground rules:
   "languageLevels" list is the authoritative answer (CEFR levels the
   applicant self-reported in Settings) — use it directly rather than
   guessing from the CV or defaulting to a low/neutral level.
-- If information needed to answer well is missing, answer honestly and
-  briefly rather than fabricating it.
+- If the profile/CV/Personal Legend/etc genuinely lack what's needed to
+  answer this question — not just a minor detail, but the actual substance
+  being asked for — set "sufficientInfo" to false and "answer" to an empty
+  string. Do NOT write a sentence explaining that you don't have the
+  information (e.g. "I don't have this information available") — that text
+  would otherwise get typed straight into the applicant's form field, which
+  is worse than leaving it blank for the applicant to fill in themselves.
+  Only do this when the information is truly absent; a question you can
+  answer honestly with what IS available (e.g. "I don't have direct
+  experience with X, but I've worked with Y") still counts as sufficient —
+  set sufficientInfo to true and give that honest answer.
+- If "postingLanguage" is given, write the answer in that language, using
+  the salutation/register conventions native speakers of it would expect on
+  a job application (e.g. formal "Sie"/"Herr"/"Frau" address in German, not
+  a literal English-to-German translation) — unless the question itself, or
+  "generationRules", explicitly asks for a different language.
+- If this question is a newsletter, marketing-email, or job-alert
+  subscription opt-in phrased as a choice (e.g. "Would you like to
+  subscribe to our newsletter? Yes/No"), always choose the option that
+  declines it — the applicant never needs this to submit the application.
 - "faq" is a set of pre-written answers to standard interview-FAQ questions
   (spec_5 section B). If the question being asked now is the same as, or a
   close variant of, one already in "faq", reuse its substance and phrasing —
@@ -132,12 +143,18 @@ function dateRule(kind: DateInputKind): string {
  * Custom application questions (spec_2 item 5) — grounded in the same
  * sources the cover-letter pipeline uses (features/cover-letter/pipeline.ts),
  * plus the current cover letter draft itself so the answer stays consistent
- * with what the applicant already submitted. Runs on MODEL_LUNA: these are
- * mostly short, factual form fields (previous employer, notice period,
+ * with what the applicant already submitted. Runs on the support tier: these
+ * are mostly short, factual form fields (previous employer, notice period,
  * referral name), answered automatically for every detected question the
  * moment the Side Panel opens on a posting — latency and cost per open
- * matter more here than the extra nuance MODEL_TERRA would add.
+ * matter more here than the extra nuance the cover-letter tier would add.
  */
+export interface CustomQuestionAnswer {
+  answer: string;
+  /** False when the model reports the profile/CV/etc genuinely lack what this question asks for — the caller should show that as a distinct "not enough info" state rather than a plain empty answer (spec_8 item 6). */
+  sufficientInfo: boolean;
+}
+
 export async function answerCustomQuestion(
   question: string,
   job: Job,
@@ -145,33 +162,30 @@ export async function answerCustomQuestion(
   numeric?: boolean,
   dateKind?: DateInputKind,
   multi?: boolean,
-): Promise<string> {
-  const [profile, cvMeta, legend, generationRules, coverLetter, languageLevels, customFields, faq] =
-    await Promise.all([
-      getProfile(),
-      getCvMeta(),
-      getPersonalLegend(),
-      getGenerationRules(),
-      getLocal("lastCoverLetter"),
-      getLanguageLevels(),
-      getCustomFields(),
-      getFaqAnswers(),
-    ]);
+  postingLanguage?: string,
+): Promise<CustomQuestionAnswer> {
+  const [context, coverLetter] = await Promise.all([getApplicantContext(), getLocal("lastCoverLetter")]);
 
+  // Field order matters for more than readability: everything through "faq" below is
+  // byte-identical across every question answered for this job in the same panel-open burst
+  // (`answerAndFillQuestions` fires one call per question, all in parallel) — putting that
+  // shared block first and the actually-per-question fields ("question"/"options") last keeps
+  // it a stable prefix, which is what OpenAI's automatic prompt caching matches against.
   const userPrompt = JSON.stringify(
     {
+      job,
+      profile: context.profile,
+      cvText: context.cvText,
+      personalLegend: context.personalLegend,
+      generationRules: context.generationRules,
+      coverLetter: coverLetter ?? "",
+      languageLevels: context.languageLevels,
+      customFields: context.customFields,
+      faq: context.faq.filter((f) => f.answer.trim()),
+      todayISO: todayISO(),
+      postingLanguage: postingLanguage || undefined,
       question,
       options: options && options.length > 0 ? options : undefined,
-      todayISO: todayISO(),
-      job,
-      profile,
-      cvText: cvMeta?.text ?? "",
-      personalLegend: legend?.content ?? "",
-      generationRules: generationRules?.content ?? "",
-      coverLetter: coverLetter ?? "",
-      languageLevels,
-      customFields,
-      faq: faq.filter((f) => f.answer.trim()),
     },
     null,
     2,
@@ -183,18 +197,19 @@ export async function answerCustomQuestion(
     dateKind ? dateRule(dateKind) : "",
   ].filter(Boolean);
 
-  const result = await requestStructured<{ answer: string }>({
+  const result = await requestStructured<{ answer: string; sufficientInfo: boolean }>({
     schemaName: "custom_question_answer",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: rules.length > 0 ? [SYSTEM_PROMPT, ...rules].join("\n") : SYSTEM_PROMPT,
     userPrompt,
-    parse: (raw) => JSON.parse(raw) as { answer: string },
+    parse: (raw) => JSON.parse(raw) as { answer: string; sufficientInfo: boolean },
   });
 
-  if (isNonAnswer(result.answer)) return "";
+  if (!result.sufficientInfo || isNonAnswer(result.answer)) {
+    return { answer: "", sufficientInfo: result.sufficientInfo };
+  }
   // Constrained answers (a verbatim option, a bare number, an exact date) must
   // pass through untouched — only free-text prose gets the em-dash sweep.
   const constrained = (options && options.length > 0) || numeric || Boolean(dateKind);
-  return constrained ? result.answer : stripEmDashes(result.answer);
+  return { answer: constrained ? result.answer : stripEmDashes(result.answer), sufficientInfo: true };
 }

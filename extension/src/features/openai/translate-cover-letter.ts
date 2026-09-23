@@ -1,4 +1,4 @@
-import { MODEL_LUNA, requestStructured } from "./client";
+import { requestStructured } from "./client";
 import { stripEmDashes } from "./house-style";
 
 const SCHEMA = {
@@ -28,7 +28,6 @@ export async function translateCoverLetter(content: string, targetLanguage: stri
   const result = await requestStructured<{ content: string }>({
     schemaName: "cover_letter_translation",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { content: string },

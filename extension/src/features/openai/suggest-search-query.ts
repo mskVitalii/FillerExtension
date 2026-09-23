@@ -1,5 +1,5 @@
-import { getCvMeta, getPersonalLegend, getProfile } from "@/features/profile/repository";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { getApplicantContext } from "@/features/profile/context";
+import { requestStructured } from "./client";
 
 const SCHEMA = {
   type: "object",
@@ -28,14 +28,14 @@ Output only the two fields, no explanation.`;
  * the Job Search screen calls it once, only when both fields are empty.
  */
 export async function suggestSearchQuery(): Promise<{ what: string; where: string }> {
-  const [profile, cvMeta, legend] = await Promise.all([getProfile(), getCvMeta(), getPersonalLegend()]);
+  const { profile, cvText, personalLegend } = await getApplicantContext();
 
   const userPrompt = JSON.stringify(
     {
       profileCity: profile.city,
       profileCountry: profile.country,
-      cvText: cvMeta?.text ?? "",
-      personalLegend: legend?.content ?? "",
+      cvText,
+      personalLegend,
     },
     null,
     2,
@@ -44,7 +44,6 @@ export async function suggestSearchQuery(): Promise<{ what: string; where: strin
   const result = await requestStructured<{ what: string; where: string }>({
     schemaName: "job_search_query_suggestion",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { what: string; where: string },

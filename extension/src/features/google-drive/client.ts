@@ -9,7 +9,12 @@ const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
  * applications/* — entirely in the user's own Drive, never on a backend.
  */
 async function authHeaders(): Promise<HeadersInit> {
-  const token = await getGoogleToken(true);
+  // Non-interactive: every Drive read/write goes through here, including
+  // passive ones (`getProfile()` etc. on every App mount) — interactive
+  // would pop a Google sign-in window before the user ever asked for one.
+  // Only the explicit "Connect Google" button (`connectGoogle()` in
+  // `auth.ts`) should ever show that UI.
+  const token = await getGoogleToken(false);
   if (!token) throw new Error("Google is not connected.");
   return { Authorization: `Bearer ${token}` };
 }

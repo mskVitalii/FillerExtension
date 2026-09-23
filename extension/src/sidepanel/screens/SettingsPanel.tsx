@@ -23,7 +23,6 @@ import {
   deleteLegend,
   getCvLibrary,
   getLegendLibrary,
-  saveCandidateSummary,
   saveCustomFields,
   saveFaqAnswers,
   saveGenerationRules,
@@ -37,6 +36,7 @@ import {
 } from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { disconnectGoogle } from "@/features/google-drive/auth";
+import { AVAILABLE_MODELS, MODEL_LUNA, MODEL_TERRA } from "@/features/openai/client";
 import {
   deleteOpenAiApiKey,
   getJobSearchCredentials,
@@ -65,7 +65,6 @@ interface SettingsPanelProps {
   customFields: CustomField[];
   languageLevels: LanguageLevel[];
   faqAnswers: FaqEntry[];
-  candidateSummary: string;
   generationRules: string;
   onBack: () => void;
   onProfileChange: (profile: Profile) => void;
@@ -73,7 +72,8 @@ interface SettingsPanelProps {
   onCustomFieldsChange: (fields: CustomField[]) => void;
   onLanguageLevelsChange: (levels: LanguageLevel[]) => void;
   onFaqAnswersChange: (entries: FaqEntry[]) => void;
-  onCandidateSummaryChange: (content: string) => void;
+  /** Fires whenever the active Personal Legend's content changes (upload, manual create, switch, edit) — mirrors it into App-level state so the Job Search preview (spec_8 item 8) stays in sync without a full reload. */
+  onPersonalLegendChange: (content: string) => void;
   onGenerationRulesChange: (content: string) => void;
   onApiKeyDeleted: () => void;
   onGoogleDisconnected: () => void;
@@ -85,7 +85,6 @@ export function SettingsPanel({
   customFields,
   languageLevels,
   faqAnswers,
-  candidateSummary,
   generationRules,
   onBack,
   onProfileChange,
@@ -93,7 +92,7 @@ export function SettingsPanel({
   onCustomFieldsChange,
   onLanguageLevelsChange,
   onFaqAnswersChange,
-  onCandidateSummaryChange,
+  onPersonalLegendChange,
   onGenerationRulesChange,
   onApiKeyDeleted,
   onGoogleDisconnected,
@@ -114,6 +113,10 @@ export function SettingsPanel({
   const [savingLegendContent, setSavingLegendContent] = useState(false);
 
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
+  const [coverLetterModel, setCoverLetterModel] = useState<string>(MODEL_TERRA);
+  const [extractionModel, setExtractionModel] = useState<string>(MODEL_LUNA);
+  const [jobAnalysisModel, setJobAnalysisModel] = useState<string>(MODEL_LUNA);
+  const [supportModel, setSupportModel] = useState<string>(MODEL_LUNA);
   const [fieldsDraft, setFieldsDraft] = useState(customFields);
   const [savingFields, setSavingFields] = useState(false);
   const [languagesDraft, setLanguagesDraft] = useState(languageLevels);
@@ -135,12 +138,9 @@ export function SettingsPanel({
     adzunaAppKey: "",
   });
   const [savingJobSearchCredentials, setSavingJobSearchCredentials] = useState(false);
-  const [summaryDraft, setSummaryDraft] = useState(candidateSummary);
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [savingSummary, setSavingSummary] = useState(false);
   const [rulesDraft, setRulesDraft] = useState(generationRules);
   const [savingRules, setSavingRules] = useState(false);
+  const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void getJobSearchCredentials().then(setJobSearchCreds);
@@ -160,12 +160,38 @@ export function SettingsPanel({
   }, []);
 
   useEffect(() => {
-    void getPreferences().then((prefs) => setAutofillOnOpen(prefs.autofillOnOpen));
+    void getPreferences().then((prefs) => {
+      setAutofillOnOpen(prefs.autofillOnOpen);
+      setCoverLetterModel(prefs.coverLetterModel || MODEL_TERRA);
+      setExtractionModel(prefs.extractionModel || MODEL_LUNA);
+      setJobAnalysisModel(prefs.jobAnalysisModel || MODEL_LUNA);
+      setSupportModel(prefs.supportModel || MODEL_LUNA);
+    });
   }, []);
 
   async function handleToggleAutofillOnOpen(checked: boolean) {
     setAutofillOnOpen(checked);
     await setPreferences({ autofillOnOpen: checked });
+  }
+
+  async function handleCoverLetterModelChange(model: string) {
+    setCoverLetterModel(model);
+    await setPreferences({ coverLetterModel: model });
+  }
+
+  async function handleExtractionModelChange(model: string) {
+    setExtractionModel(model);
+    await setPreferences({ extractionModel: model });
+  }
+
+  async function handleJobAnalysisModelChange(model: string) {
+    setJobAnalysisModel(model);
+    await setPreferences({ jobAnalysisModel: model });
+  }
+
+  async function handleSupportModelChange(model: string) {
+    setSupportModel(model);
+    await setPreferences({ supportModel: model });
   }
 
   async function handleCvSelected(file: File) {
@@ -204,6 +230,7 @@ export function SettingsPanel({
       setLegendList((list) => [...list, meta]);
       setActiveLegendId(meta.id);
       setLegendContentDraft(meta.content);
+      onPersonalLegendChange(meta.content);
     } finally {
       setUploadingLegend(false);
     }
@@ -218,6 +245,7 @@ export function SettingsPanel({
     setLegendContentDraft("");
     setNewLegendName("");
     setAddingLegend(false);
+    onPersonalLegendChange("");
   }
 
   async function handleSetActiveLegend(id: string) {
@@ -226,6 +254,7 @@ export function SettingsPanel({
       const meta = await setActiveLegend(id);
       setActiveLegendId(id);
       setLegendContentDraft(meta?.content ?? "");
+      onPersonalLegendChange(meta?.content ?? "");
     } finally {
       setSwitchingLegendId(null);
     }
@@ -239,6 +268,7 @@ export function SettingsPanel({
       const next = remaining[0] ?? null;
       setActiveLegendId(next?.id ?? null);
       setLegendContentDraft(next?.content ?? "");
+      onPersonalLegendChange(next?.content ?? "");
     }
   }
 
@@ -250,6 +280,7 @@ export function SettingsPanel({
       setLegendList((list) =>
         list.map((legend) => (legend.id === activeLegendId ? { ...legend, content: legendContentDraft } : legend)),
       );
+      onPersonalLegendChange(legendContentDraft);
     } finally {
       setSavingLegendContent(false);
     }
@@ -276,7 +307,20 @@ export function SettingsPanel({
   };
 
   async function handleSaveProfile() {
-    await saveProfile(profile);
+    setProfileSaveNotice(null);
+    try {
+      await saveProfile(profile);
+    } catch (err) {
+      // `saveProfile` writes the local cache before the Drive call that can
+      // throw here (Google not connected yet) — that write already landed,
+      // so the edit isn't lost, it just isn't backed up to Drive yet.
+      const message = err instanceof Error ? err.message : "";
+      setProfileSaveNotice(
+        message.includes("not connected")
+          ? "Saved locally — connect Google Drive in Settings to back this up."
+          : "Saved locally, but couldn't reach Google Drive.",
+      );
+    }
   }
 
   function handleAddCustomField() {
@@ -398,32 +442,6 @@ export function SettingsPanel({
     }
   }
 
-  async function handleGenerateCandidateSummary() {
-    setGeneratingSummary(true);
-    setSummaryError(null);
-    try {
-      const result = await sendMessage<{ type: "CANDIDATE_SUMMARY_RESULT"; content: string }>({
-        type: "GENERATE_CANDIDATE_SUMMARY",
-      });
-      setSummaryDraft(result.content);
-      onCandidateSummaryChange(result.content);
-    } catch (err) {
-      setSummaryError(err instanceof Error ? err.message : "Couldn't generate the candidate summary.");
-    } finally {
-      setGeneratingSummary(false);
-    }
-  }
-
-  async function handleSaveCandidateSummary() {
-    setSavingSummary(true);
-    try {
-      await saveCandidateSummary(summaryDraft);
-      onCandidateSummaryChange(summaryDraft);
-    } finally {
-      setSavingSummary(false);
-    }
-  }
-
   return (
     <div className="flex flex-col gap-4 p-4">
       <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
@@ -523,7 +541,9 @@ export function SettingsPanel({
         <CardContent className="flex flex-col gap-2">
           {legendList.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Cover-letter and answer generation use whichever one is active.
+              Cover-letter and answer generation use whichever one is active — the Job Search
+              tab's OpenAI/Tavily providers also search grounded in it, so it doubles as your
+              candidate background there.
             </p>
           )}
           <div className="flex flex-col gap-1.5">
@@ -693,6 +713,7 @@ export function SettingsPanel({
           <Button size="sm" onClick={handleSaveProfile}>
             Save Profile
           </Button>
+          {profileSaveNotice && <p className="text-xs text-muted-foreground">{profileSaveNotice}</p>}
         </CardContent>
       </Card>
 
@@ -865,36 +886,6 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Candidate Summary</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            A full digest of your profile, CV, Personal Legend, custom fields, languages, and
-            FAQ answers — this is what the Job Search tab's OpenAI/Tavily providers actually
-            search with, so results are grounded in everything about you, not just a typed
-            keyword. Generated automatically the first time you search if you skip this, but
-            reviewing/editing it here is worth it.
-          </p>
-          <textarea
-            className="min-h-32 rounded-md border border-border bg-background p-2 text-sm outline-none"
-            placeholder="Not generated yet."
-            value={summaryDraft}
-            onChange={(e) => setSummaryDraft(e.target.value)}
-          />
-          {summaryError && <p className="text-xs text-destructive">{summaryError}</p>}
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={handleGenerateCandidateSummary} disabled={generatingSummary}>
-              {generatingSummary ? "Generating…" : summaryDraft ? "Regenerate" : "Generate"}
-            </Button>
-            <Button size="sm" onClick={handleSaveCandidateSummary} disabled={savingSummary}>
-              {savingSummary ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Job Search Providers</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -932,6 +923,63 @@ export function SettingsPanel({
           <Button size="sm" variant="outline" onClick={handleSaveJobSearchCredentials} disabled={savingJobSearchCredentials}>
             {savingJobSearchCredentials ? "Saving…" : "Save"}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Models</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            Four model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key.
+          </p>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Cover letters</label>
+            <Select value={coverLetterModel} onChange={(e) => void handleCoverLetterModelChange(e.target.value)}>
+              {AVAILABLE_MODELS.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              Job posting extraction (from page text or pasted text)
+            </label>
+            <Select value={extractionModel} onChange={(e) => void handleExtractionModelChange(e.target.value)}>
+              {AVAILABLE_MODELS.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              Job analysis (requirements, tone, language, keywords)
+            </label>
+            <Select value={jobAnalysisModel} onChange={(e) => void handleJobAnalysisModelChange(e.target.value)}>
+              {AVAILABLE_MODELS.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              Everything else (questions, checkboxes, search, translation)
+            </label>
+            <Select value={supportModel} onChange={(e) => void handleSupportModelChange(e.target.value)}>
+              {AVAILABLE_MODELS.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </Select>
+          </div>
         </CardContent>
       </Card>
 

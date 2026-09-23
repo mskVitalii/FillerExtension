@@ -1,5 +1,5 @@
-import { getCvMeta, getLanguageLevels, getPersonalLegend, getProfile } from "@/features/profile/repository";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { getApplicantContext } from "@/features/profile/context";
+import { requestStructured } from "./client";
 
 const SCHEMA = {
   type: "object",
@@ -63,19 +63,14 @@ Rules:
  * per tag and merge the results.
  */
 export async function suggestSearchTags(): Promise<string[]> {
-  const [profile, cvMeta, legend, languageLevels] = await Promise.all([
-    getProfile(),
-    getCvMeta(),
-    getPersonalLegend(),
-    getLanguageLevels(),
-  ]);
+  const { profile, cvText, personalLegend, languageLevels } = await getApplicantContext();
 
   const userPrompt = JSON.stringify(
     {
       profileCity: profile.city,
       profileCountry: profile.country,
-      cvText: cvMeta?.text ?? "",
-      personalLegend: legend?.content ?? "",
+      cvText,
+      personalLegend,
       languages: languageLevels.map((l) => l.language),
     },
     null,
@@ -85,7 +80,6 @@ export async function suggestSearchTags(): Promise<string[]> {
   const result = await requestStructured<{ tags: string[] }>({
     schemaName: "job_search_tags",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { tags: string[] },

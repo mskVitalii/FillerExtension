@@ -18,17 +18,25 @@ export type PickerOutcome =
   | { cancelled: true }
   | { cancelled: false; picked: PickedField[]; blockText: string; semanticCount: number };
 
-let activeTeardown: (() => void) | null = null;
+// Resolves the running picker's Promise as cancelled (not just tears its DOM
+// down) — pointing this at bare `teardown` instead of `finish` used to leave
+// `startElementPicker()`'s Promise unsettled forever on an external cancel
+// (e.g. the Side Panel's "Stop picking"/Alt+P toggling mid-pick): the overlay
+// would disappear but the content script's pending `sendResponse` for
+// START_ELEMENT_PICKER never fired, so the background's await — and the Side
+// Panel's `await sendMessage(...)` loop — hung, leaving "Stop picking" stuck
+// in the UI even though the on-page overlay was already gone.
+let activeCancel: (() => void) | null = null;
 
 /** Dismiss a running picker in this frame (used when another frame won the pick). */
 export function cancelActivePicker(): void {
   try {
-    activeTeardown?.();
+    activeCancel?.();
   } catch {
-    // Teardown is best-effort — a throw here must not propagate to the caller
+    // Best-effort — a throw here must not propagate to the caller
     // (background broadcasts CANCEL to every frame; one failing frame can't
     // be allowed to reject the whole Promise.all and stall the Side Panel).
-    activeTeardown = null;
+    activeCancel = null;
   }
 }
 
@@ -216,7 +224,7 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
   };
 
   const teardown = () => {
-    if (activeTeardown === teardown) activeTeardown = null;
+    if (activeCancel === cancel) activeCancel = null;
     try {
       document.removeEventListener("mousemove", onMove, true);
       document.removeEventListener("mousedown", swallow, true);
@@ -231,7 +239,11 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
     }
   };
 
-  activeTeardown = teardown;
+  // What an external `cancelActivePicker()` call actually invokes — routes
+  // through `finish` (not bare `teardown`) so the Promise settles too.
+  const cancel = () => finish({ cancelled: true });
+
+  activeCancel = cancel;
   document.addEventListener("mousemove", onMove, true);
   document.addEventListener("mousedown", swallow, true);
   document.addEventListener("pointerdown", swallow, true);

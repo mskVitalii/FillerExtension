@@ -9,10 +9,25 @@ import { queryFillableDeep } from "./engine";
  * *applies* a decision made by the AI pass (features/openai/decide-checkboxes.ts).
  */
 
-const CHECKBOX_SELECTOR = 'input[type="checkbox"], [role="checkbox"]';
+// `[role="switch"]` covers toggle-switch widgets (common in component
+// libraries like MUI/Ant/Chakra) built as a non-`<input>` element with
+// `aria-checked` instead of a native checkbox — a newsletter/marketing
+// opt-in is routinely built this way, not just as `input[type=checkbox]`.
+const CHECKBOX_SELECTOR = 'input[type="checkbox"], [role="checkbox"], [role="switch"]';
 
 const CONSENT_HINT_RE =
   /consent|agree|accept|terms|privacy|policy|gdpr|data\s*protection|process(?:ing)?\s+(?:my|your|personal)?\s*data|newsletter|marketing|subscribe|updates?|promotion|einwillig|zustimm|akzeptier|einverstanden|datenschutz|agb|bedingungen|einwilligung|werbung|benachrichtigung|abonnier|talent\s*pool|talentpool|bewerberpool/i;
+
+// Narrower than CONSENT_HINT_RE (which also matches legitimate consent
+// wording) — used as a last-resort guard so a newsletter/marketing checkbox
+// is never ticked, even when the AI pass fails to return a decision for it
+// and the generic fallback would otherwise trust the form's `required` flag.
+const NEWSLETTER_HINT_RE =
+  /newsletter|marketing|subscribe|promotion|job\s*alert|career\s*news|werbung|benachrichtigung|abonnier|stellenausschreibung/i;
+
+export function isNewsletterLike(label: string): boolean {
+  return NEWSLETTER_HINT_RE.test(label);
+}
 
 export interface PageCheckbox {
   /** Stable only within one detect pass — matching across detect→apply goes by name/label. */

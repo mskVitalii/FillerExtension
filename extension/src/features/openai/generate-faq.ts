@@ -1,12 +1,6 @@
-import {
-  getCustomFields,
-  getCvMeta,
-  getGenerationRules,
-  getPersonalLegend,
-  getProfile,
-} from "@/features/profile/repository";
+import { getApplicantContext } from "@/features/profile/context";
 import type { FaqEntry } from "@/types/profile";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SYSTEM_PROMPT = `You write the applicant's own answers to standard interview-FAQ
@@ -54,22 +48,19 @@ function schemaFor(count: number) {
 export async function generateFaqAnswers(questions: string[]): Promise<FaqEntry[]> {
   if (questions.length === 0) return [];
 
-  const [profile, cvMeta, legend, generationRules, customFields] = await Promise.all([
-    getProfile(),
-    getCvMeta(),
-    getPersonalLegend(),
-    getGenerationRules(),
-    getCustomFields(),
-  ]);
+  const { profile, cvText, personalLegend, generationRules, customFields } = await getApplicantContext();
 
+  // Static applicant context first, the actual per-call variable ("questions") last — keeps
+  // repeat calls (re-running for newly added FAQ questions later) sharing a stable, cacheable
+  // prefix instead of diverging from the very first key.
   const userPrompt = JSON.stringify(
     {
-      questions,
       profile,
-      cvText: cvMeta?.text ?? "",
-      personalLegend: legend?.content ?? "",
-      generationRules: generationRules?.content ?? "",
+      cvText,
+      personalLegend,
+      generationRules,
       customFields,
+      questions,
     },
     null,
     2,
@@ -78,7 +69,6 @@ export async function generateFaqAnswers(questions: string[]): Promise<FaqEntry[
   const result = await requestStructured<{ answers: string[] }>({
     schemaName: "faq_answers",
     schema: schemaFor(questions.length),
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { answers: string[] },

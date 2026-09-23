@@ -9,17 +9,17 @@ import { describeExcluded } from "./exclude-list";
  * the app's normalized shape (spec_5 section C's other two providers share
  * that same second pass).
  *
- * `candidateSummary` (the digest from `summarize-candidate.ts`) is the main
- * grounding for what to search for — per explicit user direction, a job
- * search should draw on everything known about the candidate, not just a
- * short typed query. `query.what`/`where`/`remoteOnly` layer on top as this
- * particular search's own refinement, so the same rich background can be
- * reused across different searches ("this time, only remote", "this time,
- * a different city") without retyping it.
+ * `candidateBackground` (the applicant's own Personal Legend, spec_8 item 8)
+ * is the main grounding for what to search for — per explicit user
+ * direction, a job search should draw on everything known about the
+ * candidate, not just a short typed query. `query.what`/`where`/`remoteOnly`
+ * layer on top as this particular search's own refinement, so the same rich
+ * background can be reused across different searches ("this time, only
+ * remote", "this time, a different city") without retyping it.
  */
 export async function searchOpenAiJobs(
   query: JobSearchQuery,
-  candidateSummary: string,
+  candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
 ): Promise<JobSearchResult[]> {
   const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
@@ -34,7 +34,7 @@ export async function searchOpenAiJobs(
   const prompt = `Search the web for current, actually open job postings that fit this
 candidate:
 
-${candidateSummary || "(no candidate background available)"}
+${candidateBackground || "(no candidate background available)"}
 
 ${refinements || "No further constraints — use the candidate's own background to pick a fitting role/location."}
 
@@ -43,5 +43,5 @@ listing URL, not a search results page. List up to 15 of the best matches, each 
 its title, company, location, salary if stated, and a short description of why it fits.${describeExcluded(excludeResults)}`;
 
   const rawText = await requestWithWebSearch(prompt);
-  return extractJobListings(rawText, "openai", candidateSummary);
+  return extractJobListings(rawText, "openai", candidateBackground);
 }

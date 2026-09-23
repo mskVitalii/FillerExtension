@@ -1,4 +1,4 @@
-import type { Job, JobLanguageInfo } from "./job";
+import type { Job, JobKeyword, JobLanguageInfo } from "./job";
 import type { FaqEntry, Profile } from "./profile";
 import type { JobSearchProvider, JobSearchQuery, JobSearchResult } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
@@ -24,8 +24,14 @@ export type RuntimeMessage =
   | { type: "AUTOFILL"; tabId: number; profile: Profile }
   | { type: "AUTOFILL_RESULT"; filled: number; total: number; generatedPassword: string | null }
   | { type: "INSERT_VALUE"; field: InsertField; value: string }
-  | { type: "GENERATE_COVER_LETTER"; job: Job }
+  | { type: "GENERATE_COVER_LETTER"; tabId: number; job: Job; postingLanguage?: string }
   | { type: "COVER_LETTER_RESULT"; content: string; slopFindings: SlopFinding[]; cleaned: boolean }
+  /** One-way broadcast (background -> Side Panel) per streamed token chunk while a
+   * GENERATE_COVER_LETTER request is in flight — `COVER_LETTER_RESULT` above still carries the
+   * final, authoritative (possibly AI-slop-cleaned) content once the request resolves. Carries
+   * `tabId` because `chrome.runtime.sendMessage` broadcasts to every extension page; a Side
+   * Panel open on a different tab must ignore chunks that aren't its own. */
+  | { type: "COVER_LETTER_STREAM_CHUNK"; tabId: number; delta: string }
   | {
       type: "UPLOAD_FILE";
       tabId: number;
@@ -54,8 +60,16 @@ export type RuntimeMessage =
       multi?: boolean;
       numeric?: boolean;
       dateKind?: DateInputKind;
+      /** The job posting's detected language (JobLanguageInfo.postingLanguages[0]) — the answer is written in it when given. */
+      postingLanguage?: string;
     }
-  | { type: "CUSTOM_QUESTION_ANSWER"; question: string; answer: string }
+  | {
+      type: "CUSTOM_QUESTION_ANSWER";
+      question: string;
+      answer: string;
+      /** False when the model reports the profile/CV/etc genuinely lack what this question asks for (spec_8 item 6) — the Side Panel shows this as a distinct "not enough info" state instead of a plain empty answer. */
+      sufficientInfo: boolean;
+    }
   | { type: "FILL_CUSTOM_QUESTION_ANSWERS"; tabId: number; answers: Record<string, string> }
   | { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number; unfilled: string[] }
   | { type: "START_ELEMENT_PICKER"; tabId: number }
@@ -80,8 +94,11 @@ export type RuntimeMessage =
   | { type: "CHECKBOX_DECISIONS"; decisions: CheckboxDecision[] }
   | { type: "APPLY_CHECKBOX_DECISIONS"; tabId: number; decisions: CheckboxDecisionInput[] }
   | { type: "CHECKBOX_APPLY_RESULT"; changed: number }
-  | { type: "DETECT_JOB_LANGUAGE"; job: Job }
-  | { type: "JOB_LANGUAGE_DATA"; info: JobLanguageInfo }
+  | { type: "DETECT_JOB_BRIEF"; job: Job }
+  | { type: "JOB_BRIEF_DATA"; language: JobLanguageInfo; keywords: JobKeyword[] }
+  | { type: "HIGHLIGHT_KEYWORDS"; tabId: number; keywords: JobKeyword[] }
+  | { type: "CLEAR_KEYWORD_HIGHLIGHTS"; tabId: number }
+  | { type: "KEYWORD_HIGHLIGHT_RESULT"; matched: number }
   | { type: "GENERATE_FAQ_ANSWERS"; questions: string[] }
   | { type: "FAQ_ANSWERS_RESULT"; entries: FaqEntry[] }
   | { type: "SEARCH_JOBS"; query: JobSearchQuery; page?: number; excludeResults?: JobSearchResult[] }
@@ -94,8 +111,6 @@ export type RuntimeMessage =
     }
   | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
-  | { type: "GENERATE_CANDIDATE_SUMMARY" }
-  | { type: "CANDIDATE_SUMMARY_RESULT"; content: string }
   /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */
   | { type: "ERROR"; error: string; code?: string };
 

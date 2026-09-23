@@ -21,7 +21,8 @@ interface TavilyResponse {
  * concatenated title/url/content of each hit, and (per explicit user
  * direction — job search should draw on everything known about the
  * candidate, and Tavily should be grounded exactly like the OpenAI provider)
- * is handed `candidateSummary` for that pass too.
+ * is handed `candidateBackground` (the applicant's own Personal Legend,
+ * spec_8 item 8) for that pass too.
  *
  * Tavily's own `query` is documented with a full-question example ("Who is
  * Leo Messi?"), not a bare keyword string, and no maximum length is stated —
@@ -34,7 +35,7 @@ const MAX_QUERY_LENGTH = 2000;
 export async function searchTavilyJobs(
   query: JobSearchQuery,
   apiKey: string,
-  candidateSummary: string,
+  candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
 ): Promise<JobSearchResult[]> {
   const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
@@ -49,7 +50,7 @@ export async function searchTavilyJobs(
   const searchQuery = `Find current, open job postings that fit this candidate.
 ${refinements}
 
-Candidate background: ${candidateSummary || "(none available)"}${describeExcluded(excludeResults)}`
+Candidate background: ${candidateBackground || "(none available)"}${describeExcluded(excludeResults)}`
     .trim()
     .slice(0, MAX_QUERY_LENGTH);
 
@@ -76,5 +77,5 @@ Candidate background: ${candidateSummary || "(none available)"}${describeExclude
   const rawText = data.results
     .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.content}`)
     .join("\n\n---\n\n");
-  return extractJobListings(rawText, "tavily", candidateSummary);
+  return extractJobListings(rawText, "tavily", candidateBackground);
 }

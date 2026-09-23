@@ -1,5 +1,4 @@
 import type {
-  CandidateSummary,
   CustomField,
   CvLibrary,
   CvMeta,
@@ -37,7 +36,6 @@ interface LocalStorageSchema {
   customFieldsCache: CustomField[];
   languageLevelsCache: LanguageLevel[];
   faqAnswersCache: FaqEntry[];
-  candidateSummaryCache: CandidateSummary;
   generationRulesCache: GenerationRules;
   /** Most recently generated/edited cover letter, so the context menu can insert it. */
   lastCoverLetter: string;

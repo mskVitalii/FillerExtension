@@ -1,5 +1,5 @@
 import type { Job } from "@/types/job";
-import { MODEL_TERRA, requestStructured } from "./client";
+import { getCoverLetterModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
@@ -31,8 +31,8 @@ ${HOUSE_STYLE_RULES}`;
  * Cover-letter "Improve" pass (spec_2 item 3): free-text instructions from
  * the applicant ("make this shorter", "emphasize the Kubernetes work") drive
  * a targeted edit of the current draft, grounded in the same job context the
- * original generation used. Runs on MODEL_TERRA — this text goes straight
- * into the application, same stakes as the original draft.
+ * original generation used. Runs on the cover-letter tier — this text goes
+ * straight into the application, same stakes as the original draft.
  */
 export async function reviseCoverLetter(content: string, instructions: string, job: Job): Promise<string> {
   const userPrompt = JSON.stringify({ draft: content, instructions, job }, null, 2);
@@ -40,7 +40,7 @@ export async function reviseCoverLetter(content: string, instructions: string, j
   const result = await requestStructured<{ content: string }>({
     schemaName: "cover_letter_revision",
     schema: SCHEMA,
-    model: MODEL_TERRA,
+    model: await getCoverLetterModel(),
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { content: string },

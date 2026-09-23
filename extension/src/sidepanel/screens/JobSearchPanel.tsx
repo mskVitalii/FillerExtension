@@ -59,7 +59,7 @@ function JobResultSkeleton() {
 
 interface JobSearchPanelProps {
   hasApiKey: boolean;
-  candidateSummary: string;
+  personalLegend: string;
   onBack: () => void;
   onOpenSettings: () => void;
 }
@@ -84,7 +84,7 @@ const PROVIDER_LABELS: Record<JobSearchProvider, string> = {
  * whichever one looks worth applying to in a new tab, where the usual
  * extract → cover letter → autofill flow picks up.
  */
-export function JobSearchPanel({ hasApiKey, candidateSummary, onBack, onOpenSettings }: JobSearchPanelProps) {
+export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettings }: JobSearchPanelProps) {
   const [provider, setProvider] = useState<JobSearchProvider>("openai");
   const [what, setWhat] = useState("");
   const [where, setWhere] = useState("");
@@ -249,20 +249,19 @@ export function JobSearchPanel({ hasApiKey, candidateSummary, onBack, onOpenSett
 
       <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/20 p-2">
         <p className="text-xs text-muted-foreground">
-          OpenAI and Tavily search using your full Candidate Summary (profile, CV, Personal
-          Legend, languages, FAQ answers — see Settings), not just what you type below. Role/
-          location here narrow that search rather than replace it.
+          OpenAI and Tavily search grounded in your full Personal Legend (see Settings), not just
+          what you type below. Role/location here narrow that search rather than replace it.
         </p>
-        {candidateSummary ? (
-          <p className="text-xs italic text-muted-foreground">"{summaryPreview(candidateSummary)}"</p>
+        {personalLegend ? (
+          <p className="text-xs italic text-muted-foreground">"{summaryPreview(personalLegend)}"</p>
         ) : (
-          <p className="text-xs text-muted-foreground">Not generated yet — the first search will generate one.</p>
+          <p className="text-xs text-muted-foreground">Not written yet — add one in Settings for grounded results.</p>
         )}
         <button
           onClick={onOpenSettings}
           className="w-fit text-xs text-muted-foreground underline underline-offset-2"
         >
-          {candidateSummary ? "Edit in Settings" : "Generate in Settings"}
+          {personalLegend ? "Edit in Settings" : "Write one in Settings"}
         </button>
       </div>
 

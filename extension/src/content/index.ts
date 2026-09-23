@@ -10,6 +10,7 @@ import { detectCustomQuestions, fillCustomQuestionAnswers } from "@/features/aut
 import { fillAnswersByLocator } from "@/features/autofill/pick-questions";
 import { cancelActivePicker, startElementPicker } from "@/features/autofill/element-picker";
 import { applyCheckboxDecisions, detectCheckboxes } from "@/features/autofill/checkboxes";
+import { clearKeywordHighlights, highlightKeywords } from "@/features/highlight/keyword-highlight";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
 import { initFileDropCatcher } from "@/features/file-upload/drop-catcher";
 import { showPageToast } from "@/features/autofill/page-toast";
@@ -229,6 +230,19 @@ function registerMessageListener(): void {
         const result = injectFileIntoPage(file, message.targetLocator, message.kind);
         const response: RuntimeMessage = { type: "UPLOAD_FILE_RESULT", ...result };
         sendResponse(response);
+        return false;
+      }
+
+      case "HIGHLIGHT_KEYWORDS": {
+        const matched = highlightKeywords(message.keywords);
+        const response: RuntimeMessage = { type: "KEYWORD_HIGHLIGHT_RESULT", matched };
+        sendResponse(response);
+        return false;
+      }
+
+      case "CLEAR_KEYWORD_HIGHLIGHTS": {
+        clearKeywordHighlights();
+        sendResponse(undefined);
         return false;
       }
 

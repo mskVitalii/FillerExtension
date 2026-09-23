@@ -2,7 +2,7 @@ import type { Job } from "@/types/job";
 import { analyzeJob } from "@/features/openai/job-analysis";
 import { generateCoverLetter } from "@/features/openai/cover-letter";
 import { polishCoverLetter } from "@/features/openai/polish-cover-letter";
-import { getCvMeta, getGenerationRules, getPersonalLegend, getProfile } from "@/features/profile/repository";
+import { getApplicantContext } from "@/features/profile/context";
 import { detectSlop, type SlopFinding } from "./slop-detector";
 
 export interface CoverLetterPipelineResult {
@@ -21,24 +21,27 @@ export interface CoverLetterPipelineResult {
  * badly as a fabricated fact would, so a single editor pass runs only
  * when the draft actually trips one of those patterns.
  */
-export async function runCoverLetterPipeline(job: Job): Promise<CoverLetterPipelineResult> {
-  const [profile, cvMeta, legend, generationRules] = await Promise.all([
-    getProfile(),
-    getCvMeta(),
-    getPersonalLegend(),
-    getGenerationRules(),
-  ]);
+export async function runCoverLetterPipeline(
+  job: Job,
+  postingLanguage?: string,
+  onDelta?: (delta: string) => void,
+): Promise<CoverLetterPipelineResult> {
+  const context = await getApplicantContext();
 
   const analysis = await analyzeJob(job);
 
-  const draft = await generateCoverLetter({
-    profile,
-    cvText: cvMeta?.text ?? "",
-    personalLegend: legend?.content ?? "",
-    generationRules: generationRules?.content ?? "",
-    job,
-    analysis,
-  });
+  const draft = await generateCoverLetter(
+    {
+      profile: context.profile,
+      cvText: context.cvText,
+      personalLegend: context.personalLegend,
+      generationRules: context.generationRules,
+      job,
+      analysis,
+      postingLanguage,
+    },
+    onDelta,
+  );
 
   const slopFindings = detectSlop(draft);
   if (slopFindings.length === 0) {

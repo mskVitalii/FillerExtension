@@ -1,5 +1,5 @@
 import type { Job } from "@/types/job";
-import { requestStructured } from "@/features/openai/client";
+import { getExtractionModel, requestStructured } from "@/features/openai/client";
 
 const SCHEMA = {
   type: "object",
@@ -36,6 +36,7 @@ export async function extractJobWithAi(visibleText: string, url: string): Promis
   const result = await requestStructured<Omit<Job, "url">>({
     schemaName: "job_extraction",
     schema: SCHEMA,
+    model: await getExtractionModel(),
     systemPrompt:
       "Extract structured job posting fields from the visible page text below. " +
       "Only use information present in the text; leave fields empty/null if unknown.",

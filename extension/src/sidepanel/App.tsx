@@ -9,12 +9,12 @@ import { useActiveTab } from "./hooks/useActiveTab";
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { isGoogleConnected } from "@/features/google-drive/auth";
 import {
-  getCandidateSummary,
   getCustomFields,
   getCvMeta,
   getFaqAnswers,
   getGenerationRules,
   getLanguageLevels,
+  getPersonalLegend,
   getProfile,
 } from "@/features/profile/repository";
 import {
@@ -36,7 +36,7 @@ export function App() {
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [languageLevels, setLanguageLevels] = useState<LanguageLevel[]>([]);
   const [faqAnswers, setFaqAnswers] = useState<FaqEntry[]>([]);
-  const [candidateSummary, setCandidateSummary] = useState("");
+  const [personalLegend, setPersonalLegend] = useState("");
   const [generationRules, setGenerationRules] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -68,7 +68,7 @@ export function App() {
       loadedCustomFields,
       loadedLanguageLevels,
       loadedFaqAnswers,
-      loadedCandidateSummary,
+      loadedPersonalLegend,
       loadedGenerationRules,
     ] = await Promise.all([
       getProfile(),
@@ -76,7 +76,7 @@ export function App() {
       getCustomFields(),
       getLanguageLevels(),
       getFaqAnswers(),
-      getCandidateSummary(),
+      getPersonalLegend(),
       getGenerationRules(),
     ]);
     setProfile(loadedProfile);
@@ -84,7 +84,7 @@ export function App() {
     setCustomFields(loadedCustomFields);
     setLanguageLevels(loadedLanguageLevels);
     setFaqAnswers(loadedFaqAnswers);
-    setCandidateSummary(loadedCandidateSummary?.content ?? "");
+    setPersonalLegend(loadedPersonalLegend?.content ?? "");
     setGenerationRules(loadedGenerationRules?.content ?? "");
   }
 
@@ -97,6 +97,7 @@ export function App() {
           setHasApiKey(true);
           setStep("main");
         }}
+        onSkip={() => setStep("main")}
       />
     );
   }
@@ -109,6 +110,7 @@ export function App() {
           void loadUserData();
           setStep("main");
         }}
+        onSkip={() => setStep("main")}
       />
     );
   }
@@ -121,7 +123,7 @@ export function App() {
     return (
       <JobSearchPanel
         hasApiKey={hasApiKey}
-        candidateSummary={candidateSummary}
+        personalLegend={personalLegend}
         onBack={() => setStep("main")}
         onOpenSettings={() => setStep("settings")}
       />
@@ -136,7 +138,6 @@ export function App() {
         customFields={customFields}
         languageLevels={languageLevels}
         faqAnswers={faqAnswers}
-        candidateSummary={candidateSummary}
         generationRules={generationRules}
         onBack={() => setStep("main")}
         onProfileChange={setProfile}
@@ -144,7 +145,7 @@ export function App() {
         onCustomFieldsChange={setCustomFields}
         onLanguageLevelsChange={setLanguageLevels}
         onFaqAnswersChange={setFaqAnswers}
-        onCandidateSummaryChange={setCandidateSummary}
+        onPersonalLegendChange={setPersonalLegend}
         onGenerationRulesChange={setGenerationRules}
         onApiKeyDeleted={() => {
           setHasApiKey(false);

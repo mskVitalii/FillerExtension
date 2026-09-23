@@ -13,6 +13,27 @@ Drive `appDataFolder`. See [spec_1.md](./spec_1.md) (full spec), [spec_2.md](./s
 
 The actual project lives in `extension/` — `cd extension` before running any command below.
 
+## Skills
+
+Two Claude Code skills are installed at `extension/.claude/skills/` (via `npx
+modern-web-guidance@latest install`, per https://developer.chrome.com/docs/extensions/ai/build-with-ai)
+and should be used whenever they apply, not just left to auto-trigger:
+
+- **`chrome-extensions`** — Manifest V3 pitfalls/best practices specific to this codebase's
+  shape: side panel activation (`chrome.sidePanel.open()`/`setPanelBehavior`, not just declaring
+  `side_panel` in the manifest), service-worker statelessness, CSP/sandbox for code execution,
+  `activeTab` vs `tabs`+`host_permissions` (this project already needs the latter since actions
+  fire from the Side Panel, not a direct user gesture), message-passing (`return true` for async
+  `onMessage`), permissions. Use it whenever touching `manifest.json`, any `chrome.*` API, or the
+  content-script/background/side-panel message contract. It also owns `CHROMEWEBSTORE.md` (store
+  listing copy, permission justifications, privacy disclosures, pre-publish checklist) — that
+  file doesn't exist in this repo yet; create it via this skill the first time publishing,
+  re-publishing, or a Chrome Web Store review rejection comes up.
+- **`modern-web-guidance`** — general web-platform best-practices search
+  (`npx modern-web-guidance search "<query>"` then `retrieve <id>`), not extension-specific. Use
+  it before building new Side Panel UI/CSS (layout, forms, animations) so it doesn't ship an
+  ad-hoc pattern where a standard one already exists.
+
 ## Commands
 
 Run from the repo root via `make` (see `Makefile`), or `cd extension && npm run <script>` directly.

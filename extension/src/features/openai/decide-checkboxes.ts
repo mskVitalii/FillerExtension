@@ -1,5 +1,5 @@
-import type { PageCheckbox } from "@/features/autofill/checkboxes";
-import { MODEL_LUNA, requestStructured } from "./client";
+import { isNewsletterLike, type PageCheckbox } from "@/features/autofill/checkboxes";
+import { requestStructured } from "./client";
 
 export type CheckboxCategory = "required-consent" | "marketing" | "optional" | "unclear";
 
@@ -66,6 +66,12 @@ DO NOT TICK (check: false) — optional and promotional:
 Rules:
 - "required: true" means the form marks the field mandatory — a strong
   signal to tick, unless the text is clearly marketing.
+- A newsletter/marketing-email/job-alert opt-in is NEVER ticked, even when
+  the form marks it "required" — that flag is routinely misused by forms to
+  guilt-trip applicants into subscribing, and applicants never actually need
+  it to submit the application. When genuinely in doubt whether a required
+  checkbox is a real submission requirement or a disguised newsletter
+  opt-in, prefer NOT ticking it.
 - If a checkbox is ambiguous AND not required, set check: false.
 - Labels may be in any language; judge by meaning, not keywords.
 - Return one decision per input item, using its "index".
@@ -104,7 +110,6 @@ export async function decideCheckboxes(checkboxes: PageCheckbox[]): Promise<Chec
   const result = await requestStructured<{ decisions: RawDecision[] }>({
     schemaName: "checkbox_decisions",
     schema: SCHEMA,
-    model: MODEL_LUNA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { decisions: RawDecision[] },
@@ -116,15 +121,25 @@ export async function decideCheckboxes(checkboxes: PageCheckbox[]): Promise<Chec
   return checkboxes.map((checkbox, index) => {
     const decision = byIndex.get(index);
     if (decision) {
+      // Belt-and-suspenders on top of the prompt rule above: a newsletter
+      // opt-in is never ticked, even on the rare occasion the model gets it
+      // wrong (spec_8 item 5 — this one must never regress).
+      const check = decision.check && isNewsletterLike(checkbox.label) ? false : decision.check;
       return {
         name: checkbox.name,
         label: checkbox.label,
-        check: decision.check,
+        check,
         category: decision.category,
         reason: decision.reason,
       };
     }
-    // The model skipped this one — fall back on the required flag.
+    // The model skipped this one — fall back on the required flag, except a
+    // newsletter/marketing-shaped label is never ticked regardless of it
+    // (spec_8 item 5: forms routinely mark these "required" to guilt-trip
+    // applicants into subscribing, even though nothing actually needs it).
+    if (isNewsletterLike(checkbox.label)) {
+      return { name: checkbox.name, label: checkbox.label, check: false, category: "marketing", reason: "No decision returned — looks like a newsletter/marketing opt-in" };
+    }
     return {
       name: checkbox.name,
       label: checkbox.label,
