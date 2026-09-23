@@ -6,8 +6,8 @@ MANIFEST_JSON := $(EXT_DIR)/manifest.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev build typecheck lint lint-fix test clean zip package \
-        version version-patch version-minor version-major release rebuild
+.PHONY: help install dev build build-release typecheck lint lint-fix test clean zip package \
+        version version-patch version-minor version-major release publish rebuild
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -19,8 +19,11 @@ install: ## Install extension dependencies
 dev: ## Start Vite dev server (watch build into extension/dist)
 	cd $(EXT_DIR) && npm run dev
 
-build: ## Typecheck + production build into extension/dist
+build: ## Typecheck + production build into extension/dist (honors extension/.env.local dev OAuth override)
 	cd $(EXT_DIR) && npm run build
+
+build-release: ## Typecheck + build into extension/dist, ignoring extension/.env.local (always ships manifest.json's real prod OAuth client)
+	cd $(EXT_DIR) && npm run build:release
 
 typecheck: ## Run TypeScript type checking only
 	cd $(EXT_DIR) && npm run typecheck
@@ -37,7 +40,7 @@ test: ## Run the autofill-engine regression suite (Vitest, jsdom — no browser/
 clean: ## Remove build output and packaged zip
 	rm -rf $(DIST_DIR) $(ZIP_FILE)
 
-zip: build ## Build and package extension/dist into extension.zip (root)
+zip: build-release ## Build (release mode) and package extension/dist into extension.zip (root)
 	rm -f $(ZIP_FILE)
 	cd $(DIST_DIR) && zip -r -X ../../$(ZIP_FILE) . -x '.DS_Store' -x '**/.DS_Store'
 	@echo "Packaged $(ZIP_FILE) ($$(du -h $(ZIP_FILE) | cut -f1))"
@@ -72,5 +75,12 @@ _bump-version:
 		console.log('Version bumped to ' + version); \
 	"
 
-release: clean install build zip ## Full clean release: install, build, package into extension.zip
+release: clean install zip ## Full clean release build: install, build (release mode), package into extension.zip
 	@echo "Release ready: $(ZIP_FILE)"
+
+publish: ## Bump version (PART=patch|minor|major, default patch), then full clean release build + zip
+	@$(MAKE) _bump-version PART=$(or $(PART),patch)
+	@$(MAKE) clean
+	@$(MAKE) install
+	@$(MAKE) zip
+	@echo "Published v$$(node -p "require('./$(PKG_JSON)').version") -> $(ZIP_FILE)"

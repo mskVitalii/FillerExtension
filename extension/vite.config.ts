@@ -6,13 +6,16 @@ import manifest from "./manifest.json" with { type: "json" };
 // The Chrome Web Store item's OAuth client is registered against its published extension
 // ID, which never matches a locally "Load unpacked" build's ID — so Connect Google can only
 // work locally against a second, dev-only OAuth client. VITE_DEV_GOOGLE_CLIENT_ID (set in a
-// gitignored extension/.env.local, never committed) swaps it in for local builds only; the
-// production build (used for the CWS package) is untouched whenever that file is absent.
+// gitignored extension/.env.local, never committed) swaps it in for local builds only.
+// A release build runs with --mode release (see `npm run build:release` / `make publish`),
+// which ignores VITE_DEV_GOOGLE_CLIENT_ID even if .env.local is still sitting on disk, so
+// manifest.json's own client_id (the real prod one) always ships untouched.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const resolvedManifest = env.VITE_DEV_GOOGLE_CLIENT_ID
-    ? { ...manifest, oauth2: { ...manifest.oauth2, client_id: env.VITE_DEV_GOOGLE_CLIENT_ID } }
-    : manifest;
+  const resolvedManifest =
+    mode !== "release" && env.VITE_DEV_GOOGLE_CLIENT_ID
+      ? { ...manifest, oauth2: { ...manifest.oauth2, client_id: env.VITE_DEV_GOOGLE_CLIENT_ID } }
+      : manifest;
 
   return {
     plugins: [react(), crx({ manifest: resolvedManifest as unknown as chrome.runtime.ManifestV3 })],

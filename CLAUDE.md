@@ -41,18 +41,20 @@ Run from the repo root via `make` (see `Makefile`), or `cd extension && npm run 
 ```bash
 make install         # npm install in extension/
 make dev              # vite dev server, watch-builds into extension/dist
-make build             # tsc --noEmit + vite build (sidepanel) + vite build (content script)
+make build             # tsc --noEmit + vite build (sidepanel) + vite build (content script) — honors extension/.env.local dev OAuth override
+make build-release     # same, but built with --mode release — ignores extension/.env.local, always ships manifest.json's real prod OAuth client
 make typecheck        # tsc --noEmit only
 make lint              # eslint .
 make lint-fix          # eslint . --fix
 make test              # vitest run — the autofill-engine regression suite (jsdom, no browser needed)
 make clean             # remove extension/dist and extension.zip
-make zip               # build, then package extension/dist into extension.zip (repo root) — alias: make package
+make zip               # build-release, then package extension/dist into extension.zip (repo root) — alias: make package
 make version           # print current version (extension/package.json)
 make version-patch     # bump patch version in package.json + manifest.json (+ lockfile), e.g. 0.2.0 -> 0.2.1
 make version-minor     # bump minor version
 make version-major     # bump major version
-make release            # clean + install + build + zip
+make release            # clean + install + zip (release-mode build)
+make publish            # bump version (PART=patch|minor|major, default patch) + release + zip, in one command — this is "cut a new release"
 ```
 
 ### Automated regression suite (`make test`)
@@ -104,8 +106,11 @@ packages the combined `extension/dist` output.
 `VITE_DEV_GOOGLE_CLIENT_ID` (in a gitignored `extension/.env.local`) when present — the
 Chrome Web Store item's OAuth client is registered against the *published* extension ID, which
 never matches a locally "Load unpacked" build's ID, so Google sign-in only works locally
-against a second, dev-only OAuth client. Production builds (used for the CWS package) are
-untouched whenever that file is absent.
+against a second, dev-only OAuth client. This swap is skipped whenever Vite runs with
+`--mode release` (i.e. `npm run build:release`, used by `make build-release`/`make
+zip`/`make publish`), regardless of whether `.env.local` is present on disk — so a
+release/CWS build always ships `manifest.json`'s own `oauth2.client_id` (the real prod
+client) untouched, even if a developer's local `.env.local` still has the dev override set.
 
 ### Message-passing: Side Panel <-> Background <-> Content Script
 
