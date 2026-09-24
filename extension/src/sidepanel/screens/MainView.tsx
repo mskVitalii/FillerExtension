@@ -1089,7 +1089,7 @@ export function MainView({
       }
       if (adaptTemplate.format === "docx") setAdaptStatus("Converting to PDF via Google Docs…");
       const values = resolveValues(adaptTemplate, job, entry.values);
-      const file = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile);
+      const file = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile, { company: job.company });
       // Background: kept with this posting in Applications; a Drive hiccup mustn't block the preview/attach itself.
       void recordAdaptedCv(job, cvMeta, values, file).catch(() => undefined);
       if (mode === "preview") {
@@ -1426,15 +1426,21 @@ export function MainView({
         </>
       )}
 
-      <div className="flex gap-2">
+      {/* flex-wrap + flex-auto: a third button that doesn't fit drops to its own full-width row. */}
+      <div className="flex flex-wrap gap-2">
         {setupComplete && (
-          <Button className="flex-1" onClick={handleGenerate} disabled={generating || !job.position}>
+          <Button className="flex-auto" onClick={handleGenerate} disabled={generating || !job.position}>
             {generating ? "Generating…" : "Generate Cover Letter"}
           </Button>
         )}
-        <Button className="flex-1" onClick={() => void runAutofill(setupComplete)}>
+        <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)}>
           Autofill Application
         </Button>
+        {setupComplete && cvMeta && (
+          <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt}>
+            <FileUser className="h-4 w-4" /> Adapt CV
+          </Button>
+        )}
       </div>
       {!cvMeta && (
         <p className="text-xs text-muted-foreground">

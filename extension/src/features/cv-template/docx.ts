@@ -17,7 +17,7 @@ const XML_NS = "http://www.w3.org/XML/1998/namespace";
 const PLACEHOLDER_RE = /\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g;
 
 /** Main body plus headers/footers — anywhere a user might reasonably type a placeholder. */
-function isTextPart(path: string): boolean {
+export function isTextPart(path: string): boolean {
   return /^word\/(document|header\d*|footer\d*)\.xml$/.test(path);
 }
 
@@ -25,14 +25,14 @@ function partOrder(path: string): number {
   return path === "word/document.xml" ? 1 : path.startsWith("word/header") ? 0 : 2;
 }
 
-function parseXml(xml: string): Document {
+export function parseXml(xml: string): Document {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.getElementsByTagName("parsererror").length > 0) throw new Error("The Word file's XML couldn't be parsed.");
   return doc;
 }
 
 /** `XMLSerializer` drops the `<?xml … standalone="yes"?>` declaration Word writes; put the original back. */
-function serializeXml(doc: Document, original: string): string {
+export function serializeXml(doc: Document, original: string): string {
   const body = new XMLSerializer().serializeToString(doc);
   const declaration = /^<\?xml[^>]*\?>/.exec(original)?.[0];
   return declaration && !body.startsWith("<?xml") ? `${declaration}\r\n${body}` : body;
@@ -132,7 +132,7 @@ function fillParagraph(paragraph: Element, values: Record<string, string>): void
   for (const t of touched) expandLineBreaks(t);
 }
 
-function readParts(bytes: Uint8Array): Record<string, Uint8Array> {
+export function readParts(bytes: Uint8Array): Record<string, Uint8Array> {
   try {
     return unzipSync(bytes);
   } catch {

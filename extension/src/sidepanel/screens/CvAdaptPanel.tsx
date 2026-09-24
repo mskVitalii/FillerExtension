@@ -342,7 +342,11 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   /** Every PDF produced here (preview, attach, download) is also kept with this posting's application. */
   async function renderOutput(format: AdaptedCvFormat = "pdf"): Promise<File> {
     if (!selectedCv) throw new Error("No CV selected.");
-    const file = await renderAdaptedCv(selectedCv, draftTemplate, resolvedValues, profile, { format, docx });
+    const file = await renderAdaptedCv(selectedCv, draftTemplate, resolvedValues, profile, {
+      format,
+      docx,
+      company: job.company,
+    });
     if (format === "pdf") {
       const cv = selectedCv;
       recordAdaptedCv(job.url ? job : { ...job, url: tabUrl }, cv, resolvedValues, file)

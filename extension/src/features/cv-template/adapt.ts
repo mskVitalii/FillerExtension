@@ -5,6 +5,7 @@ import { sendMessage } from "@/types/messages";
 import { getCvAdaptState, setCvAdaptState, type CvAdaptEntry } from "@/features/storage/session";
 import { getCvFile } from "@/features/profile/repository";
 import { saveAdaptedCv } from "@/features/applications/repository";
+import { renderCvPdf } from "@/features/pdf/export";
 import { DOCX_MIME, fillDocx } from "./docx";
 import { defaultValue, extractVariableNames, fillTemplate } from "./template";
 
@@ -56,9 +57,20 @@ export async function suggestEntry(job: Job, template: CvTemplate, entry: CvAdap
   return { values, reasons, aiSuggested: true };
 }
 
-export function adaptedCvFileName(profile: Profile, extension: "pdf" | "docx"): string {
+/** Characters Windows/macOS or `chrome.downloads` reject in a file name. */
+function fileNameSafe(text: string): string {
+  return text
+    .replace(/[\\/:*?"<>|~]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+/** "Jane Doe CV - Staffbase.pdf" — the company tells several adapted CVs in Downloads apart. */
+export function adaptedCvFileName(profile: Profile, extension: "pdf" | "docx", company = ""): string {
   const name = profile.fullName.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
-  return `${name ? `${name} ` : ""}CV.${extension}`;
+  const suffix = fileNameSafe(company);
+  return fileNameSafe(`${name ? `${name} ` : ""}CV${suffix ? ` - ${suffix}` : ""}`) + `.${extension}`;
 }
 
 export type AdaptedCvFormat = "pdf" | "docx";
@@ -89,26 +101,31 @@ export async function renderAdaptedCv(
   template: CvTemplate,
   values: Record<string, string>,
   profile: Profile,
-  options: { format?: AdaptedCvFormat; docx?: Uint8Array | null } = {},
+  options: { format?: AdaptedCvFormat; docx?: Uint8Array | null; company?: string } = {},
 ): Promise<File> {
   const format = options.format ?? "pdf";
+  // A Markdown template only ever renders to PDF.
+  const fileName = adaptedCvFileName(profile, template.format === "docx" ? format : "pdf", options.company);
   if (template.format === "docx") {
     const filled = new Uint8Array(fillDocx(await wordCvBytes(cv, options.docx), values));
     const docxBlob = new Blob([filled], { type: DOCX_MIME });
-    if (format === "docx") return new File([docxBlob], adaptedCvFileName(profile, "docx"), { type: DOCX_MIME });
+    if (format === "docx") return new File([docxBlob], fileName, { type: DOCX_MIME });
     const key = JSON.stringify([cv.id, cv.uploadedAt, values]);
     let pdf = pdfCache.get(key);
     if (!pdf) {
-      const { convertDocxToPdf } = await import("@/features/google-drive/convert");
-      pdf = convertDocxToPdf(docxBlob);
+      const [{ convertDocxToPdf }, { bakePictureShapes }] = await Promise.all([
+        import("@/features/google-drive/convert"),
+        import("./docx-shapes"),
+      ]);
+      // Google Docs drops Word's rounded/circular photo masks — bake them into the image first.
+      pdf = bakePictureShapes(filled).then((bytes) => convertDocxToPdf(new Blob([new Uint8Array(bytes)], { type: DOCX_MIME })));
       pdfCache.set(key, pdf);
       // A failed conversion (consent dismissed, offline) must be retryable, not cached.
       pdf.catch(() => pdfCache.delete(key));
     }
-    return new File([await pdf], adaptedCvFileName(profile, "pdf"), { type: "application/pdf" });
+    return new File([await pdf], fileName, { type: "application/pdf" });
   }
-  const { renderCvPdf } = await import("@/features/pdf/export");
-  return renderCvPdf(fillTemplate(template.content, values), adaptedCvFileName(profile, "pdf"));
+  return renderCvPdf(fillTemplate(template.content, values), fileName);
 }
 
 /** Last saved input per posting URL — Preview, then Attach, then Download of the same PDF shouldn't re-upload it three times. */
