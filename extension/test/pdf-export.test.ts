@@ -9,9 +9,15 @@ import { describe, expect, it, vi } from "vitest";
 // no URL scheme — hands straight to `fontkit.open()` as a filesystem path,
 // which then fails since it isn't one. Mocking the import to the real
 // absolute path makes that same fontkit.open() call succeed here, without
-// changing how `CoverLetterDocument.tsx` imports it for the real build.
+// changing how `pdf/fonts.ts` imports it for the real build.
 vi.mock("@/assets/fonts/Inter-Regular.ttf", () => ({
   default: path.resolve(__dirname, "../src/assets/fonts/Inter-Regular.ttf"),
+}));
+vi.mock("@/assets/fonts/Inter-Bold.ttf", () => ({
+  default: path.resolve(__dirname, "../src/assets/fonts/Inter-Bold.ttf"),
+}));
+vi.mock("@/assets/fonts/Inter-Italic.ttf", () => ({
+  default: path.resolve(__dirname, "../src/assets/fonts/Inter-Italic.ttf"),
 }));
 
 const { renderCoverLetterPdf } = await import("@/features/pdf/export");
@@ -46,6 +52,21 @@ describe("renderCoverLetterPdf", () => {
     );
 
     const file = await renderCoverLetterPdf(paragraphs, "Cover Letter.pdf");
+    expect(file.size).toBeGreaterThan(8 * 1024);
+  });
+});
+
+describe("renderCvPdf", () => {
+  it("renders a filled template with bold/italic/links to a real PDF", async () => {
+    const { renderCvPdf } = await import("@/features/pdf/export");
+    const { fillTemplate } = await import("@/features/cv-template/template");
+    const markdown = fillTemplate(
+      "# Jana Müller\n{{job_position}} · {{city}} · [GitHub](https://github.com/jana)\n\n## Experience\n### **Acme GmbH** || 2021 – now\n- Built *{{main_language}}* services\n---\n## Skills\n{{main_language}}, {{keywords}}",
+      { job_position: "Backend Engineer", city: "Berlin", main_language: "Go", keywords: "gRPC, Kafka" },
+    );
+    const file = await renderCvPdf(markdown, "Jana Müller CV.pdf");
+    expect(file.type).toBe("application/pdf");
+    expect(file.name).toBe("Jana Müller CV.pdf");
     expect(file.size).toBeGreaterThan(8 * 1024);
   });
 });

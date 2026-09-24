@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Download, ExternalLink, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Eye, Search, Trash2 } from "lucide-react";
 import { SubmissionsTimeline } from "@/components/charts/SubmissionsTimeline";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { deleteApplication, getAllApplications, setApplicationStatus } from "@/features/applications/repository";
+import {
+  deleteApplication,
+  getAdaptedCvFile,
+  getAllApplications,
+  setApplicationStatus,
+} from "@/features/applications/repository";
 import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } from "@/features/applications/stats";
-import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
+import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
 import { getUrlActivationsWithBackfill, removeUrlActivation } from "@/features/storage/local";
-import type { Application, ApplicationStatus, UrlActivation } from "@/types/application";
+import type { AdaptedCvRecord, Application, ApplicationStatus, UrlActivation } from "@/types/application";
 
 const STATUS_OPTIONS: ApplicationStatus[] = ["draft", "applied", "interview", "rejected", "offer"];
 const EMPTY_STATS: SubmissionStats = { total: 0, lastWindow: 0, avgPerDay: 0, byDay: [], series: [] };
@@ -45,7 +50,61 @@ function buildActivityRows(applications: Application[], activations: UrlActivati
     .sort((a, b) => (b.application?.updatedAt ?? b.date).localeCompare(a.application?.updatedAt ?? a.date));
 }
 
-/** Every job URL the extension was ever activated on (spec_6), each tagged "Cover letter" when a draft was saved to Drive. */
+/** "Backend Engineer · Berlin · Go" — what the adapted CV was filled with, short enough for one line. */
+function describeValues(values: Record<string, string>): string {
+  return Object.values(values)
+    .map((value) => value.split("\n")[0].trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+type FileAction = "preview" | "download";
+
+/** A labelled file with its own preview/download icons — a row can carry a cover letter, an adapted CV, or both. */
+function FileChip({
+  label,
+  detail,
+  busy,
+  onAction,
+}: {
+  label: string;
+  detail?: string;
+  busy: boolean;
+  onAction: (action: FileAction) => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/30 py-0.5 pl-2 pr-1 text-xs">
+      <span className="shrink-0 font-medium">{label}</span>
+      {detail && (
+        <span className="min-w-0 truncate text-muted-foreground" title={detail}>
+          · {detail}
+        </span>
+      )}
+      <button
+        onClick={() => onAction("preview")}
+        disabled={busy}
+        className="ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        aria-label={`Preview ${label}`}
+      >
+        <Eye className="h-3.5 w-3.5" />
+      </button>
+      <button
+        onClick={() => onAction("download")}
+        disabled={busy}
+        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        aria-label={`Download ${label}`}
+      >
+        <Download className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Every job URL the extension was ever activated on (spec_6). A row with a
+ * saved application also carries its files — the cover letter and the
+ * adapted CV sent for that posting — each previewable/downloadable in place.
+ */
 export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [activations, setActivations] = useState<UrlActivation[]>([]);
@@ -54,7 +113,8 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  /** `${application id}:${"letter" | "cv"}` of the file currently being fetched/rendered. */
+  const [busyFile, setBusyFile] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -83,15 +143,30 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     await setApplicationStatus(app.id, status);
   }
 
-  async function handleDownload(application: Application) {
-    setDownloadingId(application.id);
+  async function runFileAction(key: string, action: FileAction, load: () => Promise<File | null>) {
+    setBusyFile(key);
+    setError(null);
     try {
-      const fileName = `Cover Letter - ${application.company || application.position || "application"}.pdf`;
-      const file = await renderCoverLetterPdf(application.coverLetter, fileName);
-      await downloadFile(file);
+      const file = await load();
+      if (!file) throw new Error("The file is no longer in Google Drive.");
+      if (action === "preview") await openPdfPreview(file);
+      else await downloadFile(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open the file.");
     } finally {
-      setDownloadingId(null);
+      setBusyFile(null);
     }
+  }
+
+  function handleCoverLetter(application: Application, action: FileAction) {
+    const fileName = `Cover Letter - ${application.company || application.position || "application"}.pdf`;
+    void runFileAction(`${application.id}:letter`, action, () =>
+      renderCoverLetterPdf(application.coverLetter, fileName),
+    );
+  }
+
+  function handleAdaptedCv(application: Application, record: AdaptedCvRecord, action: FileAction) {
+    void runFileAction(`${application.id}:cv`, action, () => getAdaptedCvFile(record));
   }
 
   async function handleDelete(row: ActivityRow) {
@@ -177,12 +252,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                 <div className="min-w-0">
                   {row.application ? (
                     <>
-                      <div className="flex items-center gap-1.5">
-                        <p className="truncate text-sm font-medium">{row.application.position || "—"}</p>
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                          Cover letter
-                        </span>
-                      </div>
+                      <p className="truncate text-sm font-medium">{row.application.position || "—"}</p>
                       <p className="truncate text-xs text-muted-foreground">{row.application.company || "—"}</p>
                     </>
                   ) : (
@@ -190,16 +260,6 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {row.application?.coverLetter && (
-                    <button
-                      onClick={() => void handleDownload(row.application!)}
-                      disabled={downloadingId === row.application.id}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-50"
-                      aria-label="Download cover letter PDF"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                  )}
                   <a
                     href={row.url}
                     target="_blank"
@@ -219,6 +279,27 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   </button>
                 </div>
               </div>
+              {row.application && (row.application.coverLetter || row.application.adaptedCv) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {row.application.coverLetter && (
+                    <FileChip
+                      label="Cover letter"
+                      busy={busyFile === `${row.application.id}:letter`}
+                      onAction={(action) => handleCoverLetter(row.application!, action)}
+                    />
+                  )}
+                  {row.application.adaptedCv && (
+                    <FileChip
+                      label="CV"
+                      detail={
+                        describeValues(row.application.adaptedCv.values) || row.application.adaptedCv.cvFileName
+                      }
+                      busy={busyFile === `${row.application.id}:cv`}
+                      onAction={(action) => handleAdaptedCv(row.application!, row.application!.adaptedCv!, action)}
+                    />
+                  )}
+                </div>
+              )}
               <div className={cn("flex items-center gap-2", row.application ? "justify-between" : "justify-end")}>
                 {row.application && (
                   <Select

@@ -10,6 +10,7 @@ import type {
   Profile,
 } from "@/types/profile";
 import type { UrlActivation } from "@/types/application";
+import type { CvTemplateLibrary } from "@/types/cv-template";
 import type { Job } from "@/types/job";
 import { mergeBackfilledActivations } from "@/features/applications/stats";
 import { todayISO } from "@/lib/date-format";
@@ -37,6 +38,8 @@ interface LocalStorageSchema {
   languageLevelsCache: LanguageLevel[];
   faqAnswersCache: FaqEntry[];
   generationRulesCache: GenerationRules;
+  /** Per-CV `{{placeholder}}` templates (Adapt CV tab), keyed by CvMeta.id — Drive `cvTemplates.json` is the source of truth. */
+  cvTemplatesCache: CvTemplateLibrary;
   /** Most recently generated/edited cover letter, so the context menu can insert it. */
   lastCoverLetter: string;
   /** spec_6 — every job URL the extension was activated on, one entry per unique URL, for the submissions chart. */

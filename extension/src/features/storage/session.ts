@@ -33,6 +33,10 @@ export interface TabState {
   /** Generated on demand for this tab's registration form — kept per-tab, not in the durable
    * profile, since a password must never be reused across sites. */
   generatedPassword: string | null;
+  /** The position as extraction found it, before any manual correction in the Position field —
+   * lets in-tab navigation still recognize the same posting after the user fixed its title.
+   * Optional so state saved before it existed still loads (falls back to `job.position`). */
+  extractedPosition?: string;
 }
 
 function key(tabId: number): string {
@@ -48,8 +52,43 @@ export async function setTabState(tabId: number, state: TabState): Promise<void>
   await chrome.storage.session.set({ [key(tabId)]: state });
 }
 
+/** Also drops the tab's Adapt CV selections, so Reset / closing the tab clears both. */
 export async function clearTabState(tabId: number): Promise<void> {
-  await chrome.storage.session.remove(key(tabId));
+  await chrome.storage.session.remove([key(tabId), cvAdaptKey(tabId)]);
+}
+
+/** Placeholder values picked for one CV on one posting. */
+export interface CvAdaptEntry {
+  values: Record<string, string>;
+  reasons: Record<string, string>;
+  aiSuggested: boolean;
+}
+
+/**
+ * The Adapt CV tab's per-posting placeholder values, per CV (`byCv`, keyed
+ * by CvMeta.id — each CV has its own placeholders) — kept apart from
+ * `TabState` (which MainView rewrites wholesale from its own state) but on
+ * the same tab key and tier, so a value the user picked for this posting
+ * survives going Back, the main view's "adapted CV" export reuses it, and
+ * AI suggestions aren't re-bought. `url` guards against reusing values
+ * after the tab navigated elsewhere.
+ */
+export interface CvAdaptState {
+  url: string;
+  byCv: Record<string, CvAdaptEntry>;
+}
+
+function cvAdaptKey(tabId: number): string {
+  return `cvAdapt:${tabId}`;
+}
+
+export async function getCvAdaptState(tabId: number): Promise<CvAdaptState | undefined> {
+  const result = await chrome.storage.session.get(cvAdaptKey(tabId));
+  return result[cvAdaptKey(tabId)] as CvAdaptState | undefined;
+}
+
+export async function setCvAdaptState(tabId: number, state: CvAdaptState): Promise<void> {
+  await chrome.storage.session.set({ [cvAdaptKey(tabId)]: state });
 }
 
 /**

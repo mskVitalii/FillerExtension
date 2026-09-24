@@ -162,6 +162,47 @@ Applications are keyed by `applicationIdForUrl(job.url)` (`features/applications
 re-generating or editing a cover letter for the same job URL updates the existing Drive record
 (`applications/<id>.json`) instead of creating a duplicate.
 
+### Adapt CV tab (per-CV templates)
+
+Each CV in the library has its own `{{placeholder}}` set. Templates are stored in
+`types/cv-template.ts` and in Drive `cvTemplates.json`, keyed by `CvMeta.id`. Each placeholder
+has a description (the AI's instruction), variants that can span several lines, and a mode:
+`choice` (always one of the variants) or `free` (the variants are only examples). A CV is one of
+two formats:
+
+- **`.docx` CV (`format: "docx"`).** The uploaded file is the template: the user types
+  `{{city}}` etc. into it in Word. `features/cv-template/docx.ts` (fflate + DOMParser) rewrites
+  only the `<w:t>` text of those placeholders. It handles placeholders that Word split across
+  runs, and every other part of the package stays byte-identical. No in-browser library turns
+  that `.docx` into a PDF with a real Word layout: `docx-preview` was tried against a real CV
+  and lost the fonts, the Symbol-font bullets and the photo placement, and Word's fonts can't be
+  shipped in the extension. So `google-drive/convert.ts` uploads the filled `.docx` as a
+  temporary Google Doc, exports it as PDF and deletes it. `files.export` doesn't accept
+  `drive.appdata`, so that call asks for `drive.file` *incrementally* through
+  `getAuthToken({ scopes })`. Keep `drive.file` out of `manifest.json`'s `oauth2.scopes`: adding
+  it there makes every existing user's silent token lookup fail until they re-consent. Known gap:
+  Google has no Calibri Light, so it renders as Calibri.
+- **PDF CV (`format: "markdown"`).** It gets a Markdown-subset template
+  (`features/cv-template/markdown.ts`), which the PDF and the Side Panel preview both parse. The
+  template is rendered to PDF by `features/pdf/CvDocument.tsx`, and every PDF shares
+  `features/pdf/fonts.ts`.
+
+`features/cv-template/adapt.ts` is shared by `CvAdaptPanel.tsx` and MainView's "Preview/Attach/
+Export adapted CV" buttons. It holds the per-tab, per-CV values (session storage `cvAdapt:<tabId>`),
+the `SUGGEST_CV_VALUES` round-trip and the rendering (plus an in-memory cache of converted PDFs).
+Every adapted PDF produced (preview, attach or download) is also kept with its posting's
+application, via `recordAdaptedCv` → `applications/repository.ts` `saveAdaptedCv`. The record is
+`Application.adaptedCv`, and the file is Drive `adaptedCv/<id>.pdf`. It deliberately lives outside
+`applications/`, because `listApplicationFiles` matches on that name. The Applications list
+previews or downloads it. Writes to one application go through `updateApplication`'s per-id queue,
+because the cover-letter autosave and an adapted-CV save can hit the same record at once. Before any AI call, `findOptionsInPosting`
+preselects variants that appear verbatim in the posting, and a `choice` answer from the AI that
+isn't one of the variants falls back to that offline value. Picking a CV in the Adapt CV tab also
+makes it the active CV everywhere else.
+
+jsdom corrupts react-pdf's flate streams, so a PDF written from a jsdom test won't open. Size
+assertions still work there, but to look at a render you need a `node`-environment vitest run.
+
 ### OpenAI usage
 
 All AI requests go directly from the extension to OpenAI's Responses API using the user's own

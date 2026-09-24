@@ -244,6 +244,28 @@ export async function getCvFile(id?: string): Promise<File | null> {
   return new File([blob], meta.fileName, { type: meta.mimeType });
 }
 
+/**
+ * Swaps the file behind an existing library entry, keeping its id — used by
+ * the Adapt CV tab when a Word CV was edited (e.g. a new `{{placeholder}}`
+ * typed in) so its placeholder definitions, keyed by that id, stay attached.
+ */
+export async function replaceCvFile(id: string, file: File, extractedText: string): Promise<CvMeta | null> {
+  const library = await getCvLibrary();
+  const meta = library.items.find((cv) => cv.id === id);
+  if (!meta) return null;
+  const driveFileId = await drive.writeBinaryFile(cvFileName(id), file);
+  const next: CvMeta = {
+    ...meta,
+    fileName: file.name,
+    mimeType: file.type,
+    driveFileId,
+    text: extractedText,
+    uploadedAt: new Date().toISOString(),
+  };
+  await saveCvLibrary({ ...library, items: library.items.map((cv) => (cv.id === id ? next : cv)) });
+  return next;
+}
+
 /** Removes one CV from the library. If it was active, the next remaining entry (if any) becomes active. */
 export async function deleteCv(id: string): Promise<void> {
   const library = await getCvLibrary();

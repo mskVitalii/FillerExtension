@@ -44,7 +44,7 @@ import {
   type JobSearchCredentials,
 } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
-import { extractPdfText } from "@/lib/pdf-text";
+import { extractCvText, normalizeCvFile } from "@/lib/cv-text";
 import { COUNTRIES } from "@/lib/countries";
 import { formatSalaryForStorage } from "@/lib/salary";
 import { FAQ_QUESTIONS } from "@/lib/faq-questions";
@@ -194,10 +194,12 @@ export function SettingsPanel({
     await setPreferences({ supportModel: model });
   }
 
-  async function handleCvSelected(file: File) {
+  async function handleCvSelected(rawFile: File) {
     setUploading(true);
     try {
-      const text = await extractPdfText(file);
+      // A .docx CV is also a ready Word template for the Adapt CV tab (keeps its exact layout).
+      const file = normalizeCvFile(rawFile);
+      const text = await extractCvText(file);
       const meta = await uploadCv(file, text);
       setCvList((list) => [...list, meta]);
       onCvChange(meta);
@@ -514,7 +516,7 @@ export function SettingsPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -1026,6 +1028,9 @@ export function SettingsPanel({
         <CardContent className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">
             Leave your wishes and bug reports — I use this extension every day and keep improving it.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            And if you land a job with Filler's help, I'd be really happy to hear about it!
           </p>
           <div className="flex flex-wrap gap-2">
             <a

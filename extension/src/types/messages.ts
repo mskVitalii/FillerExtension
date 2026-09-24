@@ -1,5 +1,6 @@
 import type { Job, JobKeyword, JobLanguageInfo } from "./job";
 import type { FaqEntry, Profile } from "./profile";
+import type { CvTemplate, CvValueSuggestion, CvVariable } from "./cv-template";
 import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
@@ -115,6 +116,10 @@ export type RuntimeMessage =
     }
   | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
+  | { type: "SUGGEST_CV_VALUES"; job: Job; template: CvTemplate }
+  | { type: "CV_VALUES"; values: CvValueSuggestion[] }
+  | { type: "TEMPLATIZE_CV"; cvText: string }
+  | { type: "CV_TEMPLATE_DRAFT"; content: string; variables: CvVariable[] }
   /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */
   | { type: "ERROR"; error: string; code?: string };
 

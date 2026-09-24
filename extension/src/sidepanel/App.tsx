@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiKeyStep } from "./screens/ApiKeyStep";
 import { ApplicationsList } from "./screens/ApplicationsList";
 import { ConnectGoogleStep } from "./screens/ConnectGoogleStep";
+import { CvAdaptPanel } from "./screens/CvAdaptPanel";
 import { JobSearchPanel } from "./screens/JobSearchPanel";
 import { MainView } from "./screens/MainView";
 import { SettingsPanel } from "./screens/SettingsPanel";
@@ -26,7 +27,7 @@ import {
   type Profile,
 } from "@/types/profile";
 
-type Step = "loading" | "api-key" | "connect-google" | "main" | "settings" | "applications" | "job-search";
+type Step = "loading" | "api-key" | "connect-google" | "main" | "settings" | "applications" | "job-search" | "cv-adapt";
 
 /** Top-level router mirroring the first-run → main-workflow flow (spec section 2). */
 export function App() {
@@ -130,6 +131,22 @@ export function App() {
     );
   }
 
+  if (step === "cv-adapt") {
+    if (activeTab.tabId === null) return null;
+    return (
+      <CvAdaptPanel
+        key={activeTab.tabId}
+        tabId={activeTab.tabId}
+        tabUrl={activeTab.url ?? ""}
+        profile={profile}
+        hasApiKey={hasApiKey}
+        onBack={() => setStep("main")}
+        onRequestApiKey={() => setStep("api-key")}
+        onCvChange={setCvMeta}
+      />
+    );
+  }
+
   if (step === "settings") {
     return (
       <SettingsPanel
@@ -175,6 +192,7 @@ export function App() {
       onOpenSettings={() => setStep("settings")}
       onOpenApplications={() => setStep("applications")}
       onOpenJobSearch={() => setStep("job-search")}
+      onOpenCvAdapt={() => setStep("cv-adapt")}
       onRequestApiKey={() => setStep("api-key")}
       onRequestGoogleConnect={() => setStep("connect-google")}
     />

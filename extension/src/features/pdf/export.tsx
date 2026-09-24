@@ -28,3 +28,32 @@ export async function downloadFile(file: File): Promise<void> {
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
 }
+
+/**
+ * A filled CV template (Markdown subset, see `cv-template/markdown.ts`) →
+ * PDF File. Lazy-loaded for the same bundle-size reason as the cover letter.
+ */
+export async function renderCvPdf(filledMarkdown: string, fileName: string): Promise<File> {
+  const [{ pdf }, { CvDocument }, { parseCvMarkdown }, { stripMarks }] = await Promise.all([
+    import("@react-pdf/renderer"),
+    import("./CvDocument"),
+    import("@/features/cv-template/markdown"),
+    import("@/features/cv-template/template"),
+  ]);
+  const blocks = parseCvMarkdown(stripMarks(filledMarkdown));
+  const title = fileName.replace(/\.pdf$/i, "");
+  const blob = await pdf(<CvDocument blocks={blocks} title={title} />).toBlob();
+  return new File([blob], fileName, { type: "application/pdf" });
+}
+
+/**
+ * Opens a PDF in a new browser tab (Chrome's own viewer) without saving it —
+ * the Side Panel is too narrow to judge a page layout. The blob URL belongs
+ * to this extension page's origin; it's revoked after a minute, long after
+ * the tab has loaded it.
+ */
+export async function openPdfPreview(file: File): Promise<void> {
+  const url = URL.createObjectURL(file);
+  await chrome.tabs.create({ url });
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

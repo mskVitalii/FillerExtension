@@ -19,13 +19,16 @@ This policy explains what data the extension handles, where it goes, and why.
 | Data | What it is | Where it's stored |
 |---|---|---|
 | Profile information | Name, email, phone, address, city, postal code, LinkedIn, GitHub, personal website, expected salary — the fields you fill in yourself | Locally (`chrome.storage.local`), synced to **your own** Google Drive `appDataFolder` |
-| Résumé / CV | The PDF file you upload, plus text extracted from it locally | Locally, synced to **your own** Google Drive `appDataFolder` |
+| Résumé / CV | The PDF or Word (.docx) file you upload, plus text extracted from it locally, and the `{{placeholder}}` settings you define for adapting it per job posting | Locally, synced to **your own** Google Drive `appDataFolder` |
 | OpenAI API key | The key you paste in during setup | Locally only (`chrome.storage.local`) — never transmitted anywhere except directly to `api.openai.com` as part of your own API requests |
 | Google OAuth token | Issued by Google when you click "Connect Google" | Managed by Chrome's `chrome.identity` API; used only to call the Google Drive API on your behalf |
 | Job posting content | Text/structured data extracted from the job page you're viewing when you use the extension | Processed locally; sent to `api.openai.com` (with your key) only when you generate/extract with AI assistance |
 | Generated cover letters | The text drafted from your profile and the job posting | Stored locally and in your Google Drive `appDataFolder`, only when you use the extension |
+| Adapted CVs | The PDF of your CV as adapted for a specific job posting (the one you last previewed, attached or downloaded for it), plus the values it was filled with | Your Google Drive `appDataFolder`, next to that posting's application; deleted together with it |
 
 Filler's Google Drive access is limited to the `drive.appdata` OAuth scope — a private, hidden storage area that only this extension can read or write, and that isn't visible in your regular Drive file list.
+
+Only if you export an adapted Word CV as PDF, Filler asks once for one more narrow scope, `drive.file` (access only to files Filler itself creates, never to your other Drive files). It uses it to upload that adapted CV as a temporary Google Doc, let Google Docs convert it to PDF, and delete the temporary file immediately afterwards — whether or not the conversion succeeded. If you never export a Word CV as PDF, this scope is never requested.
 
 ## Who receives data, and why
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
-import { FileText, GripVertical, ListChecks, RotateCcw, Search, Settings } from "lucide-react";
+import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +20,25 @@ import { meetsLevel } from "@/lib/language-level";
 import { sendMessage, type RuntimeMessage } from "@/types/messages";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { formatProfileValueForDisplay } from "@/features/profile/format-value";
-import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
+import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
 import { fileToBase64 } from "@/lib/base64";
-import { recordUrlActivation, setLocal } from "@/features/storage/local";
+import { recordUrlActivation, setCachedJob, setLocal } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
 import type { Application } from "@/types/application";
 import { getCvFile } from "@/features/profile/repository";
+import type { CvTemplate } from "@/types/cv-template";
+import { getCvTemplates, templateForCv } from "@/features/cv-template/repository";
+import {
+  loadAdaptEntry,
+  recordAdaptedCv,
+  renderAdaptedCv,
+  resolveValues,
+  saveAdaptEntry,
+  suggestEntry,
+  usedVariables,
+} from "@/features/cv-template/adapt";
 import { questionAnswerKey, type CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField } from "@/features/autofill/pick-questions";
 import type { ElementLocator } from "@/features/autofill/element-locator";
@@ -60,6 +71,7 @@ interface MainViewProps {
   onOpenSettings: () => void;
   onOpenApplications: () => void;
   onOpenJobSearch: () => void;
+  onOpenCvAdapt: () => void;
   onRequestApiKey: () => void;
   onRequestGoogleConnect: () => void;
 }
@@ -86,6 +98,7 @@ export function MainView({
   onOpenSettings,
   onOpenApplications,
   onOpenJobSearch,
+  onOpenCvAdapt,
   onRequestApiKey,
   onRequestGoogleConnect,
 }: MainViewProps) {
@@ -163,6 +176,8 @@ export function MainView({
   const cvFileRef = useRef<File | null>(null);
   const knownUrlRef = useRef(tabUrl);
   const hasLoadedRef = useRef(false);
+  /** Position as extracted, before a manual correction — see `TabState.extractedPosition`. */
+  const extractedPositionRef = useRef("");
   // Picker mode is a loop, not a one-shot: `pickingRef` gates the loop and
   // `pickerPortRef` is a disconnect-on-close channel to the background.
   const pickingRef = useRef(false);
@@ -183,6 +198,10 @@ export function MainView({
   // text (e.g. into ChatGPT's composer) instead of a file, while a page
   // that expects only files (e.g. css-tricks' demo) just got nothing.
   const [cvFileReady, setCvFileReady] = useState(false);
+  /** The active CV's Adapt CV template, when it has placeholders — gates the "adapted CV" buttons. */
+  const [adaptTemplate, setAdaptTemplate] = useState<CvTemplate | null>(null);
+  const [adaptingCv, setAdaptingCv] = useState(false);
+  const [adaptStatus, setAdaptStatus] = useState<string | null>(null);
   const [coverLetterFileReady, setCoverLetterFileReady] = useState(false);
 
   // Keeps a real File ready for native drag-and-drop (see handleCvDragStart)
@@ -203,6 +222,22 @@ export function MainView({
       .catch(() => setCvFileReady(false));
   }, [cvMeta]);
 
+  useEffect(() => {
+    if (!cvMeta) {
+      setAdaptTemplate(null);
+      return;
+    }
+    let cancelled = false;
+    void getCvTemplates().then((library) => {
+      if (cancelled) return;
+      const template = templateForCv(cvMeta, library);
+      setAdaptTemplate(usedVariables(template).length > 0 ? template : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cvMeta]);
+
   // Seeds the Translate tab's language selector from the remembered
   // preference (spec_2 item 3) — independent of per-tab cache restore below.
   useEffect(() => {
@@ -216,6 +251,7 @@ export function MainView({
     void (async () => {
       const cached = await getTabState(tabId);
       if (cached && cached.url === tabUrl) {
+        extractedPositionRef.current = cached.extractedPosition ?? cached.job.position;
         setJob(cached.job);
         setCoverLetter(cached.coverLetter);
         setPasteMode(cached.pasteMode);
@@ -273,11 +309,17 @@ export function MainView({
       // No content script on the new page (e.g. a chrome:// page reached mid-flow) — keep the current draft.
     }
 
+    // Compared against both the (possibly hand-corrected) current title and the title extraction
+    // originally found: the next page of the same posting re-extracts the original, while a URL whose
+    // cached job already carries the correction returns that — neither is a different job.
     const isDifferentJob =
-      Boolean(newJob?.position) && (newJob?.position !== job.position || newJob?.company !== job.company);
+      Boolean(newJob?.position) &&
+      ((newJob?.position !== job.position && newJob?.position !== extractedPositionRef.current) ||
+        newJob?.company !== job.company);
 
     if (newJob && isDifferentJob) {
       setError(null);
+      extractedPositionRef.current = newJob.position;
       setJob(newJob);
       setCoverLetter("");
       setCleanedNotice(null);
@@ -298,6 +340,20 @@ export function MainView({
     }
     void handleDetectQuestions(newJob ?? job);
     void handleDecideCheckboxes();
+  }
+
+  /**
+   * A hand-corrected title is saved into the URL-keyed extraction cache too,
+   * so reopening this posting later (new tab, restart) shows the fix instead
+   * of re-deriving the wrong one. Everything else that reads the posting —
+   * cover letter, answers, Adapt CV, the saved application — already reads
+   * `job`, which `setJob` updated as the user typed.
+   */
+  async function handlePositionCommit() {
+    const trimmed = job.position.trim();
+    const corrected = { ...job, position: trimmed };
+    if (trimmed !== job.position) setJob(corrected);
+    if (tabUrl && trimmed) await setCachedJob(tabUrl, corrected).catch(() => undefined);
   }
 
   /** Looks up a previously-saved Drive application for `url` (spec_7 item 8) — tolerant of Drive not being connected yet. */
@@ -351,6 +407,7 @@ export function MainView({
       checkboxDecisions,
       jobLanguage,
       generatedPassword,
+      extractedPosition: extractedPositionRef.current,
     });
   }, [
     tabId,
@@ -459,6 +516,7 @@ export function MainView({
       const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId, force });
       if (response?.job) {
         detectedJob = response.job;
+        extractedPositionRef.current = response.job.position;
         setJob(response.job);
         void handleDetectJobBrief(response.job);
         void checkExistingApplication(response.job.url);
@@ -897,6 +955,7 @@ export function MainView({
         text: pasteText,
       });
       if (response?.job) {
+        extractedPositionRef.current = response.job.position;
         setJob(response.job);
         void handleDetectJobBrief(response.job);
       }
@@ -1008,6 +1067,54 @@ export function MainView({
       );
     } catch (err) {
       setAutofillStatus(err instanceof Error ? `PDF export failed: ${err.message}` : "PDF export failed.");
+    }
+  }
+
+  /**
+   * The active CV adapted to this posting (Adapt CV tab): reuses the values
+   * picked there for this tab; if none were AI-picked yet, asks the AI first
+   * (only now, on click — not on every panel open), falling back to the
+   * offline pre-selection without a key.
+   */
+  async function handleAdaptedCv(mode: "preview" | "download" | "attach") {
+    if (!cvMeta || !adaptTemplate) return;
+    setAdaptingCv(true);
+    setAdaptStatus(null);
+    try {
+      let entry = await loadAdaptEntry(tabId, tabUrl, cvMeta.id);
+      if (!entry.aiSuggested && hasApiKey && (job.position || job.description)) {
+        setAdaptStatus("Picking values for this posting…");
+        entry = await suggestEntry(job, adaptTemplate, entry);
+        await saveAdaptEntry(tabId, tabUrl, cvMeta.id, entry);
+      }
+      if (adaptTemplate.format === "docx") setAdaptStatus("Converting to PDF via Google Docs…");
+      const values = resolveValues(adaptTemplate, job, entry.values);
+      const file = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile);
+      // Background: kept with this posting in Applications; a Drive hiccup mustn't block the preview/attach itself.
+      void recordAdaptedCv(job, cvMeta, values, file).catch(() => undefined);
+      if (mode === "preview") {
+        await openPdfPreview(file);
+        setAdaptStatus(null);
+        return;
+      }
+      if (mode === "download") {
+        await downloadFile(file);
+        setAdaptStatus(null);
+        return;
+      }
+      const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
+        type: "UPLOAD_FILE",
+        tabId,
+        kind: "cv",
+        fileName: file.name,
+        mimeType: file.type,
+        base64Data: await fileToBase64(file),
+      });
+      setAdaptStatus(`Adapted CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`);
+    } catch (err) {
+      setAdaptStatus(err instanceof Error ? `Adapted CV failed: ${err.message}` : "Adapted CV failed.");
+    } finally {
+      setAdaptingCv(false);
     }
   }
 
@@ -1132,6 +1239,9 @@ export function MainView({
               <IconButton onClick={onOpenJobSearch} label="Job search">
                 <Search />
               </IconButton>
+              <IconButton onClick={onOpenCvAdapt} label="Adapt CV">
+                <FileUser />
+              </IconButton>
               <IconButton onClick={onOpenApplications} label="Applications">
                 <ListChecks />
               </IconButton>
@@ -1157,7 +1267,11 @@ export function MainView({
           <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
             Already applied
           </span>
-          You generated a cover letter for this posting on{" "}
+          You prepared{" "}
+          {[existingApplication.coverLetter && "a cover letter", existingApplication.adaptedCv && "an adapted CV"]
+            .filter(Boolean)
+            .join(" and ") || "an application"}{" "}
+          for this posting on{" "}
           {new Date(existingApplication.createdAt).toLocaleDateString()} (status: {existingApplication.status}) —{" "}
           <button onClick={onOpenApplications} className="underline underline-offset-2">
             view it
@@ -1168,7 +1282,13 @@ export function MainView({
 
       <div className="grid grid-cols-1 gap-2 text-sm">
         <Field label="Company" value={job.company} loading={loadingJob} />
-        <Field label="Position" value={job.position} loading={loadingJob} />
+        <EditableField
+          label="Position"
+          value={job.position}
+          loading={loadingJob}
+          onChange={(position) => setJob((j) => ({ ...j, position }))}
+          onCommit={() => void handlePositionCommit()}
+        />
         <Field label="Location" value={job.location} loading={loadingJob} />
       </div>
 
@@ -1680,6 +1800,25 @@ export function MainView({
               />
             )}
           </div>
+          {adaptTemplate && (
+            <div className="mt-2 flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" disabled={adaptingCv} onClick={() => void handleAdaptedCv("preview")}>
+                  <Eye className="h-3.5 w-3.5" /> Preview adapted CV
+                </Button>
+                <Button size="sm" variant="outline" disabled={adaptingCv} onClick={() => void handleAdaptedCv("attach")}>
+                  <Paperclip className="h-3.5 w-3.5" /> Attach adapted CV
+                </Button>
+                <Button size="sm" variant="ghost" disabled={adaptingCv} onClick={() => void handleAdaptedCv("download")}>
+                  <Download className="h-3.5 w-3.5" /> Export adapted CV
+                </Button>
+                <button onClick={onOpenCvAdapt} className="text-xs text-muted-foreground underline underline-offset-2">
+                  Adjust
+                </button>
+              </div>
+              {adaptStatus && <p className="text-xs text-muted-foreground">{adaptStatus}</p>}
+            </div>
+          )}
         </div>
       )}
 
@@ -1739,6 +1878,57 @@ function AttachmentIcon({
     >
       <FileText className="h-5 w-5" />
       {label}
+    </div>
+  );
+}
+
+/**
+ * Looks like `Field` until hovered/focused — extraction occasionally gets a
+ * title wrong (a fused "Role at Company", an SEO headline), and the fix
+ * should be one click away, not behind "Show job text". Enter or leaving
+ * the field commits.
+ */
+function EditableField({
+  label,
+  value,
+  loading,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  loading: boolean;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+}) {
+  const id = `job-field-${label.toLowerCase()}`;
+  return (
+    <div>
+      <label htmlFor={id} className="text-xs text-muted-foreground">
+        {label}
+      </label>
+      {loading ? (
+        <p className="text-sm">Loading…</p>
+      ) : (
+        <div className="group relative -mx-1.5">
+          <input
+            id={id}
+            value={value}
+            placeholder="—"
+            title="Click to correct"
+            onChange={(e) => onChange(e.target.value)}
+            onBlur={onCommit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 pr-6 text-sm outline-none placeholder:text-foreground hover:border-border focus:border-border focus-visible:ring-1 focus-visible:ring-primary"
+          />
+          <Pencil
+            aria-hidden
+            className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-0"
+          />
+        </div>
+      )}
     </div>
   );
 }
