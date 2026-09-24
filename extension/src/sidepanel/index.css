@@ -36,3 +36,8 @@ body {
   min-height: 220px;
   padding: 0.75rem;
 }
+
+/* uPlot drag-to-zoom selection, tuned for the submissions panel. */
+.u-select {
+  background: rgba(50, 116, 217, 0.12);
+}

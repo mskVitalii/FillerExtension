@@ -1,4 +1,5 @@
-import type { JobSearchQuery, JobSearchResult } from "@/types/job-search";
+import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
+import { timeStage } from "./timing";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
 
@@ -37,6 +38,7 @@ export async function searchTavilyJobs(
   apiKey: string,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
+  stages?: JobSearchStageTiming[],
 ): Promise<JobSearchResult[]> {
   const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
   const refinements = [
@@ -54,7 +56,7 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
     .trim()
     .slice(0, MAX_QUERY_LENGTH);
 
-  const res = await fetch(TAVILY_SEARCH_URL, {
+  const res = await timeStage(stages, "Tavily search", () => fetch(TAVILY_SEARCH_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -64,7 +66,7 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
       max_results: 15,
       include_answer: false,
     }),
-  });
+  }));
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -77,5 +79,5 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
   const rawText = data.results
     .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.content}`)
     .join("\n\n---\n\n");
-  return extractJobListings(rawText, "tavily", candidateBackground);
+  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground));
 }

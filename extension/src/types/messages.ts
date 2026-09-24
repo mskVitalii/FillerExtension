@@ -1,6 +1,6 @@
 import type { Job, JobKeyword, JobLanguageInfo } from "./job";
 import type { FaqEntry, Profile } from "./profile";
-import type { JobSearchProvider, JobSearchQuery, JobSearchResult } from "./job-search";
+import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PickedField, FieldDescriptor } from "@/features/autofill/pick-questions";
@@ -108,6 +108,10 @@ export type RuntimeMessage =
       resolvedQuery: JobSearchQuery;
       /** Adzuna only: one message per search tag whose request failed (spec_7 item 13) — a partial-results notice, not a hard error. */
       warnings?: string[];
+      /** Wall-clock duration of the whole search, as measured in the background. */
+      totalMs: number;
+      /** Per-step breakdown (e.g. web search vs. AI parse) — `totalMs` also covers the untimed glue between them. */
+      stages: JobSearchStageTiming[];
     }
   | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }

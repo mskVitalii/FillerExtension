@@ -2,15 +2,12 @@ import type { JobKeyword } from "@/types/job";
 
 /**
  * Highlights keywords in the live page's own text (spec_8 item 2) by
- * wrapping each match in a real `<span>` pair — a real DOM element is the
- * only way to get an actual gradient-fill effect on the glyphs
- * (`background-clip: text` + `-webkit-text-fill-color: transparent` needs
- * something to clip a background against; the non-mutating CSS Custom
- * Highlight API (`CSS.highlights`/`::highlight()`) was tried first but only
- * accepts a fixed property allowlist — color, background-color,
- * text-decoration*, text-shadow, -webkit-text-stroke*,
- * -webkit-text-fill-color — and silently ignores background-clip/
- * background-image, so no gradient is reachable through it).
+ * wrapping each match in a real `<span>` pair — a real DOM element is
+ * needed for the chip's border/padding/radius (the non-mutating CSS Custom
+ * Highlight API (`CSS.highlights`/`::highlight()`) only accepts a fixed
+ * property allowlist — color, background-color, text-decoration*,
+ * text-shadow, -webkit-text-stroke*, -webkit-text-fill-color — and silently
+ * ignores border/padding/border-radius). Text is a solid tone, no gradient.
  *
  * Wrapping text nodes on an arbitrary third-party page — very possibly a
  * React/Vue SPA that owns and re-renders that same subtree — risks the page
@@ -91,22 +88,6 @@ function ensureStyle(): void {
     }
     .${GAP_CLASS} .${TEXT_CLASS} {
       color: #9f1239;
-    }
-    @supports ((background-clip: text) or (-webkit-background-clip: text)) {
-      .${MATCH_CLASS} .${TEXT_CLASS} {
-        background-image: linear-gradient(90deg, #047857 0%, #0d9488 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        color: transparent;
-      }
-      .${GAP_CLASS} .${TEXT_CLASS} {
-        background-image: linear-gradient(90deg, #9f1239 0%, #be123c 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        color: transparent;
-      }
     }
   `;
   document.head.appendChild(style);

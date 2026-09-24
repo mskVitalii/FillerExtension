@@ -30,3 +30,14 @@ export interface JobSearchQuery {
    */
   tags?: string[];
 }
+
+/** How long one step of a job search took, e.g. "Web search" or "Parse results" — shown under the results so a slow search says where the time went. */
+export interface JobSearchStageTiming {
+  label: string;
+  ms: number;
+}
+
+export interface JobSearchTiming {
+  totalMs: number;
+  stages: JobSearchStageTiming[];
+}

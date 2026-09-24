@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
 import { FileText, GripVertical, ListChecks, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
@@ -1122,23 +1123,23 @@ export function MainView({
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-base font-semibold">Filler</h1>
-        <div className="flex items-center gap-3">
-          <button onClick={() => void handleReset()} aria-label="Reset">
-            <RotateCcw className="h-4 w-4 text-muted-foreground" />
-          </button>
+        <div className="-mr-1.5 flex items-center gap-0.5">
+          <IconButton onClick={() => void handleReset()} label="Reset">
+            <RotateCcw />
+          </IconButton>
           {setupComplete && (
             <>
-              <button onClick={onOpenJobSearch} aria-label="Job Search">
-                <Search className="h-4 w-4 text-muted-foreground" />
-              </button>
-              <button onClick={onOpenApplications} aria-label="Applications">
-                <ListChecks className="h-4 w-4 text-muted-foreground" />
-              </button>
+              <IconButton onClick={onOpenJobSearch} label="Job search">
+                <Search />
+              </IconButton>
+              <IconButton onClick={onOpenApplications} label="Applications">
+                <ListChecks />
+              </IconButton>
             </>
           )}
-          <button onClick={onOpenSettings} aria-label="Settings">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-          </button>
+          <IconButton onClick={onOpenSettings} label="Settings">
+            <Settings />
+          </IconButton>
         </div>
       </div>
 

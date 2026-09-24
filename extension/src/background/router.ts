@@ -1,6 +1,7 @@
 import type { RuntimeMessage } from "@/types/messages";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
+import type { JobSearchStageTiming } from "@/types/job-search";
 import { getFaqAnswers, getPersonalLegend, getProfile, saveFaqAnswers } from "@/features/profile/repository";
 import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
 import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
@@ -8,6 +9,7 @@ import { searchOpenAiJobs } from "@/features/job-search/openai-provider";
 import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
 import { searchAdzunaJobs } from "@/features/job-search/adzuna-provider";
 import { adzunaCountryCode } from "@/features/job-search/adzuna-country";
+import { timeStage } from "@/features/job-search/timing";
 import { suggestSearchQuery } from "@/features/openai/suggest-search-query";
 import { suggestSearchTags } from "@/features/openai/suggest-search-tags";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
@@ -365,6 +367,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "SEARCH_JOBS": {
       const { provider } = message.query;
+      const startedAt = performance.now();
+      const stages: JobSearchStageTiming[] = [];
+      const timing = () => ({ totalMs: performance.now() - startedAt, stages });
       if (provider === "adzuna") {
         // Adzuna's "what" is a keyword search field, not an LLM prompt — the
         // candidate digest below is for the two AI-backed providers only.
@@ -388,7 +393,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
             // it as-is rather than second-guessing it with AI-derived tags.
             query = { ...query, tags: [query.what.trim()] };
           } else {
-            const [suggestion, tags] = await Promise.all([suggestSearchQuery(), suggestSearchTags()]);
+            const [suggestion, tags] = await timeStage(stages, "Suggest tags", () =>
+              Promise.all([suggestSearchQuery(), suggestSearchTags()]),
+            );
             query = {
               ...query,
               what: suggestion.what,
@@ -397,13 +404,15 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
             };
           }
         }
-        const { results, warnings } = await searchAdzunaJobs(
-          query,
-          { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
-          adzunaCountryCode(profile.country),
-          message.page ?? 1,
+        const { results, warnings } = await timeStage(stages, "Adzuna search", () =>
+          searchAdzunaJobs(
+            query,
+            { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
+            adzunaCountryCode(profile.country),
+            message.page ?? 1,
+          ),
         );
-        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings };
+        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings, ...timing() };
       }
       // Per spec_8 item 8: job-search grounding uses the applicant's own
       // Personal Legend directly rather than a separately AI-generated
@@ -414,11 +423,11 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       if (provider === "tavily") {
         const creds = await getJobSearchCredentials();
         if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
-        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults);
-        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
+        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults, stages);
+        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
       }
-      const results = await searchOpenAiJobs(message.query, background, message.excludeResults);
-      return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query };
+      const results = await searchOpenAiJobs(message.query, background, message.excludeResults, stages);
+      return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
     }
 
     case "SUGGEST_SEARCH_QUERY": {

@@ -1,71 +1,21 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download, ExternalLink, Search, Trash2 } from "lucide-react";
+import { SubmissionsTimeline } from "@/components/charts/SubmissionsTimeline";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { deleteApplication, getAllApplications, setApplicationStatus } from "@/features/applications/repository";
-import { computeSubmissionStats, type SubmissionStats } from "@/features/applications/stats";
+import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } from "@/features/applications/stats";
 import { downloadFile, renderCoverLetterPdf } from "@/features/pdf/export";
 import { getUrlActivationsWithBackfill, removeUrlActivation } from "@/features/storage/local";
 import type { Application, ApplicationStatus, UrlActivation } from "@/types/application";
 
 const STATUS_OPTIONS: ApplicationStatus[] = ["draft", "applied", "interview", "rejected", "offer"];
-const EMPTY_STATS: SubmissionStats = { total: 0, avgPerDay: 0, byDay: [] };
+const EMPTY_STATS: SubmissionStats = { total: 0, lastWindow: 0, avgPerDay: 0, byDay: [], series: [] };
 
 interface ApplicationsListProps {
   onBack: () => void;
-}
-
-/** `YYYY-MM-DD` -> `DD.MM`, compact enough to sit under a ~40px-wide bar. */
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split("-");
-  return `${d}.${m}`;
-}
-
-/**
- * spec_6 — a chart of every unique job URL the extension was activated on
- * (a rough proxy for "applied to", independent of whether a cover letter
- * was ever saved to Drive — see `recordUrlActivation`), one bar per day
- * that had at least one, scaled to that day's share of the busiest day.
- * Each bar gets its own visible count and date underneath (not just a
- * hover title, which is easy to miss in a narrow side panel) when there's
- * room; past ~8 bars only every Nth one gets a label so they don't run
- * into each other, while every bar keeps its exact count in its hover
- * title regardless.
- */
-function SubmissionsChart({ byDay }: { byDay: SubmissionStats["byDay"] }) {
-  if (byDay.length === 0) return null;
-  const max = Math.max(...byDay.map((d) => d.count));
-  const labelEvery = Math.max(1, Math.ceil(byDay.length / 8));
-  return (
-    <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/20 p-1">
-      <div className="flex gap-px">
-        {byDay.map((d, i) => (
-          <div key={d.date} className="flex-1 truncate text-center text-[9px] font-medium text-foreground">
-            {i % labelEvery === 0 ? d.count : ""}
-          </div>
-        ))}
-      </div>
-      <div className="flex h-14 items-end gap-px">
-        {byDay.map((d) => (
-          <div
-            key={d.date}
-            title={`${d.date}: ${d.count} unique URL${d.count === 1 ? "" : "s"}`}
-            className="min-w-[3px] flex-1 rounded-sm bg-primary/70"
-            style={{ height: `${Math.max(8, (d.count / max) * 100)}%` }}
-          />
-        ))}
-      </div>
-      <div className="flex gap-px">
-        {byDay.map((d, i) => (
-          <div key={d.date} title={d.date} className="flex-1 truncate text-center text-[9px] text-muted-foreground">
-            {i % labelEvery === 0 ? shortDate(d.date) : ""}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /** One row in the combined list below the chart — every URL ever activated, joined with its saved Application when one exists. */
@@ -182,13 +132,15 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
       {!loading && !error && stats.total > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-xs text-muted-foreground">Submissions over time</span>
             <span className="text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">{stats.total}</span> unique URLs ·{" "}
-              <span className="font-semibold text-foreground">{stats.avgPerDay}</span>/day avg
+              <span className="font-semibold text-foreground">{stats.total}</span> unique URLs
+            </span>
+            <span className="text-xs text-muted-foreground" title={`Averaged over the last ${ROLLING_WINDOW_DAYS} days`}>
+              <span className="font-semibold text-foreground">{stats.lastWindow}</span> in last {ROLLING_WINDOW_DAYS} days ·{" "}
+              <span className="font-semibold text-foreground">{stats.avgPerDay}</span>/day
             </span>
           </div>
-          <SubmissionsChart byDay={stats.byDay} />
+          <SubmissionsTimeline series={stats.series} />
         </div>
       )}
 
@@ -199,14 +151,17 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
       )}
 
       {!loading && !error && rows.length > 0 && (
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by position, company, or URL…"
-            className="h-8 pl-7 text-xs"
-          />
+        <div className="sticky top-0 z-10 -mx-4 bg-background/95 px-4 py-2 backdrop-blur">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/60" />
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${rows.length} postings by position, company, or URL…`}
+              className="h-9 border-foreground/25 bg-muted/40 pl-8 text-sm shadow-sm transition-colors hover:border-foreground/40 focus-visible:border-primary focus-visible:bg-background"
+            />
+          </div>
         </div>
       )}
 

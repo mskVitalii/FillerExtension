@@ -1,4 +1,5 @@
-import type { JobSearchQuery, JobSearchResult } from "@/types/job-search";
+import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
+import { timeStage } from "./timing";
 import { requestWithWebSearch } from "@/features/openai/client";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
@@ -21,6 +22,7 @@ export async function searchOpenAiJobs(
   query: JobSearchQuery,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
+  stages?: JobSearchStageTiming[],
 ): Promise<JobSearchResult[]> {
   const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
   const refinements = [
@@ -42,6 +44,6 @@ Find real postings (company career pages, LinkedIn, job boards) with their direc
 listing URL, not a search results page. List up to 15 of the best matches, each with
 its title, company, location, salary if stated, and a short description of why it fits.${describeExcluded(excludeResults)}`;
 
-  const rawText = await requestWithWebSearch(prompt);
-  return extractJobListings(rawText, "openai", candidateBackground);
+  const rawText = await timeStage(stages, "Web search", () => requestWithWebSearch(prompt));
+  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "openai", candidateBackground));
 }

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { sendMessage } from "@/types/messages";
-import type { JobSearchProvider, JobSearchQuery, JobSearchResult } from "@/types/job-search";
+import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 import { getJobSearchState, setJobSearchState } from "@/features/storage/session";
 import { getJobSearchVisitedLinks, recordJobSearchLinkVisit } from "@/features/storage/local";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,30 @@ function groupByTag(jobs: JobSearchResult[]): { tag: string; jobs: JobSearchResu
     byTag.get(tag)!.push(job);
   }
   return order.map((tag) => ({ tag, jobs: byTag.get(tag)! }));
+}
+
+/** "850 ms", "4.2 s", "38 s", "1 min 5 s". */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)} s`;
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds} s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes} min ${seconds} s` : `${minutes} min`;
+}
+
+/** Ticks once a second while `running`, so a long web search shows it's still alive instead of a static "Searching…". */
+function useElapsedSeconds(running: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const startedAt = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  return elapsed;
 }
 
 /** Shimmering placeholder cards (spec_7 item 14) shown while a search is in flight — no skeleton pattern existed anywhere in the app yet. */
@@ -100,6 +124,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState(1);
   const [visitedLinks, setVisitedLinks] = useState<Set<string>>(new Set());
+  const [timing, setTiming] = useState<JobSearchTiming | null>(null);
+  const elapsed = useElapsedSeconds(searching || loadingMore);
   const hasLoadedRef = useRef(false);
 
   // Restores the last query/results (spec_7 item 15) — opening the Side
@@ -118,6 +144,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         setSearched(state.searched);
         setPage(state.page);
         setWarnings(state.warnings);
+        setTiming(state.timing ?? null);
       }
       setVisitedLinks(new Set(visited));
       hasLoadedRef.current = true;
@@ -126,8 +153,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
   useEffect(() => {
     if (!hasLoadedRef.current) return;
-    void setJobSearchState({ provider, what, where, remoteOnly, tags, results, searched, page, warnings });
-  }, [provider, what, where, remoteOnly, tags, results, searched, page, warnings]);
+    void setJobSearchState({ provider, what, where, remoteOnly, tags, results, searched, page, warnings, timing });
+  }, [provider, what, where, remoteOnly, tags, results, searched, page, warnings, timing]);
 
   function handleAddTag() {
     const tag = tagDraft.trim();
@@ -150,6 +177,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     setPage(1);
     setWarnings([]);
     setError(null);
+    setTiming(null);
   }
 
   /** spec_7 item 17 — recorded on click, not derived from a full history; the visited badge updates optimistically. */
@@ -202,6 +230,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     (loadMore ? setLoadingMore : setSearching)(true);
     setError(null);
     setWarnings([]);
+    setTiming(null);
     if (!loadMore) setSearched(true);
     const nextPage = loadMore ? page + 1 : 1;
     try {
@@ -210,6 +239,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         results: JobSearchResult[];
         resolvedQuery: JobSearchQuery;
         warnings?: string[];
+        totalMs: number;
+        stages: JobSearchTiming["stages"];
       }>({
         type: "SEARCH_JOBS",
         query: { provider, what, where, remoteOnly, tags },
@@ -222,6 +253,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       setPage(nextPage);
       setResults((prev) => dedupeByUrl(loadMore ? [...prev, ...response.results] : response.results));
       setWarnings(response.warnings ?? []);
+      setTiming({ totalMs: response.totalMs, stages: response.stages });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed.");
       if (!loadMore) setResults([]);
@@ -344,7 +376,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
               {suggesting ? "Suggesting…" : "Suggest from CV"}
             </Button>
             <Button size="sm" onClick={() => void handleSearch(false)} disabled={searching}>
-              {searching ? "Searching…" : "Search"}
+              {searching ? `Searching… ${elapsed}s` : "Search"}
             </Button>
           </div>
         </CardContent>
@@ -363,6 +395,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       )}
 
       {searching && <JobResultSkeleton />}
+
+      {!searching && !loadingMore && timing && <SearchTimingSummary timing={timing} />}
 
       {!searching && provider === "adzuna" && tags.length > 1 ? (
         <div className="flex flex-col gap-3">
@@ -402,7 +436,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       <div className="flex gap-2">
         {searched && results.length > 0 && (
           <Button size="sm" variant="outline" onClick={() => void handleSearch(true)} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "More"}
+            {loadingMore ? `Loading… ${elapsed}s` : "More"}
           </Button>
         )}
         {results.length > 0 && (
@@ -412,6 +446,20 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         )}
       </div>
     </div>
+  );
+}
+
+function SearchTimingSummary({ timing }: { timing: JobSearchTiming }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Took <span className="font-medium text-foreground">{formatDuration(timing.totalMs)}</span>
+      {timing.stages.length > 0 && (
+        <>
+          {" — "}
+          {timing.stages.map((stage) => `${stage.label} ${formatDuration(stage.ms)}`).join(" · ")}
+        </>
+      )}
+    </p>
   );
 }
 
@@ -425,14 +473,19 @@ function JobResultCard({
   onVisit: () => void;
 }) {
   return (
-    <Card className={cn(visited && "border-transparent bg-muted opacity-70")}>
+    <Card
+      className={cn(
+        "transition-opacity",
+        visited && "border-dashed bg-muted/70 opacity-45 shadow-none grayscale hover:opacity-80",
+      )}
+    >
       <CardContent className="flex flex-col gap-1 p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className="truncate text-sm font-medium">{job.title}</p>
+              <p className={cn("truncate text-sm", visited ? "font-normal text-muted-foreground" : "font-medium")}>{job.title}</p>
               {visited && (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                   Visited
                 </span>
               )}

@@ -1,7 +1,7 @@
 import type { Job, JobLanguageInfo } from "@/types/job";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
-import type { JobSearchProvider, JobSearchResult } from "@/types/job-search";
+import type { JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 
 /**
  * chrome.storage.session — per-tab UI state (current job + cover-letter
@@ -71,6 +71,8 @@ export interface JobSearchState {
   searched: boolean;
   page: number;
   warnings: string[];
+  /** Duration of the last search/"More" page; optional so state saved before it existed still loads. */
+  timing?: JobSearchTiming | null;
 }
 
 const JOB_SEARCH_STATE_KEY = "jobSearchState";

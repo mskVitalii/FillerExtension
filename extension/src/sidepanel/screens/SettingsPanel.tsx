@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -1016,6 +1016,33 @@ export function SettingsPanel({
           >
             Disconnect Google
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Feedback</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">
+            Leave your wishes and bug reports — I use this extension every day and keep improving it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="mailto:msk.vitaly@gmail.com?subject=Filler%20feedback"
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              <Mail className="h-3.5 w-3.5" /> msk.vitaly@gmail.com
+            </a>
+            <a
+              href="https://t.me/mskVitalii"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              <Send className="h-3.5 w-3.5" /> Telegram @mskVitalii
+            </a>
+          </div>
         </CardContent>
       </Card>
     </div>
