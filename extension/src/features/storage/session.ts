@@ -37,6 +37,8 @@ export interface TabState {
    * lets in-tab navigation still recognize the same posting after the user fixed its title.
    * Optional so state saved before it existed still loads (falls back to `job.position`). */
   extractedPosition?: string;
+  /** Same as `extractedPosition`, for a hand-corrected Company field. */
+  extractedCompany?: string;
 }
 
 function key(tabId: number): string {

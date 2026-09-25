@@ -27,7 +27,8 @@ import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
 import type { Application } from "@/types/application";
-import { getCvFile } from "@/features/profile/repository";
+import { getCvAttachmentFile } from "@/features/profile/repository";
+import { LATEX_COMPILE_HOST } from "@/features/cv-template/latex";
 import type { CvTemplate } from "@/types/cv-template";
 import { getCvTemplates, templateForCv } from "@/features/cv-template/repository";
 import {
@@ -176,8 +177,8 @@ export function MainView({
   const cvFileRef = useRef<File | null>(null);
   const knownUrlRef = useRef(tabUrl);
   const hasLoadedRef = useRef(false);
-  /** Position as extracted, before a manual correction — see `TabState.extractedPosition`. */
-  const extractedPositionRef = useRef("");
+  /** Position/company as extracted, before a manual correction — see `TabState.extractedPosition`. */
+  const extractedJobRef = useRef({ position: "", company: "" });
   // Picker mode is a loop, not a one-shot: `pickingRef` gates the loop and
   // `pickerPortRef` is a disconnect-on-close channel to the background.
   const pickingRef = useRef(false);
@@ -205,7 +206,7 @@ export function MainView({
   const [coverLetterFileReady, setCoverLetterFileReady] = useState(false);
 
   // Keeps a real File ready for native drag-and-drop (see handleCvDragStart)
-  // — dragstart must attach dataTransfer synchronously, and getCvFile() is
+  // — dragstart must attach dataTransfer synchronously, and getCvAttachmentFile() is
   // async (Drive round-trip), so it can't be fetched on demand at drag time.
   useEffect(() => {
     if (!cvMeta) {
@@ -214,7 +215,7 @@ export function MainView({
       return;
     }
     setCvFileReady(false);
-    void getCvFile()
+    void getCvAttachmentFile()
       .then((file) => {
         cvFileRef.current = file;
         setCvFileReady(Boolean(file));
@@ -251,7 +252,10 @@ export function MainView({
     void (async () => {
       const cached = await getTabState(tabId);
       if (cached && cached.url === tabUrl) {
-        extractedPositionRef.current = cached.extractedPosition ?? cached.job.position;
+        extractedJobRef.current = {
+          position: cached.extractedPosition ?? cached.job.position,
+          company: cached.extractedCompany ?? cached.job.company,
+        };
         setJob(cached.job);
         setCoverLetter(cached.coverLetter);
         setPasteMode(cached.pasteMode);
@@ -309,17 +313,17 @@ export function MainView({
       // No content script on the new page (e.g. a chrome:// page reached mid-flow) — keep the current draft.
     }
 
-    // Compared against both the (possibly hand-corrected) current title and the title extraction
+    // Compared against both the (possibly hand-corrected) current title/company and what extraction
     // originally found: the next page of the same posting re-extracts the original, while a URL whose
     // cached job already carries the correction returns that — neither is a different job.
     const isDifferentJob =
       Boolean(newJob?.position) &&
-      ((newJob?.position !== job.position && newJob?.position !== extractedPositionRef.current) ||
-        newJob?.company !== job.company);
+      ((newJob?.position !== job.position && newJob?.position !== extractedJobRef.current.position) ||
+        (newJob?.company !== job.company && newJob?.company !== extractedJobRef.current.company));
 
     if (newJob && isDifferentJob) {
       setError(null);
-      extractedPositionRef.current = newJob.position;
+      extractedJobRef.current = { position: newJob.position, company: newJob.company };
       setJob(newJob);
       setCoverLetter("");
       setCleanedNotice(null);
@@ -343,17 +347,17 @@ export function MainView({
   }
 
   /**
-   * A hand-corrected title is saved into the URL-keyed extraction cache too,
-   * so reopening this posting later (new tab, restart) shows the fix instead
-   * of re-deriving the wrong one. Everything else that reads the posting —
-   * cover letter, answers, Adapt CV, the saved application — already reads
-   * `job`, which `setJob` updated as the user typed.
+   * A hand-corrected position/company/location is saved into the URL-keyed
+   * extraction cache too, so reopening this posting later (new tab, restart)
+   * shows the fix instead of re-deriving the wrong one. Everything else that
+   * reads the posting — cover letter, answers, Adapt CV, the saved
+   * application — already reads `job`, which `setJob` updated as the user typed.
    */
-  async function handlePositionCommit() {
-    const trimmed = job.position.trim();
-    const corrected = { ...job, position: trimmed };
-    if (trimmed !== job.position) setJob(corrected);
-    if (tabUrl && trimmed) await setCachedJob(tabUrl, corrected).catch(() => undefined);
+  async function handleJobFieldCommit(field: "position" | "company" | "location") {
+    const trimmed = job[field].trim();
+    const corrected = { ...job, [field]: trimmed };
+    if (trimmed !== job[field]) setJob(corrected);
+    if (tabUrl && corrected.position) await setCachedJob(tabUrl, corrected).catch(() => undefined);
   }
 
   /** Looks up a previously-saved Drive application for `url` (spec_7 item 8) — tolerant of Drive not being connected yet. */
@@ -407,7 +411,8 @@ export function MainView({
       checkboxDecisions,
       jobLanguage,
       generatedPassword,
-      extractedPosition: extractedPositionRef.current,
+      extractedPosition: extractedJobRef.current.position,
+      extractedCompany: extractedJobRef.current.company,
     });
   }, [
     tabId,
@@ -516,7 +521,7 @@ export function MainView({
       const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId, force });
       if (response?.job) {
         detectedJob = response.job;
-        extractedPositionRef.current = response.job.position;
+        extractedJobRef.current = { position: response.job.position, company: response.job.company };
         setJob(response.job);
         void handleDetectJobBrief(response.job);
         void checkExistingApplication(response.job.url);
@@ -955,7 +960,7 @@ export function MainView({
         text: pasteText,
       });
       if (response?.job) {
-        extractedPositionRef.current = response.job.position;
+        extractedJobRef.current = { position: response.job.position, company: response.job.company };
         setJob(response.job);
         void handleDetectJobBrief(response.job);
       }
@@ -1088,18 +1093,20 @@ export function MainView({
         await saveAdaptEntry(tabId, tabUrl, cvMeta.id, entry);
       }
       if (adaptTemplate.format === "docx") setAdaptStatus("Converting to PDF via Google Docs…");
+      if (adaptTemplate.format === "latex") setAdaptStatus(`Compiling LaTeX via ${LATEX_COMPILE_HOST}…`);
       const values = resolveValues(adaptTemplate, job, entry.values);
-      const file = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile, { company: job.company });
+      const { file, notes } = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile, { company: job.company });
       // Background: kept with this posting in Applications; a Drive hiccup mustn't block the preview/attach itself.
       void recordAdaptedCv(job, cvMeta, values, file).catch(() => undefined);
+      const note = notes.join(" ") || null;
       if (mode === "preview") {
         await openPdfPreview(file);
-        setAdaptStatus(null);
+        setAdaptStatus(note);
         return;
       }
       if (mode === "download") {
         await downloadFile(file);
-        setAdaptStatus(null);
+        setAdaptStatus(note);
         return;
       }
       const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
@@ -1110,7 +1117,11 @@ export function MainView({
         mimeType: file.type,
         base64Data: await fileToBase64(file),
       });
-      setAdaptStatus(`Adapted CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`);
+      setAdaptStatus(
+        [`Adapted CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`, note]
+          .filter(Boolean)
+          .join(" "),
+      );
     } catch (err) {
       setAdaptStatus(err instanceof Error ? `Adapted CV failed: ${err.message}` : "Adapted CV failed.");
     } finally {
@@ -1123,7 +1134,7 @@ export function MainView({
    * that lives in Settings, so it stays here despite the similar name. */
   async function handleAttachCvToPage(targetLocator?: ElementLocator | null) {
     setAutofillStatus(null);
-    const file = await getCvFile();
+    const file = await getCvAttachmentFile();
     if (!file) {
       setAutofillStatus("Could not load CV from Google Drive.");
       return;
@@ -1281,15 +1292,27 @@ export function MainView({
       )}
 
       <div className="grid grid-cols-1 gap-2 text-sm">
-        <Field label="Company" value={job.company} loading={loadingJob} />
+        <EditableField
+          label="Company"
+          value={job.company}
+          loading={loadingJob}
+          onChange={(company) => setJob((j) => ({ ...j, company }))}
+          onCommit={() => void handleJobFieldCommit("company")}
+        />
         <EditableField
           label="Position"
           value={job.position}
           loading={loadingJob}
           onChange={(position) => setJob((j) => ({ ...j, position }))}
-          onCommit={() => void handlePositionCommit()}
+          onCommit={() => void handleJobFieldCommit("position")}
         />
-        <Field label="Location" value={job.location} loading={loadingJob} />
+        <EditableField
+          label="Location"
+          value={job.location}
+          loading={loadingJob}
+          onChange={(location) => setJob((j) => ({ ...j, location }))}
+          onCommit={() => void handleJobFieldCommit("location")}
+        />
       </div>
 
       {setupComplete && (
@@ -1935,15 +1958,6 @@ function EditableField({
           />
         </div>
       )}
-    </div>
-  );
-}
-
-function Field({ label, value, loading }: { label: string; value: string; loading: boolean }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm">{loading ? "Loading…" : value || "—"}</p>
     </div>
   );
 }

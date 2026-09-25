@@ -18,22 +18,24 @@ export interface CvVariable {
 }
 
 /**
- * - `markdown` — the CV is written in the Markdown subset of
- *   `features/cv-template/markdown.ts` and rendered to PDF by the extension.
- *   Used for a PDF CV, which can't be edited in place.
- * - `docx` — the CV *is* the user's own Word file from the CV library, with
- *   `{{placeholders}}` typed into it; only those are replaced
- *   (`features/cv-template/docx.ts`) and the output is a .docx with the
- *   original layout intact.
+ * The CV file is always the template — the extension never rebuilds a CV,
+ * it only fills the `{{placeholders}}` the user typed into it:
+ * - `docx` — a Word file; only the placeholders' text changes
+ *   (`features/cv-template/docx.ts`), the PDF comes from Google Docs.
+ * - `pdf` — a PDF; the placeholders are redrawn in place, in the PDF's own
+ *   fonts (`features/cv-template/pdf.ts`).
+ * - `latex` — an Overleaf project (.zip) or a .tex; the placeholders are
+ *   replaced in the source and it's compiled again (`features/cv-template/latex.ts`).
  */
-export type CvTemplateFormat = "markdown" | "docx";
+export type CvTemplateFormat = "docx" | "pdf" | "latex";
 
 /**
- * How one CV from the library adapts per posting: the definitions of its
- * `{{placeholders}}`, plus — for a `markdown` template — the template text.
- * For `docx`, `content` mirrors the Word file's extracted text (read-only,
- * edited in Word) so placeholder detection, the AI and the preview can work
- * from it.
+ * How one CV from the library adapts per posting. `format` and `content`
+ * are derived from the CV itself each time (`content` is the CV's text, where
+ * placeholders are detected and which the AI and the preview read); only
+ * `variables` — the user's definitions — are really stored. Entries saved
+ * before, with a `markdown` format and a template text, still load: only
+ * their variables are used.
  */
 export interface CvTemplate {
   format: CvTemplateFormat;
@@ -45,7 +47,7 @@ export interface CvTemplate {
 /** Keyed by `CvMeta.id` — every CV in the library carries its own placeholder set. */
 export type CvTemplateLibrary = Record<string, CvTemplate>;
 
-export const EMPTY_CV_TEMPLATE: CvTemplate = { format: "markdown", content: "", variables: [], updatedAt: "" };
+export const EMPTY_CV_TEMPLATE: CvTemplate = { format: "pdf", content: "", variables: [], updatedAt: "" };
 
 /** One AI-picked value for a placeholder, with a short why so the user can judge it at a glance. */
 export interface CvValueSuggestion {

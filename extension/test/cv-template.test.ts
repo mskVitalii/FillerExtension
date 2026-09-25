@@ -7,10 +7,12 @@ import {
   extractVariableNames,
   fillTemplate,
   findOptionsInPosting,
+  normalizePlaceholders,
   stripMarks,
   syncVariables,
 } from "@/features/cv-template/template";
-import { parseCvMarkdown, parseInline, type CvBlock } from "@/features/cv-template/markdown";
+import { parsePlainText } from "@/features/cv-template/preview";
+import { initialVariable, valueFromJob } from "@/features/cv-template/defaults";
 
 const job = (overrides: Partial<Job>): Job => ({ ...EMPTY_JOB, ...overrides });
 
@@ -27,13 +29,20 @@ describe("template placeholders", () => {
     expect(fillTemplate("{{a}} and {{a}}, {{b}}.", { a: "Go" })).toBe("Go and Go, .");
   });
 
-  it("marks a multi-line value line by line so the parser still sees bullets", () => {
-    const filled = fillTemplate("{{bullets}}", { bullets: "- one\n- two" }, { mark: true });
-    expect(filled).toBe(`${MARK_OPEN}- one${MARK_CLOSE}\n${MARK_OPEN}- two${MARK_CLOSE}`);
-    const blocks = parseCvMarkdown(filled);
-    expect(blocks.map((b) => b.type)).toEqual(["bullet", "bullet"]);
-    expect(blocks[0]).toMatchObject({ left: [{ text: "one", mark: true }] });
-    expect(stripMarks(filled)).toBe("- one\n- two");
+  it("marks a multi-line value line by line so a highlight never spans a line break", () => {
+    const filled = fillTemplate("Stack: {{bullets}}", { bullets: "Go\ngRPC" }, { mark: true });
+    expect(filled).toBe(`Stack: ${MARK_OPEN}Go${MARK_CLOSE}\n${MARK_OPEN}gRPC${MARK_CLOSE}`);
+    const blocks = parsePlainText(filled);
+    expect(blocks).toEqual([
+      { type: "line", spans: [{ text: "Stack: ", mark: false }, { text: "Go", mark: true }] },
+      { type: "line", spans: [{ text: "gRPC", mark: true }] },
+    ]);
+    expect(stripMarks(filled)).toBe("Stack: Go\ngRPC");
+  });
+
+  it("closes a space a PDF text extractor put inside a placeholder", () => {
+    expect(normalizePlaceholders("{{cit y}}, Germany · { {job_position} }")).toBe("{{city}}, Germany · {{job_position}}");
+    expect(normalizePlaceholders("no {braces} here")).toBe("no {braces} here");
   });
 
   it("keeps definitions of placeholders removed from the template instead of dropping them", () => {
@@ -43,6 +52,15 @@ describe("template placeholders", () => {
     ]);
     expect(synced.map((v) => v.name)).toEqual(["new_one", "city", "typo"]);
     expect(synced[1].options).toEqual(["Berlin"]);
+  });
+
+  it("a newly found known placeholder starts from its built-in definition, an unknown one blank", () => {
+    const [city, keywords, custom] = syncVariables("{{city}} {{keywords}} {{go_bullets}}", []);
+    expect(city).toMatchObject({ name: "city", mode: "free", options: [] });
+    expect(city.description).toMatch(/city of the job/i);
+    expect(keywords.mode).toBe("free");
+    expect(custom).toEqual({ name: "go_bullets", description: "", options: [], mode: "choice" });
+    expect(initialVariable("Position").description).toMatch(/job title/i);
   });
 });
 
@@ -73,35 +91,17 @@ describe("findOptionsInPosting", () => {
     expect(defaultValue(variable, job({ description: "Python and more Python" }))).toBe("Python");
     expect(defaultValue(variable, EMPTY_JOB)).toBe("Go");
   });
-});
 
-describe("parseCvMarkdown", () => {
-  const types = (blocks: CvBlock[]) => blocks.map((b) => (b.type === "heading" ? `h${b.level}` : b.type));
-
-  it("parses headings, right-aligned parts, bullets, rules and collapses gaps", () => {
-    const blocks = parseCvMarkdown(
-      "# Jane Doe\nBackend Engineer · Berlin\n\n\n## Experience\n### Acme || 2021 – now\n- Built things\n  - nested\n---\n",
-    );
-    expect(types(blocks)).toEqual(["h1", "line", "gap", "h2", "h3", "bullet", "bullet", "rule"]);
-    const entry = blocks[4] as Extract<CvBlock, { type: "heading" }>;
-    expect(entry.left.map((s) => s.text).join("")).toBe("Acme");
-    expect(entry.right?.map((s) => s.text).join("")).toBe("2021 – now");
-    expect(blocks[6]).toMatchObject({ type: "bullet", depth: 1 });
-  });
-
-  it("parses bold, italic, links and escaped asterisks", () => {
-    const spans = parseInline("**Go**, *gRPC* and [GitHub](https://github.com/x) \\*");
-    expect(spans).toEqual([
-      { text: "Go", bold: true, italic: false, mark: false, link: undefined },
-      { text: ", ", bold: false, italic: false, mark: false, link: undefined },
-      { text: "gRPC", bold: false, italic: true, mark: false, link: undefined },
-      { text: " and ", bold: false, italic: false, mark: false, link: undefined },
-      { text: "GitHub", bold: false, italic: false, mark: false, link: "https://github.com/x" },
-      { text: " *", bold: false, italic: false, mark: false, link: undefined },
-    ]);
-  });
-
-  it("treats *italic* at line start as text, not a bullet", () => {
-    expect(parseCvMarkdown("*Remote-friendly*")[0].type).toBe("line");
+  it("fills a known free placeholder straight from the posting when no variant matches", () => {
+    const posting = job({ position: "Backend Engineer (m/w/d)", company: "Staffbase", location: "Chemnitz, Germany (Hybrid)" });
+    expect(defaultValue(initialVariable("city"), posting)).toBe("Chemnitz");
+    expect(defaultValue(initialVariable("country"), posting)).toBe("Germany");
+    expect(defaultValue(initialVariable("job_position"), posting)).toBe("Backend Engineer");
+    expect(defaultValue(initialVariable("company"), posting)).toBe("Staffbase");
+    // A variant the posting mentions still wins; a choice with variants never takes a free value.
+    expect(defaultValue({ ...initialVariable("city"), options: ["Berlin", "Chemnitz"] }, posting)).toBe("Chemnitz");
+    expect(defaultValue({ name: "city", description: "", options: ["Berlin"], mode: "choice" }, posting)).toBe("Berlin");
+    expect(valueFromJob("city", job({ location: "Remote" }))).toBe("");
+    expect(valueFromJob("city", job({ location: "Frankfurt am Main, Hesse, Germany" }))).toBe("Frankfurt am Main");
   });
 });

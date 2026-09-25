@@ -21,7 +21,6 @@ import { decomposeBlock } from "@/features/openai/decompose-block";
 import { decideCheckboxes } from "@/features/openai/decide-checkboxes";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
-import { templatizeCv } from "@/features/openai/templatize-cv";
 import { ensureContentScript } from "./inject-content-script";
 
 /**
@@ -452,11 +451,6 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "SUGGEST_CV_VALUES": {
       const values = await suggestCvValues(message.job, message.template);
       return { type: "CV_VALUES", values };
-    }
-
-    case "TEMPLATIZE_CV": {
-      const draft = await templatizeCv(message.cvText);
-      return { type: "CV_TEMPLATE_DRAFT", ...draft };
     }
 
     default:

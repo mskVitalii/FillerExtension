@@ -1,5 +1,6 @@
 import type { Job } from "@/types/job";
 import type { CvVariable } from "@/types/cv-template";
+import { initialVariable, valueFromJob } from "./defaults";
 
 /**
  * Private-use characters wrapped around every substituted value when
@@ -17,6 +18,14 @@ export function stripMarks(text: string): string {
   return text.replace(MARKS_RE, "");
 }
 
+/**
+ * A PDF text extractor may put a space inside a placeholder where the PDF
+ * kerned it ("{{cit y}}"); names never contain spaces, so they're dropped.
+ */
+export function normalizePlaceholders(text: string): string {
+  return text.replace(/\{\s*\{([^{}\n]{1,80}?)\}\s*\}/g, (_, inner: string) => `{{${inner.replace(/\s+/g, "")}}}`);
+}
+
 /** Placeholder names in order of first appearance, deduplicated. */
 export function extractVariableNames(content: string): string[] {
   const names: string[] = [];
@@ -28,7 +37,8 @@ export function extractVariableNames(content: string): string[] {
 
 /**
  * Reconciles saved definitions with the placeholders actually present in
- * `content`: every placeholder gets a definition (new ones start empty), in
+ * `content`: every placeholder gets a definition (a new one starts from the
+ * known definition for its name, else empty — `defaults.ts`), in
  * template order. Definitions whose placeholder is gone are kept at the end
  * rather than dropped — a typo while editing the template shouldn't wipe a
  * carefully written option list; the UI flags them as unused instead.
@@ -36,7 +46,7 @@ export function extractVariableNames(content: string): string[] {
 export function syncVariables(content: string, variables: CvVariable[]): CvVariable[] {
   const names = extractVariableNames(content);
   const byName = new Map(variables.map((v) => [v.name, v]));
-  const used = names.map((name) => byName.get(name) ?? { name, description: "", options: [], mode: "choice" as const });
+  const used = names.map((name) => byName.get(name) ?? initialVariable(name));
   const orphans = variables.filter((v) => !names.includes(v.name));
   return [...used, ...orphans];
 }
@@ -44,7 +54,7 @@ export function syncVariables(content: string, variables: CvVariable[]): CvVaria
 /**
  * Substitutes `{{name}}` with `values[name]` (empty when missing). A
  * multi-line value is marked line by line so a highlight never spans a
- * line break — the Markdown parser is line-oriented.
+ * line break — the preview is line-oriented.
  */
 export function fillTemplate(content: string, values: Record<string, string>, options: { mark?: boolean } = {}): string {
   return content.replace(PLACEHOLDER_RE, (_, name: string) => {
@@ -91,7 +101,17 @@ export function findOptionsInPosting(options: string[], job: Job): string[] {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([option]) => option);
 }
 
-/** Offline starting value before (or without) the AI pass: the most-mentioned option, else the first one. */
+/**
+ * Offline starting value before (or without) the AI pass: the most-mentioned
+ * option; else, for a known placeholder like {{city}} that isn't restricted
+ * to its variants, the value read off the posting; else the first option.
+ */
 export function defaultValue(variable: CvVariable, job: Job): string {
-  return findOptionsInPosting(variable.options, job)[0] ?? variable.options[0] ?? "";
+  const found = findOptionsInPosting(variable.options, job)[0];
+  if (found) return found;
+  if (variable.mode === "free" || variable.options.length === 0) {
+    const fromJob = valueFromJob(variable.name, job);
+    if (fromJob) return fromJob;
+  }
+  return variable.options[0] ?? "";
 }

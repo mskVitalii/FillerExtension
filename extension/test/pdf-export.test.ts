@@ -55,18 +55,3 @@ describe("renderCoverLetterPdf", () => {
     expect(file.size).toBeGreaterThan(8 * 1024);
   });
 });
-
-describe("renderCvPdf", () => {
-  it("renders a filled template with bold/italic/links to a real PDF", async () => {
-    const { renderCvPdf } = await import("@/features/pdf/export");
-    const { fillTemplate } = await import("@/features/cv-template/template");
-    const markdown = fillTemplate(
-      "# Jana Müller\n{{job_position}} · {{city}} · [GitHub](https://github.com/jana)\n\n## Experience\n### **Acme GmbH** || 2021 – now\n- Built *{{main_language}}* services\n---\n## Skills\n{{main_language}}, {{keywords}}",
-      { job_position: "Backend Engineer", city: "Berlin", main_language: "Go", keywords: "gRPC, Kafka" },
-    );
-    const file = await renderCvPdf(markdown, "Jana Müller CV.pdf");
-    expect(file.type).toBe("application/pdf");
-    expect(file.name).toBe("Jana Müller CV.pdf");
-    expect(file.size).toBeGreaterThan(8 * 1024);
-  });
-});

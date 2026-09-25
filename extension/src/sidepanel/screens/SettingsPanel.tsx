@@ -44,7 +44,7 @@ import {
   type JobSearchCredentials,
 } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
-import { extractCvText, normalizeCvFile } from "@/lib/cv-text";
+import { CV_FILE_ACCEPT, prepareCvFile } from "@/lib/cv-text";
 import { COUNTRIES } from "@/lib/countries";
 import { formatSalaryForStorage } from "@/lib/salary";
 import { FAQ_QUESTIONS } from "@/lib/faq-questions";
@@ -99,6 +99,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [cvUploadError, setCvUploadError] = useState<string | null>(null);
   const [cvList, setCvList] = useState<CvMeta[]>([]);
   const [switchingCvId, setSwitchingCvId] = useState<string | null>(null);
 
@@ -196,13 +197,16 @@ export function SettingsPanel({
 
   async function handleCvSelected(rawFile: File) {
     setUploading(true);
+    setCvUploadError(null);
     try {
-      // A .docx CV is also a ready Word template for the Adapt CV tab (keeps its exact layout).
-      const file = normalizeCvFile(rawFile);
-      const text = await extractCvText(file);
-      const meta = await uploadCv(file, text);
+      // Any CV with {{placeholders}} typed in is also a ready template for the Adapt CV tab; a
+      // LaTeX project is compiled here once, for its text and for plain "Attach CV".
+      const prepared = await prepareCvFile(rawFile);
+      const meta = await uploadCv(prepared.file, prepared.text, prepared.pdf);
       setCvList((list) => [...list, meta]);
       onCvChange(meta);
+    } catch (err) {
+      setCvUploadError(err instanceof Error ? err.message : "Could not upload the CV.");
     } finally {
       setUploading(false);
     }
@@ -516,7 +520,7 @@ export function SettingsPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept={CV_FILE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -533,6 +537,8 @@ export function SettingsPanel({
           >
             {uploading ? "Processing…" : "Upload another CV"}
           </Button>
+          <p className="text-xs text-muted-foreground">PDF, Word (.docx) or a LaTeX project (Overleaf .zip / .tex).</p>
+          {cvUploadError && <p className="text-xs text-destructive">{cvUploadError}</p>}
         </CardContent>
       </Card>
 

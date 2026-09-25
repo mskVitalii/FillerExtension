@@ -164,44 +164,62 @@ re-generating or editing a cover letter for the same job URL updates the existin
 
 ### Adapt CV tab (per-CV templates)
 
-Each CV in the library has its own `{{placeholder}}` set. Templates are stored in
-`types/cv-template.ts` and in Drive `cvTemplates.json`, keyed by `CvMeta.id`. Each placeholder
-has a description (the AI's instruction), variants that can span several lines, and a mode:
-`choice` (always one of the variants) or `free` (the variants are only examples). A CV is one of
-two formats:
+The CV file itself is the template — the extension never rebuilds a CV, it only fills the
+`{{placeholders}}` the user typed into it (a CV without any has nothing to adapt, and the tab
+shows `PlaceholderExplainer` instead). Placeholder definitions are stored per CV in
+`types/cv-template.ts` / Drive `cvTemplates.json`, keyed by `CvMeta.id`. Each has a description
+(the AI's instruction), variants that can span several lines, and a mode: `choice` (always one of
+the variants) or `free` (the variants are only examples). A newly found placeholder starts from
+`features/cv-template/defaults.ts` when its name is a known one (`city`, `country`,
+`job_position`, `company`, `main_language`, `keywords`, …); known ones like `city`/`company` are
+also filled offline straight from the posting (`valueFromJob`). The format comes from the file
+(`cvFormat` in `cv-template/repository.ts`), and the template's text is always `CvMeta.text`:
 
-- **`.docx` CV (`format: "docx"`).** The uploaded file is the template: the user types
-  `{{city}}` etc. into it in Word. `features/cv-template/docx.ts` (fflate + DOMParser) rewrites
-  only the `<w:t>` text of those placeholders. It handles placeholders that Word split across
-  runs, and every other part of the package stays byte-identical. No in-browser library turns
-  that `.docx` into a PDF with a real Word layout: `docx-preview` was tried against a real CV
-  and lost the fonts, the Symbol-font bullets and the photo placement, and Word's fonts can't be
-  shipped in the extension. So `google-drive/convert.ts` uploads the filled `.docx` as a
+- **`.docx` CV (`docx`).** `features/cv-template/docx.ts` (fflate + DOMParser) rewrites only the
+  `<w:t>` text of the placeholders. It handles placeholders that Word split across runs, and
+  every other part of the package stays byte-identical. No in-browser library turns that `.docx`
+  into a PDF with a real Word layout, so `google-drive/convert.ts` uploads the filled `.docx` as a
   temporary Google Doc, exports it as PDF and deletes it. `files.export` doesn't accept
   `drive.appdata`, so that call asks for `drive.file` *incrementally* through
   `getAuthToken({ scopes })`. Keep `drive.file` out of `manifest.json`'s `oauth2.scopes`: adding
   it there makes every existing user's silent token lookup fail until they re-consent. Known gap:
   Google has no Calibri Light, so it renders as Calibri.
-- **PDF CV (`format: "markdown"`).** It gets a Markdown-subset template
-  (`features/cv-template/markdown.ts`), which the PDF and the Side Panel preview both parse. The
-  template is rendered to PDF by `features/pdf/CvDocument.tsx`, and every PDF shares
-  `features/pdf/fonts.ts`.
+- **PDF CV (`pdf`).** `features/cv-template/pdf.ts` (pdf-lib) edits the PDF in place: it parses
+  the content streams, decodes text through each font's ToUnicode/encoding, finds `{{name}}`
+  (even kerned apart mid-word), and rewrites only the operators drawing it. The value reuses the
+  PDF's own embedded font when the subset has every glyph (codes drawn elsewhere, or a Type1
+  CharSet); otherwise a Standard 14 stand-in of the same kind (serif/sans/mono, bold, italic), or
+  Inter outside WinAnsi. A layout pass keeps lines natural: text flowing in the same TJ, or a
+  chunk placed flush against the edit by its own Td/Tm (Chrome, Word), moves by the width change;
+  a wide kern (LaTeX `\hfill`) or a distant chunk (right-aligned date) absorbs it instead. Link
+  annotations and TeX-drawn link underlines don't move.
+- **LaTeX CV (`latex`).** An Overleaf project .zip or a single .tex, stored as uploaded.
+  Placeholders are written `\{\{city\}\}` (`job\_position`), so the compiled PDF shows
+  `{{city}}`. `features/cv-template/latex.ts` fills the main source (a value that is one of the
+  variable's own variants goes in verbatim, anything else is LaTeX-escaped) and compiles via
+  LaTeX-On-HTTP (`latex.ytotech.com`, CORS open, so no host permission) — no browser TeX engine
+  works without a TeX Live mirror (SwiftLaTeX's is gone). `prepareCvFile` (`lib/cv-text.ts`)
+  compiles once on upload: `CvMeta.text` comes from that PDF, which is also kept as Drive
+  `cv-<id>.compiled.pdf` and is what `getCvAttachmentFile` hands to the plain "Attach CV".
 
 `features/cv-template/adapt.ts` is shared by `CvAdaptPanel.tsx` and MainView's "Preview/Attach/
 Export adapted CV" buttons. It holds the per-tab, per-CV values (session storage `cvAdapt:<tabId>`),
-the `SUGGEST_CV_VALUES` round-trip and the rendering (plus an in-memory cache of converted PDFs).
-Every adapted PDF produced (preview, attach or download) is also kept with its posting's
-application, via `recordAdaptedCv` → `applications/repository.ts` `saveAdaptedCv`. The record is
-`Application.adaptedCv`, and the file is Drive `adaptedCv/<id>.pdf`. It deliberately lives outside
-`applications/`, because `listApplicationFiles` matches on that name. The Applications list
-previews or downloads it. Writes to one application go through `updateApplication`'s per-id queue,
-because the cover-letter autosave and an adapted-CV save can hit the same record at once. Before any AI call, `findOptionsInPosting`
-preselects variants that appear verbatim in the posting, and a `choice` answer from the AI that
-isn't one of the variants falls back to that offline value. Picking a CV in the Adapt CV tab also
-makes it the active CV everywhere else.
+the `SUGGEST_CV_VALUES` round-trip and the rendering (`renderAdaptedCv` → `{ file, notes }`, plus
+an in-memory cache of rendered PDFs). Every adapted PDF produced (preview, attach or download) is
+also kept with its posting's application, via `recordAdaptedCv` → `applications/repository.ts`
+`saveAdaptedCv`. The record is `Application.adaptedCv`, and the file is Drive `adaptedCv/<id>.pdf`.
+It deliberately lives outside `applications/`, because `listApplicationFiles` matches on that
+name. The Applications list previews or downloads it. Writes to one application go through
+`updateApplication`'s per-id queue, because the cover-letter autosave and an adapted-CV save can
+hit the same record at once. Before any AI call, `findOptionsInPosting` preselects variants that
+appear verbatim in the posting, and a `choice` answer from the AI that isn't one of the variants
+falls back to that offline value. Picking a CV in the Adapt CV tab also makes it the active CV
+everywhere else.
 
-jsdom corrupts react-pdf's flate streams, so a PDF written from a jsdom test won't open. Size
-assertions still work there, but to look at a render you need a `node`-environment vitest run.
+`test/cv-template-pdf.test.ts` fills two synthetic fixtures in `test/pdf-fixtures/` (a pdfTeX PDF
+and a Chrome "Save as PDF" of `chrome-placeholders.html`) and checks text and positions through
+pdf.js, which works under jsdom. jsdom does corrupt react-pdf's flate streams, so a react-pdf PDF
+written from a jsdom test won't open.
 
 ### OpenAI usage
 

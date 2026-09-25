@@ -4,9 +4,8 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
  * Word (.docx) CV templates: the user types `{{placeholders}}` into their own
  * CV in Word, and only the text of those placeholders is ever rewritten —
  * layout, fonts, photo, tables, numbering and every other part of the
- * package pass through byte-for-byte. That's the whole point of this path
- * versus the Markdown one: no in-browser renderer reproduces a real Word
- * layout (docx-preview, tried against a real CV, lost the fonts, the
+ * package pass through byte-for-byte. No in-browser renderer reproduces a
+ * real Word layout (docx-preview, tried against a real CV, lost the fonts, the
  * Symbol-font bullets and the photo placement).
  */
 

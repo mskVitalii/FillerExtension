@@ -1,12 +1,23 @@
-import { EMPTY_CV_TEMPLATE, type CvTemplate, type CvTemplateLibrary } from "@/types/cv-template";
+import type { CvTemplate, CvTemplateFormat, CvTemplateLibrary } from "@/types/cv-template";
 import type { CvMeta } from "@/types/profile";
 import { getLocal, setLocal } from "@/features/storage/local";
 import * as drive from "@/features/google-drive/client";
 import { isDocxFile } from "@/lib/cv-text";
-import { syncVariables } from "./template";
+import { isLatexFile } from "./latex";
+import { normalizePlaceholders, syncVariables } from "./template";
 
 export function isDocxCv(cv: Pick<CvMeta, "fileName" | "mimeType">): boolean {
   return isDocxFile({ name: cv.fileName, type: cv.mimeType });
+}
+
+export function isLatexCv(cv: Pick<CvMeta, "fileName" | "mimeType">): boolean {
+  return isLatexFile({ name: cv.fileName, type: cv.mimeType });
+}
+
+export function cvFormat(cv: Pick<CvMeta, "fileName" | "mimeType">): CvTemplateFormat {
+  if (isDocxCv(cv)) return "docx";
+  if (isLatexCv(cv)) return "latex";
+  return "pdf";
 }
 
 /** Same cache-then-Drive pattern as the profile repository: local cache first, Drive `cvTemplates.json` as source of truth. */
@@ -26,18 +37,20 @@ export async function getCvTemplates(): Promise<CvTemplateLibrary> {
 }
 
 /**
- * The template for one CV. A Word CV is always a `docx` template whose text
- * is the file's current text (so a re-uploaded file's new placeholders show
- * up without re-saving); a PDF CV gets a Markdown template, empty until the
- * user builds one.
+ * The template for one CV: the CV's own text (a LaTeX CV's is its compiled
+ * PDF's text), with the stored placeholder definitions reconciled against
+ * the placeholders really in it — so a re-uploaded file's new placeholders
+ * show up without re-saving.
  */
 export function templateForCv(cv: CvMeta, library: CvTemplateLibrary): CvTemplate {
   const stored = library[cv.id];
-  if (isDocxCv(cv)) {
-    const variables = stored?.variables ?? [];
-    return { format: "docx", content: cv.text, variables: syncVariables(cv.text, variables), updatedAt: stored?.updatedAt ?? "" };
-  }
-  return stored && stored.format === "markdown" ? stored : EMPTY_CV_TEMPLATE;
+  const content = normalizePlaceholders(cv.text);
+  return {
+    format: cvFormat(cv),
+    content,
+    variables: syncVariables(content, stored?.variables ?? []),
+    updatedAt: stored?.updatedAt ?? "",
+  };
 }
 
 /**

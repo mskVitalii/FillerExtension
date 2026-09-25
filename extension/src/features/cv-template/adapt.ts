@@ -5,9 +5,11 @@ import { sendMessage } from "@/types/messages";
 import { getCvAdaptState, setCvAdaptState, type CvAdaptEntry } from "@/features/storage/session";
 import { getCvFile } from "@/features/profile/repository";
 import { saveAdaptedCv } from "@/features/applications/repository";
-import { renderCvPdf } from "@/features/pdf/export";
+import interRegularUrl from "@/assets/fonts/Inter-Regular.ttf";
+import interBoldUrl from "@/assets/fonts/Inter-Bold.ttf";
+import interItalicUrl from "@/assets/fonts/Inter-Italic.ttf";
 import { DOCX_MIME, fillDocx } from "./docx";
-import { defaultValue, extractVariableNames, fillTemplate } from "./template";
+import { defaultValue, extractVariableNames } from "./template";
 
 /**
  * Side-Panel-side glue shared by the Adapt CV tab and the main view's
@@ -75,57 +77,113 @@ export function adaptedCvFileName(profile: Profile, extension: "pdf" | "docx", c
 
 export type AdaptedCvFormat = "pdf" | "docx";
 
-/**
- * Converted PDFs by exact input, for this Side Panel document's lifetime —
- * Preview, then Attach, then Download of the same adapted CV should cost one
- * Google Drive round-trip (a few seconds), not three.
- */
-const pdfCache = new Map<string, Promise<Blob>>();
-
-async function wordCvBytes(cv: CvMeta, docx?: Uint8Array | null): Promise<Uint8Array> {
-  if (docx) return docx;
-  const file = await getCvFile(cv.id);
-  if (!file) throw new Error("Couldn't load the Word CV from Google Drive.");
-  return new Uint8Array(await file.arrayBuffer());
+export interface AdaptedCv {
+  file: File;
+  /** Things the user should know about this render — a placeholder that couldn't be filled, a font stand-in. */
+  notes: string[];
 }
 
 /**
- * The final file. A Word CV: the same .docx with only its placeholders'
- * text replaced — as-is for `docx`, or converted by Google Docs for `pdf`
- * (see `google-drive/convert.ts`). A Markdown template always renders to
- * PDF here. `docx` can be passed when the caller already holds the Word
- * CV's bytes, saving a Drive round-trip.
+ * Rendered PDFs by exact input, for this Side Panel document's lifetime —
+ * Preview, then Attach, then Download of the same adapted CV should cost one
+ * Google Docs / LaTeX round-trip (a few seconds), not three.
+ */
+const pdfCache = new Map<string, Promise<{ blob: Blob; notes: string[] }>>();
+
+function cached(key: string, render: () => Promise<{ blob: Blob; notes: string[] }>) {
+  let result = pdfCache.get(key);
+  if (!result) {
+    result = render();
+    pdfCache.set(key, result);
+    // A failed render (consent dismissed, offline, compile error) must be retryable, not cached.
+    result.catch(() => pdfCache.delete(key));
+  }
+  return result;
+}
+
+async function cvBytes(cv: CvMeta, bytes?: Uint8Array | null): Promise<Uint8Array> {
+  if (bytes) return bytes;
+  const file = await getCvFile(cv.id);
+  if (!file) throw new Error("Couldn't load the CV from Google Drive.");
+  return new Uint8Array(await file.arrayBuffer());
+}
+
+const INTER = { regular: interRegularUrl, bold: interBoldUrl, italic: interItalicUrl };
+
+/** Inter for a value the PDF's own fonts and the Standard 14 fonts can't show (e.g. Cyrillic). */
+async function loadUnicodeFont(style: { bold: boolean; italic: boolean }): Promise<Uint8Array> {
+  const url = style.bold ? INTER.bold : style.italic ? INTER.italic : INTER.regular;
+  return new Uint8Array(await (await fetch(url)).arrayBuffer());
+}
+
+function listNames(names: string[]): string {
+  return names.map((name) => `{{${name}}}`).join(", ");
+}
+
+/**
+ * The final file — always the user's own CV with only its placeholders
+ * filled, never a rebuilt one:
+ * - Word: the same .docx with the placeholders' text replaced — as-is for
+ *   `docx`, or converted by Google Docs for `pdf` (`google-drive/convert.ts`).
+ * - PDF: the same PDF with the placeholders redrawn in place (`pdf.ts`).
+ * - LaTeX: the project with the placeholders replaced in its main source,
+ *   compiled again (`latex.ts`).
+ * `source` can be passed when the caller already holds the CV's bytes,
+ * saving a Drive round-trip.
  */
 export async function renderAdaptedCv(
   cv: CvMeta,
   template: CvTemplate,
   values: Record<string, string>,
   profile: Profile,
-  options: { format?: AdaptedCvFormat; docx?: Uint8Array | null; company?: string } = {},
-): Promise<File> {
-  const format = options.format ?? "pdf";
-  // A Markdown template only ever renders to PDF.
-  const fileName = adaptedCvFileName(profile, template.format === "docx" ? format : "pdf", options.company);
+  options: { format?: AdaptedCvFormat; source?: Uint8Array | null; company?: string } = {},
+): Promise<AdaptedCv> {
+  const format = template.format === "docx" ? (options.format ?? "pdf") : "pdf";
+  const fileName = adaptedCvFileName(profile, format, options.company);
+  const key = JSON.stringify([cv.id, cv.uploadedAt, values]);
+
   if (template.format === "docx") {
-    const filled = new Uint8Array(fillDocx(await wordCvBytes(cv, options.docx), values));
-    const docxBlob = new Blob([filled], { type: DOCX_MIME });
-    if (format === "docx") return new File([docxBlob], fileName, { type: DOCX_MIME });
-    const key = JSON.stringify([cv.id, cv.uploadedAt, values]);
-    let pdf = pdfCache.get(key);
-    if (!pdf) {
+    const filled = new Uint8Array(fillDocx(await cvBytes(cv, options.source), values));
+    if (format === "docx") return { file: new File([filled as Uint8Array<ArrayBuffer>], fileName, { type: DOCX_MIME }), notes: [] };
+    const { blob } = await cached(key, async () => {
       const [{ convertDocxToPdf }, { bakePictureShapes }] = await Promise.all([
         import("@/features/google-drive/convert"),
         import("./docx-shapes"),
       ]);
       // Google Docs drops Word's rounded/circular photo masks — bake them into the image first.
-      pdf = bakePictureShapes(filled).then((bytes) => convertDocxToPdf(new Blob([new Uint8Array(bytes)], { type: DOCX_MIME })));
-      pdfCache.set(key, pdf);
-      // A failed conversion (consent dismissed, offline) must be retryable, not cached.
-      pdf.catch(() => pdfCache.delete(key));
-    }
-    return new File([await pdf], fileName, { type: "application/pdf" });
+      const baked = await bakePictureShapes(filled);
+      return { blob: await convertDocxToPdf(new Blob([new Uint8Array(baked)], { type: DOCX_MIME })), notes: [] };
+    });
+    return { file: new File([blob], fileName, { type: "application/pdf" }), notes: [] };
   }
-  return renderCvPdf(fillTemplate(template.content, values), fileName);
+
+  if (template.format === "latex") {
+    const variables = template.variables;
+    const { blob } = await cached(key, async () => {
+      const latex = await import("./latex");
+      const bytes = await cvBytes(cv, options.source);
+      const project = await latex.readLatexProject(new File([bytes as Uint8Array<ArrayBuffer>], cv.fileName));
+      const source = latex.fillLatexSource(latex.mainSource(project), values, (name, value) =>
+        Boolean(variables.find((v) => v.name === name)?.options.includes(value)),
+      );
+      return { blob: await latex.compileLatex(project, source), notes: [] };
+    });
+    return { file: new File([blob], fileName, { type: "application/pdf" }), notes: [] };
+  }
+
+  const { blob, notes } = await cached(key, async () => {
+    const { fillPdf } = await import("./pdf");
+    const result = await fillPdf(await cvBytes(cv, options.source), values, { loadUnicodeFont });
+    const found: string[] = [];
+    if (result.notFound.length > 0) {
+      found.push(`Not found in the PDF's text, left unchanged: ${listNames(result.notFound)}. Was the text turned into outlines?`);
+    }
+    if (result.substitutedFont.length > 0) {
+      found.push(`Your PDF's font doesn't include every letter of ${listNames(result.substitutedFont)}, so a similar standard font was used there.`);
+    }
+    return { blob: new Blob([result.bytes as Uint8Array<ArrayBuffer>], { type: "application/pdf" }), notes: found };
+  });
+  return { file: new File([blob], fileName, { type: "application/pdf" }), notes };
 }
 
 /** Last saved input per posting URL — Preview, then Attach, then Download of the same PDF shouldn't re-upload it three times. */

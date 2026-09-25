@@ -102,10 +102,25 @@ describe("templateForCv", () => {
     expect(template.variables[0].options).toEqual(["Berlin"]);
   });
 
-  it("a PDF CV without a saved template gets an empty Markdown one, and templates never leak across CVs", () => {
-    expect(templateForCv(cv({ id: "cv2" }), { cv1: { format: "markdown", content: "# X", variables: [], updatedAt: "" } })).toMatchObject({
-      format: "markdown",
-      content: "",
+  it("every CV is its own template — a PDF or LaTeX one too; an old Markdown entry keeps only its variables", () => {
+    const pdf = templateForCv(cv({ text: "Jane Doe {{cit y}}, Germany" }), {
+      cv1: {
+        format: "markdown" as never,
+        content: "# Old template {{job_position}}",
+        variables: [{ name: "city", description: "mine", options: ["Berlin"], mode: "free" }],
+        updatedAt: "t",
+      },
     });
+    expect(pdf).toMatchObject({ format: "pdf", content: "Jane Doe {{city}}, Germany" });
+    expect(pdf.variables).toEqual([{ name: "city", description: "mine", options: ["Berlin"], mode: "free" }]);
+    expect(templateForCv(cv({ fileName: "CV_Jane.zip", mimeType: "application/zip" }), {}).format).toBe("latex");
+    expect(templateForCv(cv({ fileName: "main.tex", mimeType: "" }), {}).format).toBe("latex");
+  });
+
+  it("templates never leak across CVs", () => {
+    const template = templateForCv(cv({ id: "cv2", text: "{{city}}" }), {
+      cv1: { format: "pdf", content: "", variables: [{ name: "city", description: "cv1's", options: ["X"], mode: "choice" }], updatedAt: "" },
+    });
+    expect(template.variables[0].description).not.toBe("cv1's");
   });
 });

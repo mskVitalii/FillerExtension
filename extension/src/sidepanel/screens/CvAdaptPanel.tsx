@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, Eye, FilePlus, FileUp, Paperclip, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowLeft, Download, Eye, FilePlus, FileUp, Paperclip, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { CvPreview } from "@/components/cv-template/CvPreview";
 import { VariableEditor } from "@/components/cv-template/VariableEditor";
 import { VariableSelector } from "@/components/cv-template/VariableSelector";
+import { PlaceholderExplainer, PlaceholderHowTo } from "@/components/cv-template/PlaceholderExplainer";
 import { sendMessage } from "@/types/messages";
 import { EMPTY_JOB, type Job } from "@/types/job";
 import type { CvMeta, Profile } from "@/types/profile";
-import { EMPTY_CV_TEMPLATE, type CvTemplate, type CvTemplateLibrary, type CvVariable } from "@/types/cv-template";
+import {
+  EMPTY_CV_TEMPLATE,
+  type CvTemplate,
+  type CvTemplateFormat,
+  type CvTemplateLibrary,
+  type CvVariable,
+} from "@/types/cv-template";
 import { getCvTemplates, saveCvTemplate, templateForCv } from "@/features/cv-template/repository";
-import { DOCX_MIME } from "@/features/cv-template/docx";
+import { LATEX_COMPILE_HOST } from "@/features/cv-template/latex";
 import {
   EMPTY_ADAPT_ENTRY,
   loadAdaptEntry,
@@ -24,12 +31,13 @@ import {
   usedVariables as templateUsedVariables,
 } from "@/features/cv-template/adapt";
 import { extractVariableNames, fillTemplate, findOptionsInPosting, syncVariables } from "@/features/cv-template/template";
-import { CV_MARKDOWN_SYNTAX, parseCvMarkdown, parsePlainText } from "@/features/cv-template/markdown";
+import { parsePlainText } from "@/features/cv-template/preview";
 import { getCvFile, getCvLibrary, replaceCvFile, setActiveCv, uploadCv } from "@/features/profile/repository";
 import { getTabState, type CvAdaptEntry } from "@/features/storage/session";
 import { getCachedJob } from "@/features/storage/local";
 import { downloadFile, openPdfPreview } from "@/features/pdf/export";
-import { extractCvText, isDocxFile, normalizeCvFile } from "@/lib/cv-text";
+import { CV_FILE_ACCEPT, prepareCvFile } from "@/lib/cv-text";
+import { isLatexFile } from "@/features/cv-template/latex";
 import { fileToBase64 } from "@/lib/base64";
 import { cn } from "@/lib/utils";
 
@@ -59,19 +67,22 @@ function sameTemplate(a: TemplateDraft, b: TemplateDraft) {
   return a.format === b.format && a.content === b.content && JSON.stringify(a.variables) === JSON.stringify(b.variables);
 }
 
-function isPdfFile(file: File): boolean {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+const FORMAT_LABEL: Record<CvTemplateFormat, string> = { docx: "Word", pdf: "PDF", latex: "LaTeX" };
+
+/** A LaTeX CV is compiled on upload — say where, since that's a network call to a third party. */
+function preparingLabel(file: File): string {
+  return isLatexFile(file) ? `Compiling LaTeX via ${LATEX_COMPILE_HOST}…` : "Uploading CV…";
 }
 
 /**
- * Adapt CV tab: every CV in the library carries its own set of
+ * Adapt CV tab. The CV file is the template: the user types
  * `{{placeholders}}` (city, job title, main language, keywords, whole
- * swappable blocks…), each with its own variants. A Word CV is its own
- * template — placeholders are typed into it in Word and the output keeps its
- * layout exactly; a PDF CV gets a Markdown template rendered to PDF here.
- * Per posting, variants found in the posting are pre-selected offline, the
- * AI refines the rest, the user overrides anything via a selector, and the
- * result is downloaded or attached straight into the page's upload field.
+ * swappable blocks…) into their own Word, PDF or LaTeX CV, and every CV in
+ * the library keeps its own definitions of them. Nothing is rebuilt — per
+ * posting only the placeholders are filled: variants found in the posting
+ * are pre-selected offline, the AI refines the rest, the user overrides
+ * anything via a selector, and the result is downloaded or attached straight
+ * into the page's upload field. A CV without placeholders has nothing to adapt.
  */
 export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequestApiKey, onCvChange }: CvAdaptPanelProps) {
   const [loaded, setLoaded] = useState(false);
@@ -81,8 +92,10 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   const [templates, setTemplates] = useState<CvTemplateLibrary>({});
   const [saved, setSaved] = useState<TemplateDraft>(EMPTY_CV_TEMPLATE);
   const [draft, setDraft] = useState<TemplateDraft>(EMPTY_CV_TEMPLATE);
-  /** Bytes of the selected Word CV — loaded once per selection, reused for every export. */
-  const [docx, setDocx] = useState<Uint8Array | null>(null);
+  /** Bytes of the selected CV file — loaded once per selection, reused for every export. */
+  const [source, setSource] = useState<Uint8Array | null>(null);
+  /** What the last render wants the user to know (a placeholder the PDF didn't contain, a font stand-in). */
+  const [notes, setNotes] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [entry, setEntry] = useState<CvAdaptEntry>(EMPTY_ADAPT_ENTRY);
@@ -91,9 +104,8 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const templateFileRef = useRef<HTMLInputElement>(null);
   const addCvRef = useRef<HTMLInputElement>(null);
-  const replaceDocxRef = useRef<HTMLInputElement>(null);
+  const replaceFileRef = useRef<HTMLInputElement>(null);
   const autoSuggestTriedRef = useRef<string | null>(null);
 
   const selectedCv = cvs.find((cv) => cv.id === selectedId) ?? null;
@@ -123,22 +135,21 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     setDraft(template);
     setSaveStatus("idle");
     setCustomNames(new Set());
-    setDocx(null);
-    setView(template.format === "markdown" && !template.content.trim() ? "template" : "adapt");
+    setSource(null);
+    setNotes([]);
+    setView("adapt");
     void loadAdaptEntry(tabId, tabUrl, selectedCv.id).then((loadedEntry) => {
       if (!cancelled) setEntry(loadedEntry);
     });
-    if (template.format === "docx") {
-      getCvFile(selectedCv.id)
-        .then(async (file) => {
-          if (cancelled) return;
-          if (file) setDocx(new Uint8Array(await file.arrayBuffer()));
-          else setError("Couldn't load the Word CV from Google Drive.");
-        })
-        .catch(() => {
-          if (!cancelled) setError("Couldn't load the Word CV from Google Drive.");
-        });
-    }
+    getCvFile(selectedCv.id)
+      .then(async (file) => {
+        if (cancelled) return;
+        if (file) setSource(new Uint8Array(await file.arrayBuffer()));
+        else setError("Couldn't load the CV from Google Drive.");
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load the CV from Google Drive.");
+      });
     return () => {
       cancelled = true;
     };
@@ -146,7 +157,8 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, selectedCv?.id, selectedCv?.uploadedAt, tabId, tabUrl]);
 
-  const isDocx = draft.format === "docx";
+  const format = draft.format;
+  const isDocx = format === "docx";
   const usedNames = useMemo(() => extractVariableNames(draft.content), [draft.content]);
   const draftTemplate = useMemo<CvTemplate>(() => ({ ...draft, updatedAt: "" }), [draft]);
   const usedVariables = useMemo(() => templateUsedVariables(draftTemplate), [draftTemplate]);
@@ -155,10 +167,10 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     [usedVariables, job],
   );
   const resolvedValues = useMemo(() => resolveValues(draftTemplate, job, entry.values), [draftTemplate, job, entry]);
-  const blocks = useMemo(() => {
-    const filled = fillTemplate(draft.content, resolvedValues, { mark: true });
-    return isDocx ? parsePlainText(filled) : parseCvMarkdown(filled);
-  }, [draft.content, resolvedValues, isDocx]);
+  const blocks = useMemo(
+    () => parsePlainText(fillTemplate(draft.content, resolvedValues, { mark: true })),
+    [draft.content, resolvedValues],
+  );
   const dirty = !sameTemplate(draft, saved);
   const hasJob = Boolean(job.position || job.description);
 
@@ -223,11 +235,11 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
 
   async function handleAddCv(rawFile: File) {
     if (!confirmDiscard()) return;
-    const file = normalizeCvFile(rawFile);
-    setBusy("Uploading CV…");
+    setBusy(preparingLabel(rawFile));
     setError(null);
     try {
-      const meta = await uploadCv(file, await extractCvText(file));
+      const prepared = await prepareCvFile(rawFile);
+      const meta = await uploadCv(prepared.file, prepared.text, prepared.pdf);
       setCvs((list) => [...list, meta]);
       setSelectedId(meta.id);
       onCvChange(meta);
@@ -238,31 +250,31 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     }
   }
 
-  /** A Word CV edited in Word (new placeholders typed in) replaces the library entry's file, keeping its id — and so its placeholder settings. */
-  async function handleReplaceDocx(rawFile: File) {
+  /**
+   * The CV edited elsewhere (placeholders typed into it, a fresh export, a new
+   * Overleaf .zip) replaces the library entry's file, keeping its id — and so
+   * its placeholder settings.
+   */
+  async function handleReplaceFile(rawFile: File) {
     if (!selectedCv) return;
-    const file = normalizeCvFile(rawFile);
-    if (!isDocxFile(file)) {
-      setError("Pick a .docx file.");
-      return;
-    }
-    setBusy("Replacing file…");
+    setBusy(isLatexFile(rawFile) ? preparingLabel(rawFile) : "Replacing file…");
     setError(null);
+    setStatus(null);
     try {
-      const text = await extractCvText(file);
-      const meta = await replaceCvFile(selectedCv.id, file, text);
+      const prepared = await prepareCvFile(rawFile);
+      const meta = await replaceCvFile(selectedCv.id, prepared.file, prepared.text, prepared.pdf);
       if (!meta) return;
       // Carry the (possibly unsaved) placeholder settings over onto the new file's text and save
       // them; the selection effect then re-seeds from `templates` because `uploadedAt` changed.
-      const next: TemplateDraft = { format: "docx", content: text, variables: syncVariables(text, draft.variables) };
-      const savedTemplate = await saveCvTemplate(meta.id, next, cvs.map((cv) => cv.id)).catch(() => ({
-        ...next,
-        updatedAt: new Date().toISOString(),
-      }));
+      const next = templateForCv(meta, { [meta.id]: { ...draft, updatedAt: "" } });
+      const variables = syncVariables(next.content, draft.variables);
+      const toSave: TemplateDraft = { format: next.format, content: next.content, variables };
+      const savedTemplate = await saveCvTemplate(meta.id, toSave, cvs.map((cv) => cv.id)).catch(() => ({ ...toSave, updatedAt: new Date().toISOString() }));
       setTemplates((lib) => ({ ...lib, [meta.id]: savedTemplate }));
       setCvs((list) => list.map((cv) => (cv.id === meta.id ? meta : cv)));
       onCvChange(meta);
-      setStatus(`Loaded ${meta.fileName} — ${extractVariableNames(text).length} placeholder(s) found.`);
+      const count = extractVariableNames(next.content).length;
+      setStatus(`Loaded ${meta.fileName} — ${count} placeholder${count === 1 ? "" : "s"} found.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not replace the file.");
     } finally {
@@ -301,53 +313,16 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     setDraft(cleaned);
   }
 
-  async function templatize(cvText: string) {
-    if (!hasApiKey) {
-      onRequestApiKey();
-      return;
-    }
-    if (draft.content.trim() && !window.confirm("Replace the current template with one built from this CV?")) return;
-    setBusy("Building template…");
-    setError(null);
-    try {
-      const result = await sendMessage<{ type: "CV_TEMPLATE_DRAFT"; content: string; variables: CvVariable[] }>({
-        type: "TEMPLATIZE_CV",
-        cvText,
-      });
-      updateDraft({ format: "markdown", content: result.content, variables: result.variables });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not build a template from the CV.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /** `.md`/`.txt` is taken as an already-written Markdown template; a PDF is a plain CV, so it goes through the AI conversion (or raw text without a key). */
-  async function handleTemplateFile(file: File) {
-    setError(null);
-    try {
-      if (isPdfFile(file)) {
-        const text = await extractCvText(file);
-        if (hasApiKey) await templatize(text);
-        else updateDraft({ ...draft, content: text });
-        return;
-      }
-      if (draft.content.trim() && !window.confirm(`Replace the current template with ${file.name}?`)) return;
-      updateDraft({ ...draft, content: await file.text() });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read the file.");
-    }
-  }
-
   /** Every PDF produced here (preview, attach, download) is also kept with this posting's application. */
   async function renderOutput(format: AdaptedCvFormat = "pdf"): Promise<File> {
     if (!selectedCv) throw new Error("No CV selected.");
-    const file = await renderAdaptedCv(selectedCv, draftTemplate, resolvedValues, profile, {
+    const { file, notes: renderNotes } = await renderAdaptedCv(selectedCv, draftTemplate, resolvedValues, profile, {
       format,
-      docx,
+      source,
       company: job.company,
     });
-    if (format === "pdf") {
+    setNotes(renderNotes);
+    if (file.type === "application/pdf") {
       const cv = selectedCv;
       recordAdaptedCv(job.url ? job : { ...job, url: tabUrl }, cv, resolvedValues, file)
         .then((saved) => saved && setStatus("Saved with this posting in Applications."))
@@ -356,16 +331,18 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     return file;
   }
 
-  /** A Word CV's PDF comes from Google Docs and takes a few seconds — say so instead of a generic spinner. */
-  function exportingLabel(format: AdaptedCvFormat): string {
-    return isDocx && format === "pdf" ? "Converting to PDF via Google Docs…" : "Exporting…";
+  /** A Word CV's PDF comes from Google Docs, a LaTeX one from a compile — both take a few seconds, so say which. */
+  function exportingLabel(output: AdaptedCvFormat): string {
+    if (isDocx && output === "pdf") return "Converting to PDF via Google Docs…";
+    if (format === "latex") return `Compiling LaTeX via ${LATEX_COMPILE_HOST}…`;
+    return "Exporting…";
   }
 
-  async function handleDownload(format: AdaptedCvFormat) {
-    setBusy(exportingLabel(format));
+  async function handleDownload(output: AdaptedCvFormat) {
+    setBusy(exportingLabel(output));
     setError(null);
     try {
-      await downloadFile(await renderOutput(format));
+      await downloadFile(await renderOutput(output));
     } catch (err) {
       setError(err instanceof Error ? `Export failed: ${err.message}` : "Export failed.");
     } finally {
@@ -410,20 +387,49 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   if (!loaded) return null;
 
   const missingValues = usedVariables.filter((v) => !resolvedValues[v.name]?.trim()).map((v) => v.name);
-  const exportDisabled = Boolean(busy) || (isDocx && !docx);
+  const exportDisabled = Boolean(busy) || !source;
 
   // Plain render helpers, called as functions — not mounted as <Components/>,
   // which React would remount (and so defocus their inputs) on every render.
-  function renderAdaptView() {
-    if (!draft.content.trim()) {
+  function renderFormatNote() {
+    if (isDocx) {
       return (
-        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          This CV has no template yet.{" "}
-          <button onClick={() => setView("template")} className="underline underline-offset-2">
-            Create one
-          </button>
-          , then come back here to adapt it per posting.
+        <p className="text-xs text-muted-foreground">
+          The PDF is made from your Word file by Google Docs — layout, photo and fonts carried over, except weights
+          Google doesn't have (Calibri Light shows as Calibri). The first time, Google asks once to let Filler create
+          temporary files in your Drive; the file is deleted right after.
         </p>
+      );
+    }
+    if (format === "latex") {
+      return (
+        <p className="text-xs text-muted-foreground">
+          Your project is compiled with the filled-in placeholders by {LATEX_COMPILE_HOST}, a free open-source LaTeX
+          service — its files are sent there for each compile.
+        </p>
+      );
+    }
+    return (
+      <p className="text-xs text-muted-foreground">
+        The values are written into your PDF itself — layout, photo and fonts stay as they are.
+      </p>
+    );
+  }
+
+  function renderAdaptView() {
+    if (usedVariables.length === 0) {
+      return (
+        <>
+          <p className="rounded-md border border-border bg-muted/40 p-2 text-xs">
+            Nothing to adapt yet: <span className="font-medium">{selectedCv?.fileName}</span> has no{" "}
+            <code>{"{{placeholders}}"}</code>. Add some to the CV, then{" "}
+            <button onClick={() => replaceFileRef.current?.click()} className="underline underline-offset-2">
+              replace the file
+            </button>
+            .
+          </p>
+          <PlaceholderExplainer />
+        </>
       );
     }
     return (
@@ -445,7 +451,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             variant="outline"
             size="sm"
             className="w-fit"
-            disabled={suggesting || !hasJob || usedVariables.length === 0}
+            disabled={suggesting || !hasJob}
             onClick={() => void handleSuggest()}
           >
             <Sparkles className="h-3.5 w-3.5" />
@@ -453,31 +459,23 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
           </Button>
         </div>
 
-        {usedVariables.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {isDocx
-              ? "No {{placeholders}} in this Word file yet — type some in Word, then use Replace .docx in the Placeholders tab."
-              : "The template has no {{placeholders}} yet — add some in the Placeholders tab."}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {usedVariables.map((variable) => (
-              <VariableSelector
-                key={variable.name}
-                variable={variable}
-                value={resolvedValues[variable.name] ?? ""}
-                foundInPosting={foundByName[variable.name] ?? []}
-                custom={customNames.has(variable.name)}
-                reason={entry.reasons[variable.name]}
-                onChange={(value, custom) => handleValueChange(variable.name, value, custom)}
-              />
-            ))}
-          </div>
-        )}
+        <div className="flex flex-col gap-3">
+          {usedVariables.map((variable) => (
+            <VariableSelector
+              key={variable.name}
+              variable={variable}
+              value={resolvedValues[variable.name] ?? ""}
+              foundInPosting={foundByName[variable.name] ?? []}
+              custom={customNames.has(variable.name)}
+              reason={entry.reasons[variable.name]}
+              onChange={(value, custom) => handleValueChange(variable.name, value, custom)}
+            />
+          ))}
+        </div>
 
         {missingValues.length > 0 && (
           <p className="text-xs text-amber-700">
-            Empty in the {isDocx ? "document" : "PDF"}: {missingValues.map((name) => `{{${name}}}`).join(", ")}
+            Empty in the CV: {missingValues.map((name) => `{{${name}}}`).join(", ")}
           </p>
         )}
 
@@ -497,17 +495,18 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             </Button>
           )}
         </div>
-        {isDocx && (
-          <p className="text-xs text-muted-foreground">
-            The PDF is made from your Word file by Google Docs — layout, photo and fonts carried over, except
-            weights Google doesn't have (Calibri Light shows as Calibri). The first time, Google asks once to let
-            Filler create temporary files in your Drive; the file is deleted right after. The preview below is text
-            only — use Preview PDF for the real page.
+        {notes.map((note) => (
+          <p key={note} className="text-xs text-amber-700">
+            {note}
           </p>
-        )}
+        ))}
+        {renderFormatNote()}
 
         <Card>
           <CardContent className="max-h-[28rem] overflow-y-auto p-3">
+            <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Text preview — use Preview PDF for the real page
+            </p>
             <CvPreview blocks={blocks} />
           </CardContent>
         </Card>
@@ -515,106 +514,46 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     );
   }
 
-  function renderDocxTemplateView() {
+  function renderFileCard() {
     return (
       <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-2 text-xs">
         <p>
-          <span className="font-medium">Word CV:</span> {selectedCv?.fileName} · {usedNames.length} placeholder
+          <span className="font-medium">{FORMAT_LABEL[format]} CV:</span> {selectedCv?.fileName} · {usedNames.length}{" "}
+          placeholder
           {usedNames.length === 1 ? "" : "s"} found
         </p>
-        <p className="text-muted-foreground">
-          To add or move a placeholder, type it in Word (e.g. {"{{main_language}}"}) and replace the file — this CV
-          keeps its placeholder settings. The value takes the formatting of the text where {"{{"} starts; a
-          multi-line variant becomes line breaks inside that paragraph.
-        </p>
+        {usedNames.length > 0 && (
+          <div className="text-muted-foreground">
+            <PlaceholderHowTo format={format} />
+            <p className="mt-1">Then replace the file — this CV keeps its placeholder settings.</p>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => replaceDocxRef.current?.click()}>
-            <FileUp className="h-3.5 w-3.5" /> Replace .docx
+          <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => replaceFileRef.current?.click()}>
+            <FileUp className="h-3.5 w-3.5" /> Replace file
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            disabled={!docx}
+            disabled={!source}
             onClick={() => {
-              if (docx && selectedCv) {
-                void downloadFile(new File([new Uint8Array(docx)], selectedCv.fileName, { type: DOCX_MIME }));
+              if (source && selectedCv) {
+                void downloadFile(
+                  new File([new Uint8Array(source)], selectedCv.fileName, { type: selectedCv.mimeType }),
+                );
               }
             }}
           >
             <Download className="h-3.5 w-3.5" /> Download original
           </Button>
-          <input
-            ref={replaceDocxRef}
-            type="file"
-            accept={`.docx,${DOCX_MIME}`}
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleReplaceDocx(file);
-              e.target.value = "";
-            }}
-          />
         </div>
         <details>
-          <summary className="cursor-pointer text-muted-foreground">Document text</summary>
+          <summary className="cursor-pointer text-muted-foreground">CV text</summary>
           <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
             {draft.content}
           </pre>
         </details>
       </div>
-    );
-  }
-
-  function renderMarkdownTemplateView() {
-    return (
-      <>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={Boolean(busy) || !selectedCv?.text}
-            onClick={() => selectedCv && void templatize(selectedCv.text)}
-          >
-            <WandSparkles className="h-3.5 w-3.5" /> Build from this CV with AI
-          </Button>
-          <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => templateFileRef.current?.click()}>
-            <FileUp className="h-3.5 w-3.5" /> Load template
-          </Button>
-          <input
-            ref={templateFileRef}
-            type="file"
-            accept=".md,.txt,.pdf,text/plain,text/markdown,application/pdf"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleTemplateFile(file);
-              e.target.value = "";
-            }}
-          />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          This is a PDF CV, so it's rebuilt from a template and exported as a new PDF. AI keeps your wording and only
-          adds structure plus {"{{city}}"}, {"{{job_position}}"}, {"{{main_language}}"}, {"{{keywords}}"}. To keep an
-          exact layout instead, add the CV as a .docx.
-        </p>
-
-        <details className="rounded-md border border-border bg-muted/20 p-2 text-xs">
-          <summary className="cursor-pointer text-muted-foreground">Template syntax</summary>
-          <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed">{CV_MARKDOWN_SYNTAX}</pre>
-          <p className="mt-2 text-muted-foreground">
-            A variant can be several lines — e.g. a {"{{go_bullets}}"} placeholder whose variants are whole blocks of
-            bullet points, one per stack.
-          </p>
-        </details>
-
-        <textarea
-          aria-label="CV template"
-          className="min-h-72 rounded-md border border-border bg-background p-2 font-mono text-xs leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-primary"
-          placeholder={"# Jane Doe\n{{job_position}} · {{city}}\n\n## Skills\n{{main_language}}, {{keywords}}"}
-          value={draft.content}
-          onChange={(e) => updateDraft({ ...draft, content: e.target.value })}
-        />
-      </>
     );
   }
 
@@ -660,11 +599,22 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
         <input
           ref={addCvRef}
           type="file"
-          accept={`.pdf,.docx,application/pdf,${DOCX_MIME}`}
+          accept={CV_FILE_ACCEPT}
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void handleAddCv(file);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={replaceFileRef}
+          type="file"
+          accept={CV_FILE_ACCEPT}
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleReplaceFile(file);
             e.target.value = "";
           }}
         />
@@ -675,11 +625,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       {status && <p className="text-xs text-muted-foreground">{status}</p>}
 
       {!selectedCv ? (
-        <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          Add a CV to adapt. A <span className="font-medium">Word (.docx)</span> CV keeps its exact layout — type{" "}
-          {"{{city}}"}, {"{{job_position}}"}, {"{{main_language}}"}… right into it in Word. A PDF CV gets a template
-          built here and is exported as a fresh PDF.
-        </p>
+        <PlaceholderExplainer title="Add a CV to adapt — PDF, Word (.docx) or LaTeX (Overleaf .zip)" />
       ) : (
         <>
           <div className="flex gap-1 border-b border-border text-sm">
@@ -692,17 +638,14 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
                   view === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground",
                 )}
               >
-                {tab === "adapt" ? "For this job" : "Placeholders"}
+                {tab === "adapt" ? "For this job" : `Placeholders (${usedNames.length})`}
                 {tab === "template" && dirty && <span className="ml-1 text-amber-600">•</span>}
               </button>
             ))}
           </div>
 
-          {view === "adapt"
-            ? renderAdaptView()
-            : isDocx
-              ? renderDocxTemplateView()
-              : renderMarkdownTemplateView()}
+          {view === "adapt" ? renderAdaptView() : renderFileCard()}
+          {view === "template" && usedNames.length === 0 && <PlaceholderExplainer />}
 
           {view === "template" && (
             <>

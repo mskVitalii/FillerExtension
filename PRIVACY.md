@@ -9,7 +9,7 @@ This policy explains what data the extension handles, where it goes, and why.
 ## Summary
 
 - Filler has **no backend server**. It runs entirely in your browser.
-- Your data is sent only to services **you** configure and authenticate with your own credentials: **OpenAI** (your API key) and **your own Google Drive**.
+- Your data is sent only to services **you** configure and authenticate with your own credentials: **OpenAI** (your API key) and **your own Google Drive** — plus, only if you upload a LaTeX CV, the LaTeX compiler service described below.
 - Filler does **not** sell, rent, or share your data with any third party for advertising, analytics, or any purpose unrelated to its stated function.
 - Filler does **not** use your data to determine creditworthiness or for lending purposes.
 - Filler does **not** include any analytics, tracking, or advertising SDKs.
@@ -19,7 +19,7 @@ This policy explains what data the extension handles, where it goes, and why.
 | Data | What it is | Where it's stored |
 |---|---|---|
 | Profile information | Name, email, phone, address, city, postal code, LinkedIn, GitHub, personal website, expected salary — the fields you fill in yourself | Locally (`chrome.storage.local`), synced to **your own** Google Drive `appDataFolder` |
-| Résumé / CV | The PDF or Word (.docx) file you upload, plus text extracted from it locally, and the `{{placeholder}}` settings you define for adapting it per job posting | Locally, synced to **your own** Google Drive `appDataFolder` |
+| Résumé / CV | The PDF, Word (.docx) or LaTeX project (.zip / .tex) you upload, plus, for a LaTeX CV, its compiled PDF, plus text extracted from it locally, and the `{{placeholder}}` settings you define for adapting it per job posting | Locally, synced to **your own** Google Drive `appDataFolder` |
 | OpenAI API key | The key you paste in during setup | Locally only (`chrome.storage.local`) — never transmitted anywhere except directly to `api.openai.com` as part of your own API requests |
 | Google OAuth token | Issued by Google when you click "Connect Google" | Managed by Chrome's `chrome.identity` API; used only to call the Google Drive API on your behalf |
 | Job posting content | Text/structured data extracted from the job page you're viewing when you use the extension | Processed locally; sent to `api.openai.com` (with your key) only when you generate/extract with AI assistance |
@@ -36,6 +36,7 @@ Filler talks to exactly two external services, both initiated by you and authent
 
 - **OpenAI (`api.openai.com`)** — receives job posting text and your profile/CV text (as needed) to extract structured job details and draft cover letters, using the API key you provide. Governed by [OpenAI's own privacy policy](https://openai.com/privacy).
 - **Google Drive (`www.googleapis.com`)** — stores your profile, CV, and cover letter drafts in your own Drive account's app-data folder, using the OAuth token Chrome obtains when you connect your Google account. Governed by [Google's Privacy Policy](https://policies.google.com/privacy).
+- **LaTeX-On-HTTP (`latex.ytotech.com`)** — only if you upload a LaTeX CV. Browsers can't run a full TeX installation, so the files of your LaTeX project (sources, photo, other files in the .zip), with the placeholders filled in, are sent to this free open-source compile service ([source](https://github.com/YtoTech/latex-on-http)) each time the CV is compiled: once on upload, and when you preview, attach or download an adapted version. It returns the PDF. PDF and Word CVs are never sent there.
 
 No data is ever sent to a server operated by the developer of this extension — there isn't one.
 

@@ -14,6 +14,7 @@ import {
 import { getLocal, setLocal } from "@/features/storage/local";
 import * as drive from "@/features/google-drive/client";
 import { extractPdfText } from "@/lib/pdf-text";
+import { isLatexFile } from "@/features/cv-template/latex";
 
 /**
  * Profile/CV/Personal Legend live in Google Drive appDataFolder (source of
@@ -156,6 +157,15 @@ function cvFileName(id: string): string {
   return `cv-${id}.pdf`;
 }
 
+/** A LaTeX CV's compiled PDF, kept next to its sources for the plain "Attach CV". */
+function compiledCvFileName(id: string): string {
+  return `cv-${id}.compiled.pdf`;
+}
+
+async function writeCompiledCv(id: string, pdf: File | null | undefined): Promise<void> {
+  if (pdf) await drive.writeBinaryFile(compiledCvFileName(id), pdf);
+}
+
 async function saveCvLibrary(library: CvLibrary): Promise<void> {
   await setLocal("cvLibraryCache", library);
   await drive.writeJsonFile("cvLibrary.json", library);
@@ -207,9 +217,11 @@ export async function getCvMeta(): Promise<CvMeta | null> {
   return library.items.find((cv) => cv.id === library.activeId) ?? null;
 }
 
-export async function uploadCv(file: File, extractedText: string): Promise<CvMeta> {
+/** `compiledPdf` — for a LaTeX CV, its compiled PDF (see `prepareCvFile`). */
+export async function uploadCv(file: File, extractedText: string, compiledPdf?: File | null): Promise<CvMeta> {
   const id = crypto.randomUUID();
   const driveFileId = await drive.writeBinaryFile(cvFileName(id), file);
+  await writeCompiledCv(id, compiledPdf);
   const meta: CvMeta = {
     id,
     fileName: file.name,
@@ -245,15 +257,31 @@ export async function getCvFile(id?: string): Promise<File | null> {
 }
 
 /**
+ * The file to put into a job form's CV upload: the CV itself, except for a
+ * LaTeX CV, whose sources are no use there — its compiled PDF instead.
+ */
+export async function getCvAttachmentFile(id?: string): Promise<File | null> {
+  const library = await getCvLibrary();
+  const targetId = id ?? library.activeId;
+  const meta = library.items.find((cv) => cv.id === targetId);
+  if (!meta) return null;
+  if (!isLatexFile({ name: meta.fileName, type: meta.mimeType })) return getCvFile(meta.id);
+  const blob = await drive.readBinaryFile(compiledCvFileName(meta.id));
+  if (!blob) return null;
+  return new File([blob], `${meta.fileName.replace(/\.(zip|tex)$/i, "")}.pdf`, { type: "application/pdf" });
+}
+
+/**
  * Swaps the file behind an existing library entry, keeping its id — used by
  * the Adapt CV tab when a Word CV was edited (e.g. a new `{{placeholder}}`
  * typed in) so its placeholder definitions, keyed by that id, stay attached.
  */
-export async function replaceCvFile(id: string, file: File, extractedText: string): Promise<CvMeta | null> {
+export async function replaceCvFile(id: string, file: File, extractedText: string, compiledPdf?: File | null): Promise<CvMeta | null> {
   const library = await getCvLibrary();
   const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return null;
   const driveFileId = await drive.writeBinaryFile(cvFileName(id), file);
+  await writeCompiledCv(id, compiledPdf);
   const next: CvMeta = {
     ...meta,
     fileName: file.name,
@@ -272,6 +300,7 @@ export async function deleteCv(id: string): Promise<void> {
   const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return;
   await drive.deleteFile(cvFileName(meta.id));
+  if (isLatexFile({ name: meta.fileName, type: meta.mimeType })) await drive.deleteFile(compiledCvFileName(meta.id)).catch(() => undefined);
   const items = library.items.filter((cv) => cv.id !== id);
   const activeId = library.activeId === id ? (items[0]?.id ?? null) : library.activeId;
   await saveCvLibrary({ items, activeId });
