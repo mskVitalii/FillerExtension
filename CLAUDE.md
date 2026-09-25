@@ -50,7 +50,7 @@ make test              # vitest run — the autofill-engine regression suite (js
 make clean             # remove extension/dist and extension.zip
 make zip               # build-release, then package extension/dist into extension.zip (repo root) — alias: make package
 make version           # print current version (extension/package.json)
-make version-patch     # bump patch version in package.json + manifest.json (+ lockfile), e.g. 0.2.0 -> 0.2.1
+make version-patch     # bump patch version in package.json + manifest.json, e.g. 0.2.0 -> 0.2.1
 make version-minor     # bump minor version
 make version-major     # bump major version
 make release            # clean + install + zip (release-mode build)
