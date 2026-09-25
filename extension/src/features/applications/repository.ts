@@ -1,7 +1,8 @@
-import type { AdaptedCvRecord, Application, ApplicationStatus } from "@/types/application";
+import type { AdaptedCvRecord, Application, ApplicationStatus, JobPostingRecord } from "@/types/application";
 import type { Job } from "@/types/job";
 import * as drive from "@/features/google-drive/client";
 import { applicationIdForUrl } from "./id";
+import { formatJobPosting, jobPostingFileName } from "./job-posting";
 
 function fileName(id: string): string {
   return `applications/${id}.json`;
@@ -10,6 +11,11 @@ function fileName(id: string): string {
 /** Deliberately *not* under `applications/` — `listApplicationFiles` treats every name containing that as a record. */
 function adaptedCvDriveName(id: string): string {
   return `adaptedCv/${id}.pdf`;
+}
+
+/** Same reason as {@link adaptedCvDriveName} for staying outside `applications/`. */
+function jobPostingDriveName(id: string): string {
+  return `jobPosting/${id}.md`;
 }
 
 /**
@@ -46,6 +52,21 @@ function baseRecord(id: string, job: Job, existing: Application | null, now: str
   };
 }
 
+/**
+ * Writes the posting's Markdown copy next to the record. The cover-letter
+ * autosave lands here on every edit, so the file is only rewritten when the
+ * job itself changed since the last save (or was never saved as a file).
+ */
+async function syncJobPosting(id: string, job: Job, existing: Application | null, now: string): Promise<JobPostingRecord> {
+  const markdown = formatJobPosting(job);
+  if (existing?.jobPosting && formatJobPosting(existing.job) === markdown) {
+    return { ...existing.jobPosting, fileName: jobPostingFileName(job) };
+  }
+  const driveName = jobPostingDriveName(id);
+  await drive.writeTextFile(driveName, markdown);
+  return { driveName, fileName: jobPostingFileName(job), savedAt: now };
+}
+
 export async function getApplicationByUrl(url: string): Promise<Application | null> {
   if (!url) return null;
   const id = await applicationIdForUrl(url);
@@ -77,10 +98,12 @@ export async function saveCoverLetterDraft(
   const id = await applicationIdForUrl(job.url);
   await updateApplication(id, async () => {
     const existing = await drive.readJsonFile<Application>(fileName(id));
+    const now = new Date().toISOString();
     const application: Application = {
-      ...baseRecord(id, job, existing, new Date().toISOString()),
+      ...baseRecord(id, job, existing, now),
       coverLetter,
       translation: translation ?? existing?.translation,
+      jobPosting: await syncJobPosting(id, job, existing, now),
     };
     await drive.writeJsonFile(fileName(id), application);
   });
@@ -104,7 +127,8 @@ export async function saveAdaptedCv(
     const now = new Date().toISOString();
     const record: AdaptedCvRecord = { driveName, fileName: pdf.name, ...source, savedAt: now };
     const existing = await drive.readJsonFile<Application>(fileName(id));
-    await drive.writeJsonFile(fileName(id), { ...baseRecord(id, job, existing, now), adaptedCv: record });
+    const jobPosting = await syncJobPosting(id, job, existing, now);
+    await drive.writeJsonFile(fileName(id), { ...baseRecord(id, job, existing, now), adaptedCv: record, jobPosting });
     return record;
   });
 }
@@ -112,6 +136,19 @@ export async function saveAdaptedCv(
 export async function getAdaptedCvFile(record: AdaptedCvRecord): Promise<File | null> {
   const blob = await drive.readBinaryFile(record.driveName);
   return blob ? new File([blob], record.fileName, { type: "application/pdf" }) : null;
+}
+
+/**
+ * The posting as it was when the application was saved. Records from before
+ * postings were kept as files fall back to their embedded `job`, so every
+ * application in the list can show one.
+ */
+export async function getJobPostingFile(application: Application): Promise<File> {
+  const record = application.jobPosting;
+  const markdown = (record && (await drive.readTextFile(record.driveName))) ?? formatJobPosting(application.job);
+  const name = record?.fileName ?? jobPostingFileName(application);
+  // text/plain, not text/markdown: Chrome shows the former in a tab, but downloads the latter.
+  return new File([markdown], name, { type: "text/plain;charset=utf-8" });
 }
 
 export async function setApplicationStatus(id: string, status: ApplicationStatus): Promise<void> {
@@ -122,10 +159,11 @@ export async function setApplicationStatus(id: string, status: ApplicationStatus
   });
 }
 
-/** Removes a saved application record from Drive — the "delete" action on an Applications list row — along with its adapted CV. */
+/** Removes a saved application record from Drive — the "delete" action on an Applications list row — along with its adapted CV and posting copy. */
 export async function deleteApplication(id: string): Promise<void> {
   await updateApplication(id, async () => {
     await drive.deleteFile(adaptedCvDriveName(id)).catch(() => undefined);
+    await drive.deleteFile(jobPostingDriveName(id)).catch(() => undefined);
     await drive.deleteFile(fileName(id));
   });
 }

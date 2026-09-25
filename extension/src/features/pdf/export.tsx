@@ -30,8 +30,8 @@ export async function downloadFile(file: File): Promise<void> {
 }
 
 /**
- * Opens a PDF in a new browser tab (Chrome's own viewer) without saving it —
- * the Side Panel is too narrow to judge a page layout. The blob URL belongs
+ * Opens a PDF (or a plain-text file) in a new browser tab (Chrome's own
+ * viewer) without saving it — the Side Panel is too narrow to judge a page layout. The blob URL belongs
  * to this extension page's origin; it's revoked after a minute, long after
  * the tab has loaded it.
  */

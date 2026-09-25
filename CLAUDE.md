@@ -160,7 +160,10 @@ position/company, or a short description).
 
 Applications are keyed by `applicationIdForUrl(job.url)` (`features/applications/id.ts`) so
 re-generating or editing a cover letter for the same job URL updates the existing Drive record
-(`applications/<id>.json`) instead of creating a duplicate.
+(`applications/<id>.json`) instead of creating a duplicate. Each save also keeps the posting
+itself as Markdown in Drive `jobPosting/<id>.md` (`Application.jobPosting`, formatted by
+`applications/job-posting.ts`). It's only rewritten when the job changed, and records saved
+before this existed fall back to their embedded `job`.
 
 ### Adapt CV tab (per-CV templates)
 

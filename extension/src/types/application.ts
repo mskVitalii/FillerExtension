@@ -16,6 +16,15 @@ export interface AdaptedCvRecord {
   savedAt: string;
 }
 
+/** The posting's own copy in Drive (Markdown), so the application still says what was applied to after the page is taken down. */
+export interface JobPostingRecord {
+  /** File name of the Markdown file in Drive `appDataFolder`. */
+  driveName: string;
+  /** Name it downloads under, e.g. "Job posting - Acme.md". */
+  fileName: string;
+  savedAt: string;
+}
+
 export interface Application {
   id: string;
   company: string;
@@ -25,6 +34,8 @@ export interface Application {
   /** Empty when the record was created by saving an adapted CV before any cover letter. */
   coverLetter: string;
   adaptedCv?: AdaptedCvRecord;
+  /** Missing on records saved before postings were kept as files — `job` still holds the same data. */
+  jobPosting?: JobPostingRecord;
   /** Kept in sync with `coverLetter` (spec_2 item 3) — always the latest translation, not a snapshot. */
   translation?: { language: string; content: string };
   createdAt: string;

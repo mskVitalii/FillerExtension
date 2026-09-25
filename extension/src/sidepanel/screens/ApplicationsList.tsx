@@ -9,6 +9,7 @@ import {
   deleteApplication,
   getAdaptedCvFile,
   getAllApplications,
+  getJobPostingFile,
   setApplicationStatus,
 } from "@/features/applications/repository";
 import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } from "@/features/applications/stats";
@@ -60,7 +61,7 @@ function describeValues(values: Record<string, string>): string {
 
 type FileAction = "preview" | "download";
 
-/** A labelled file with its own preview/download icons — a row can carry a cover letter, an adapted CV, or both. */
+/** A labelled file with its own preview/download icons — a row can carry the posting, a cover letter, an adapted CV. */
 function FileChip({
   label,
   detail,
@@ -102,8 +103,8 @@ function FileChip({
 
 /**
  * Every job URL the extension was ever activated on (spec_6). A row with a
- * saved application also carries its files — the cover letter and the
- * adapted CV sent for that posting — each previewable/downloadable in place.
+ * saved application also carries its files — the posting itself, and the
+ * cover letter and adapted CV sent for it — each previewable/downloadable in place.
  */
 export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [applications, setApplications] = useState<Application[]>([]);
@@ -113,7 +114,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
-  /** `${application id}:${"letter" | "cv"}` of the file currently being fetched/rendered. */
+  /** `${application id}:${"posting" | "letter" | "cv"}` of the file currently being fetched/rendered. */
   const [busyFile, setBusyFile] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,6 +164,10 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     void runFileAction(`${application.id}:letter`, action, () =>
       renderCoverLetterPdf(application.coverLetter, fileName),
     );
+  }
+
+  function handleJobPosting(application: Application, action: FileAction) {
+    void runFileAction(`${application.id}:posting`, action, () => getJobPostingFile(application));
   }
 
   function handleAdaptedCv(application: Application, record: AdaptedCvRecord, action: FileAction) {
@@ -279,8 +284,13 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   </button>
                 </div>
               </div>
-              {row.application && (row.application.coverLetter || row.application.adaptedCv) && (
+              {row.application && (
                 <div className="flex flex-wrap gap-1.5">
+                  <FileChip
+                    label="Job posting"
+                    busy={busyFile === `${row.application.id}:posting`}
+                    onAction={(action) => handleJobPosting(row.application!, action)}
+                  />
                   {row.application.coverLetter && (
                     <FileChip
                       label="Cover letter"
