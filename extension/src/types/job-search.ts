@@ -7,6 +7,8 @@ export interface JobSearchResult {
   /** Free text — a range, a single figure, or "" when the source gave none. */
   salary: string;
   snippet: string;
+  /** When the posting was published (ISO date or timestamp), or "" / absent when the source didn't say. */
+  postedAt?: string;
   source: "openai" | "tavily" | "adzuna";
   /** Adzuna only: the search tag/category this result came from (spec_7 item 13) — lets the UI group results by category. */
   tag?: string;

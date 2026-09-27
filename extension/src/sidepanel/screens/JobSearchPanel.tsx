@@ -9,6 +9,7 @@ import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchTimin
 import { getJobSearchState, setJobSearchState } from "@/features/storage/session";
 import { getJobSearchVisitedLinks, recordJobSearchLinkVisit } from "@/features/storage/local";
 import { cn } from "@/lib/utils";
+import { formatPostedAgo } from "@/features/job-search/freshness";
 
 /** Dedupes by listing URL — needed once "load more" starts appending to the same list. */
 function dedupeByUrl(jobs: JobSearchResult[]): JobSearchResult[] {
@@ -505,7 +506,11 @@ function JobResultCard({
             <ExternalLink className="h-4 w-4" />
           </a>
         </div>
-        {job.salary && <p className="text-xs text-muted-foreground">{job.salary}</p>}
+        {(job.salary || formatPostedAgo(job.postedAt)) && (
+          <p className="text-xs text-muted-foreground">
+            {[job.salary, formatPostedAgo(job.postedAt)].filter(Boolean).join(" · ")}
+          </p>
+        )}
         {job.snippet && <p className="text-xs text-muted-foreground">{job.snippet}</p>}
       </CardContent>
     </Card>

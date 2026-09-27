@@ -2,6 +2,7 @@ import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/ty
 import { timeStage } from "./timing";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
+import { ATS_DOMAINS } from "./freshness";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 
@@ -9,6 +10,8 @@ interface TavilyResult {
   title: string;
   url: string;
   content: string;
+  /** Present when `include_published_date` is set and Tavily knows the page's date. */
+  published_date?: string;
 }
 
 interface TavilyResponse {
@@ -49,7 +52,7 @@ export async function searchTavilyJobs(
     .filter(Boolean)
     .join(" ");
 
-  const searchQuery = `Find current, open job postings that fit this candidate.
+  const searchQuery = `Find job postings from the last few weeks, still open, that fit this candidate.
 ${refinements}
 
 Candidate background: ${candidateBackground || "(none available)"}${describeExcluded(excludeResults)}`
@@ -65,6 +68,14 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
       search_depth: "advanced",
       max_results: 15,
       include_answer: false,
+      // Recency cut at the source: pages published or updated in the last
+      // month. Anything older is the main cause of dead links.
+      time_range: "month",
+      include_published_date: true,
+      // "prefer", not "restrict": rank the employers' own ATS postings first
+      // without losing career pages and boards outside the list.
+      include_domains: ATS_DOMAINS,
+      include_domains_mode: "prefer",
     }),
   }));
 
@@ -77,7 +88,7 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
   if (data.results.length === 0) return [];
 
   const rawText = data.results
-    .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.content}`)
+    .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${r.content}`)
     .join("\n\n---\n\n");
   return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground));
 }

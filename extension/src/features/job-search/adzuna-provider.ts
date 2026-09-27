@@ -1,5 +1,6 @@
 import type { JobSearchQuery, JobSearchResult } from "@/types/job-search";
 import { formatSalaryRange } from "@/lib/salary";
+import { dropStalePostings } from "./freshness";
 
 interface AdzunaJob {
   title: string;
@@ -9,6 +10,8 @@ interface AdzunaJob {
   salary_min?: number;
   salary_max?: number;
   description?: string;
+  /** ISO timestamp of when Adzuna first saw the posting, e.g. "2013-11-08T18:07:39Z". */
+  created?: string;
 }
 
 interface AdzunaResponse {
@@ -76,16 +79,18 @@ async function searchOneTag(
   }
 
   const data = (await res.json()) as AdzunaResponse;
-  return data.results.map((job) => ({
+  const jobs = data.results.map((job) => ({
     title: job.title,
     company: job.company?.display_name ?? "",
     location: job.location?.display_name ?? "",
     url: job.redirect_url,
     salary: formatSalary(job.salary_min, job.salary_max),
     snippet: (job.description ?? "").slice(0, 300),
+    postedAt: job.created ?? "",
     source: "adzuna" as const,
     tag,
   }));
+  return dropStalePostings(jobs);
 }
 
 export interface AdzunaSearchOutcome {

@@ -3,6 +3,8 @@ import { timeStage } from "./timing";
 import { requestWithWebSearch } from "@/features/openai/client";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
+import { ATS_DOMAINS, MAX_POSTING_AGE_DAYS } from "./freshness";
+import { todayISO } from "@/lib/date-format";
 
 /**
  * spec_5 section C, option 1: OpenAI's own hosted web-search tool finds
@@ -40,9 +42,15 @@ ${candidateBackground || "(no candidate background available)"}
 
 ${refinements || "No further constraints — use the candidate's own background to pick a fitting role/location."}
 
-Find real postings (company career pages, LinkedIn, job boards) with their direct
-listing URL, not a search results page. List up to 15 of the best matches, each with
-its title, company, location, salary if stated, and a short description of why it fits.${describeExcluded(excludeResults)}`;
+Today is ${todayISO()}. Only include postings published in the last ${MAX_POSTING_AGE_DAYS} days
+that are still accepting applications — skip anything marked closed, expired or filled,
+or shown with an older date.
+Prefer the employer's own posting on its applicant tracking system (${ATS_DOMAINS.join(", ")})
+or career page over copies on aggregators, which often outlive the real posting.
+
+Find real postings with their direct listing URL, not a search results page. List up to
+15 of the best matches, each with its title, company, location, salary if stated, the date
+it was posted when shown, and a short description of why it fits.${describeExcluded(excludeResults)}`;
 
   const rawText = await timeStage(stages, "Web search", () => requestWithWebSearch(prompt));
   return timeStage(stages, "Parse results", () => extractJobListings(rawText, "openai", candidateBackground));
