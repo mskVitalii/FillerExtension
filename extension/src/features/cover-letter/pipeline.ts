@@ -48,6 +48,6 @@ export async function runCoverLetterPipeline(
     return { content: draft, slopFindings, cleaned: false };
   }
 
-  const polished = await polishCoverLetter(draft, slopFindings);
+  const polished = await polishCoverLetter(draft, slopFindings, context.generationRules);
   return { content: polished, slopFindings, cleaned: true };
 }

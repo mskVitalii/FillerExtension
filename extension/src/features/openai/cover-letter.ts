@@ -18,22 +18,29 @@ export interface CoverLetterInput {
 
 const SYSTEM_PROMPT = `You write tailored cover letters for job applications.
 
-Ground rules:
-- Use ONLY facts present in the provided profile, CV text, and Personal Legend.
-- Never invent experience, technologies, companies, education, or achievements.
-- If information needed to be compelling is missing, write around it honestly
-  rather than fabricating it.
-- Tailor tone and emphasis to the job analysis provided.
-- If "postingLanguage" is given, write the entire letter in that language,
-  using the salutation, register, and closing conventions native speakers of
-  it would expect on a job application (e.g. formal "Sie"/"Herr"/"Frau"
-  address and a "Sehr geehrte(r) ..." opening in German, not a literal
-  English-to-German translation) — unless "generationRules" explicitly asks
-  for a different language.
-- If "generationRules" contains applicant-specified instructions for how to
-  write this letter (tone, length, structure, things to include/avoid),
-  follow them as long as they don't conflict with the Ground rules above.
-- Output plain prose paragraphs, no markdown headers.
+The user message holds the applicant's data as JSON, and may end with an
+"Applicant's rules" section written by the applicant themselves.
+
+Priority, highest first. When two of these conflict, the higher one wins:
+1. Facts. Use ONLY facts present in the provided profile, CV text, and
+   Personal Legend. Never invent experience, technologies, companies,
+   education, or achievements, even if the applicant's rules ask for them.
+   If information needed to be compelling is missing, write around it
+   honestly rather than fabricating it.
+2. The applicant's rules. Follow every instruction there on tone, length,
+   structure, language, and what to include or avoid, including where it
+   departs from the defaults below. Every rule there applies to the whole
+   letter, not just the opening.
+3. Language. If "postingLanguage" is given, write the entire letter in that
+   language, using the salutation, register, and closing conventions native
+   speakers of it would expect on a job application (e.g. formal
+   "Sie"/"Herr"/"Frau" address and a "Sehr geehrte(r) ..." opening in German,
+   not a literal English-to-German translation).
+4. The house style below. Its "no exceptions" means no exceptions of your
+   own; an explicit applicant rule still overrides it.
+5. Tone and emphasis tailored to the job analysis provided.
+
+Output plain prose paragraphs, no markdown headers.
 
 ${HOUSE_STYLE_RULES}`;
 
@@ -47,14 +54,17 @@ ${HOUSE_STYLE_RULES}`;
  * lands. `stripEmDashes` still runs once on the assembled result — a
  * mid-stream chunk can end on a dash the next chunk turns into a comma, so
  * cleanup only makes sense against the full text.
+ *
+ * The applicant's rules go last, as plain text outside the JSON: buried
+ * between the CV and the posting they read as one more data field and got
+ * drifted from.
  */
 export async function generateCoverLetter(input: CoverLetterInput, onDelta?: (delta: string) => void): Promise<string> {
-  const userPrompt = JSON.stringify(
+  const data = JSON.stringify(
     {
       profile: input.profile,
       cvText: input.cvText,
       personalLegend: input.personalLegend,
-      generationRules: input.generationRules,
       job: input.job,
       analysis: input.analysis,
       postingLanguage: input.postingLanguage || undefined,
@@ -62,7 +72,19 @@ export async function generateCoverLetter(input: CoverLetterInput, onDelta?: (de
     null,
     2,
   );
+  const userPrompt = data + applicantRulesSection(input.generationRules);
 
   const content = await requestTextStream(SYSTEM_PROMPT, userPrompt, onDelta ?? (() => {}));
   return stripEmDashes(content);
+}
+
+/**
+ * The applicant's generation rules as the closing section of a user prompt,
+ * or "" when they wrote none. Shared with the polish pass so it doesn't
+ * "fix" what the applicant explicitly asked for.
+ */
+export function applicantRulesSection(rules: string): string {
+  const trimmed = rules.trim();
+  if (!trimmed) return "";
+  return `\n\n## Applicant's rules (highest priority after facts)\n\n${trimmed}\n`;
 }
