@@ -15,6 +15,8 @@ export interface Preferences {
   jobAnalysisModel: string;
   /** User's chosen model for the support tier — "" defers to that tier's built-in default (see `getSupportModel` in features/openai/client.ts). */
   supportModel: string;
+  /** User's chosen model for the outreach-message tier — "" defers to the built-in default (see `getOutreachModel`). */
+  outreachModel: string;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -25,6 +27,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   extractionModel: "",
   jobAnalysisModel: "",
   supportModel: "",
+  outreachModel: "",
 };
 
 export async function getPreferences(): Promise<Preferences> {

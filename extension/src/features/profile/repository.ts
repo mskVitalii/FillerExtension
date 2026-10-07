@@ -8,6 +8,7 @@ import {
   type LanguageLevel,
   type LegendLibrary,
   type LegendMeta,
+  type OutreachRules,
   type PersonalLegend,
   type Profile,
 } from "@/types/profile";
@@ -403,4 +404,31 @@ export async function saveGenerationRules(content: string): Promise<void> {
   const rules: GenerationRules = { content, updatedAt: new Date().toISOString() };
   await setLocal("generationRulesCache", rules);
   await drive.writeTextFile("generationRules.md", content);
+}
+
+/**
+ * Applicant-authored instructions for the recruiter/hiring-contact outreach
+ * message — same cache-then-Drive pattern as Generation Rules, kept in its
+ * own Drive file so it can be edited independently.
+ */
+export async function getOutreachRules(): Promise<OutreachRules | null> {
+  const cached = await getLocal("outreachRulesCache");
+  if (cached) return cached;
+  try {
+    const content = await drive.readTextFile("outreachRules.md");
+    if (content !== null) {
+      const rules: OutreachRules = { content, updatedAt: new Date().toISOString() };
+      await setLocal("outreachRulesCache", rules);
+      return rules;
+    }
+  } catch {
+    // Google not connected yet.
+  }
+  return null;
+}
+
+export async function saveOutreachRules(content: string): Promise<void> {
+  const rules: OutreachRules = { content, updatedAt: new Date().toISOString() };
+  await setLocal("outreachRulesCache", rules);
+  await drive.writeTextFile("outreachRules.md", content);
 }

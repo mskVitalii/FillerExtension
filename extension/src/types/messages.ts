@@ -50,6 +50,8 @@ export type RuntimeMessage =
   | { type: "REVISE_COVER_LETTER_RESULT"; content: string }
   | { type: "TRANSLATE_COVER_LETTER"; content: string; targetLanguage: string }
   | { type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }
+  | { type: "GENERATE_OUTREACH_MESSAGE"; tabId: number; job: Job; contact: string; postingLanguage?: string }
+  | { type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }
   | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
   | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
   | {

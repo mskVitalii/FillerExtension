@@ -16,6 +16,8 @@ export interface TabState {
   url: string;
   job: Job;
   coverLetter: string;
+  /** Drafted outreach message to the posting's recruiter/hiring contact, if generated — optional so state saved before it existed still loads. */
+  outreachMessage?: { subject: string | null; body: string } | null;
   /** An unsent paste shouldn't vanish on tab switch either (spec_2 item 2). */
   pasteMode: boolean;
   pasteText: string;

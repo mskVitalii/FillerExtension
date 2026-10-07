@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
-import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
+import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,9 @@ const PICKER_HOTKEY_LABEL =
 /** Kept identical to the gradient `element-picker.ts` draws around a picked block on the page. */
 const PICKER_GRADIENT = "linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #ec4899)";
 
+/** Matches a bare email address (not a full RFC grammar) — just enough to tell `job.contact` apart from a LinkedIn URL for the outreach-message "open" action. */
+const EMAIL_ADDRESS_RE = /^[\w.+-]+@[\w-]+\.[\w.-]+$/;
+
 interface MainViewProps {
   tabId: number;
   tabUrl: string;
@@ -117,6 +120,10 @@ export function MainView({
   const [existingApplication, setExistingApplication] = useState<Application | null>(null);
   const [coverLetter, setCoverLetter] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [outreachMessage, setOutreachMessage] = useState<{ subject: string | null; body: string } | null>(null);
+  const [generatingOutreach, setGeneratingOutreach] = useState(false);
+  const [outreachError, setOutreachError] = useState<string | null>(null);
+  const [outreachCopied, setOutreachCopied] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cleanedNotice, setCleanedNotice] = useState<string | null>(null);
@@ -258,6 +265,7 @@ export function MainView({
         };
         setJob(cached.job);
         setCoverLetter(cached.coverLetter);
+        setOutreachMessage(cached.outreachMessage ?? null);
         setPasteMode(cached.pasteMode);
         setPasteText(cached.pasteText);
         setTranslations(cached.translations);
@@ -326,6 +334,8 @@ export function MainView({
       extractedJobRef.current = { position: newJob.position, company: newJob.company };
       setJob(newJob);
       setCoverLetter("");
+      setOutreachMessage(null);
+      setOutreachError(null);
       setCleanedNotice(null);
       setTranslations({});
       setActiveTranslationLanguage("");
@@ -353,10 +363,11 @@ export function MainView({
    * reads the posting — cover letter, answers, Adapt CV, the saved
    * application — already reads `job`, which `setJob` updated as the user typed.
    */
-  async function handleJobFieldCommit(field: "position" | "company" | "location") {
-    const trimmed = job[field].trim();
-    const corrected = { ...job, [field]: trimmed };
-    if (trimmed !== job[field]) setJob(corrected);
+  async function handleJobFieldCommit(field: "position" | "company" | "location" | "contact") {
+    const current = job[field] ?? "";
+    const trimmed = current.trim();
+    const corrected = { ...job, [field]: field === "contact" ? trimmed || null : trimmed };
+    if (trimmed !== current) setJob(corrected);
     if (tabUrl && corrected.position) await setCachedJob(tabUrl, corrected).catch(() => undefined);
   }
 
@@ -373,6 +384,8 @@ export function MainView({
     await clearTabState(tabId);
     setJob(EMPTY_JOB);
     setCoverLetter("");
+    setOutreachMessage(null);
+    setOutreachError(null);
     setCleanedNotice(null);
     setTranslations({});
     setActiveTranslationLanguage("");
@@ -402,6 +415,7 @@ export function MainView({
       url: tabUrl,
       job,
       coverLetter,
+      outreachMessage,
       pasteMode,
       pasteText,
       translations,
@@ -419,6 +433,7 @@ export function MainView({
     tabUrl,
     job,
     coverLetter,
+    outreachMessage,
     pasteMode,
     pasteText,
     translations,
@@ -1017,6 +1032,51 @@ export function MainView({
     await setLocal("lastCoverLetter", text);
   }
 
+  /** "Generate outreach message" — drafts the email/LinkedIn note to send to the posting's recruiter/hiring contact before or alongside applying. */
+  async function handleGenerateOutreach() {
+    setGeneratingOutreach(true);
+    setOutreachError(null);
+    try {
+      const response = await sendMessage<{ type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }>({
+        type: "GENERATE_OUTREACH_MESSAGE",
+        tabId,
+        job,
+        contact: job.contact ?? "",
+        postingLanguage: jobLanguage?.postingLanguages[0],
+      });
+      setOutreachMessage({ subject: response.subject, body: response.body });
+    } catch (err) {
+      setOutreachError(err instanceof Error ? err.message : "Outreach message generation failed.");
+    } finally {
+      setGeneratingOutreach(false);
+    }
+  }
+
+  async function handleCopyOutreachMessage() {
+    if (!outreachMessage) return;
+    const text = outreachMessage.subject
+      ? `Subject: ${outreachMessage.subject}\n\n${outreachMessage.body}`
+      : outreachMessage.body;
+    try {
+      await navigator.clipboard.writeText(text);
+      setOutreachCopied(true);
+      setTimeout(() => setOutreachCopied(false), 1500);
+    } catch {
+      // Best effort — nothing else to do if the clipboard API is unavailable here.
+    }
+  }
+
+  /** `job.contact`'s own shape decides the channel: an email address opens a mailto: draft, anything else (a LinkedIn URL) just opens that link so the user pastes the message in themselves. */
+  function outreachContactHref(contact: string, message: { subject: string | null; body: string }): string {
+    if (EMAIL_ADDRESS_RE.test(contact)) {
+      const params = new URLSearchParams();
+      if (message.subject) params.set("subject", message.subject);
+      params.set("body", message.body);
+      return `mailto:${contact}?${params.toString()}`;
+    }
+    return contact;
+  }
+
   /** `language` is a display name from `LANGUAGES` (e.g. "German") appended to the filename for a translated export. */
   async function handleExportPdf(content: string, language?: string) {
     try {
@@ -1313,6 +1373,13 @@ export function MainView({
           onChange={(location) => setJob((j) => ({ ...j, location }))}
           onCommit={() => void handleJobFieldCommit("location")}
         />
+        <EditableField
+          label="Contact"
+          value={job.contact ?? ""}
+          loading={loadingJob}
+          onChange={(contact) => setJob((j) => ({ ...j, contact: contact || null }))}
+          onCommit={() => void handleJobFieldCommit("contact")}
+        />
       </div>
 
       {setupComplete && (
@@ -1465,6 +1532,51 @@ export function MainView({
           </Button>
         )}
       </div>
+
+      {setupComplete && job.contact && (
+        <Button
+          variant="outline"
+          onClick={() => void handleGenerateOutreach()}
+          disabled={generatingOutreach}
+        >
+          <Mail className="h-4 w-4" />
+          {generatingOutreach ? "Drafting…" : "Generate outreach message"}
+        </Button>
+      )}
+      {outreachError && <p className="text-xs text-destructive">{outreachError}</p>}
+
+      {outreachMessage && (
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Outreach Message</p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => void handleCopyOutreachMessage()}>
+                {outreachCopied ? "Copied" : "Copy"}
+              </Button>
+              {job.contact && (
+                <a
+                  href={outreachContactHref(job.contact, outreachMessage)}
+                  target={EMAIL_ADDRESS_RE.test(job.contact) ? undefined : "_blank"}
+                  rel={EMAIL_ADDRESS_RE.test(job.contact) ? undefined : "noreferrer"}
+                  className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                >
+                  {EMAIL_ADDRESS_RE.test(job.contact) ? "Open in email" : "Open LinkedIn"}
+                </a>
+              )}
+              <Button size="sm" variant="outline" onClick={() => void handleGenerateOutreach()} disabled={generatingOutreach}>
+                Regenerate
+              </Button>
+            </div>
+          </div>
+          {outreachMessage.subject && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Subject: </span>
+              {outreachMessage.subject}
+            </p>
+          )}
+          <p className="whitespace-pre-wrap text-sm">{outreachMessage.body}</p>
+        </div>
+      )}
       {!cvMeta && (
         <p className="text-xs text-muted-foreground">
           No CV on file yet —{" "}

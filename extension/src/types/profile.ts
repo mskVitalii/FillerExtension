@@ -95,6 +95,17 @@ export interface GenerationRules {
 }
 
 /**
+ * Applicant-authored instructions for the recruiter/hiring-contact outreach
+ * message (spec: "Generate outreach message" feature) — kept separate from
+ * `GenerationRules` since tone/length for a cold outreach note to a named
+ * contact differs from a cover letter addressed to "the hiring team".
+ */
+export interface OutreachRules {
+  content: string;
+  updatedAt: string;
+}
+
+/**
  * User-defined label/value pairs (spec_2 item 1) — draggable onto the page
  * like Profile fields, but deliberately never matched by the autofill engine
  * since there's no reliable semantic signal to detect them against.

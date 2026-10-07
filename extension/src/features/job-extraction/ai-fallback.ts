@@ -39,7 +39,9 @@ export async function extractJobWithAi(visibleText: string, url: string): Promis
     model: await getExtractionModel(),
     systemPrompt:
       "Extract structured job posting fields from the visible page text below. " +
-      "Only use information present in the text; leave fields empty/null if unknown.",
+      "Only use information present in the text; leave fields empty/null if unknown. " +
+      "For 'contact', prefer a named recruiter/hiring manager's email address or LinkedIn " +
+      "profile/company URL if one is mentioned; otherwise leave it null.",
     userPrompt: visibleText.slice(0, 12000),
     parse: (raw) => JSON.parse(raw) as Omit<Job, "url">,
   });

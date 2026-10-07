@@ -82,6 +82,32 @@ function detectTechStack(text: string): string[] {
   return Array.from(found);
 }
 
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+
+/**
+ * A recruiter/hiring contact to reach out to before applying (spec: "Generate
+ * outreach message" feature) — looked for as a `mailto:` link or a LinkedIn
+ * profile/company URL, which carry far more signal than a bare email address
+ * sitting in body text (easy to mistake for e.g. a support address). Falls
+ * back to the first visible email-shaped string only when neither link type
+ * is present.
+ */
+function detectContact(root: HTMLElement, bodyText: string): string | null {
+  const mailto = root.querySelector<HTMLAnchorElement>('a[href^="mailto:"]');
+  if (mailto) {
+    const address = mailto.href.replace(/^mailto:/i, "").split("?")[0].trim();
+    if (address) return address;
+  }
+
+  const linkedin = root.querySelector<HTMLAnchorElement>(
+    'a[href*="linkedin.com/in/"], a[href*="linkedin.com/company/"]',
+  );
+  if (linkedin) return linkedin.href;
+
+  const emailMatch = bodyText.match(EMAIL_RE);
+  return emailMatch ? emailMatch[0] : null;
+}
+
 /**
  * Generic DOM extraction fallback (spec sections 10-11) — no ATS-specific
  * selectors. Uses semantic HTML, meta tags and heading proximity so it
@@ -106,7 +132,7 @@ export function extractFromDom(doc: Document, url: string): Job {
     responsibilities: listItemsNearHeading(root, RESPONSIBILITIES_RE),
     salary: salaryMatch ? salaryMatch[0] : null,
     techStack: detectTechStack(bodyText),
-    contact: null,
+    contact: detectContact(root, bodyText),
     url,
   };
 }
