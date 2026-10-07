@@ -13,6 +13,8 @@ import { timeStage } from "@/features/job-search/timing";
 import { suggestSearchQuery } from "@/features/openai/suggest-search-query";
 import { suggestSearchTags } from "@/features/openai/suggest-search-tags";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
+import { generateOutreachMessage } from "@/features/openai/outreach-message";
+import { getApplicantContext } from "@/features/profile/context";
 import { extractJobWithAi } from "@/features/job-extraction/ai-fallback";
 import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
 import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
@@ -176,6 +178,20 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "TRANSLATE_COVER_LETTER": {
       const content = await translateCoverLetter(message.content, message.targetLanguage);
       return { type: "TRANSLATE_COVER_LETTER_RESULT", content };
+    }
+
+    case "GENERATE_OUTREACH_MESSAGE": {
+      const context = await getApplicantContext();
+      const result = await generateOutreachMessage({
+        profile: context.profile,
+        cvText: context.cvText,
+        personalLegend: context.personalLegend,
+        outreachRules: context.outreachRules,
+        job: message.job,
+        contact: message.contact,
+        postingLanguage: message.postingLanguage,
+      });
+      return { type: "OUTREACH_MESSAGE_RESULT", subject: result.subject, body: result.body };
     }
 
     case "DETECT_CUSTOM_QUESTIONS": {

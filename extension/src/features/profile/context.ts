@@ -1,11 +1,12 @@
 import type { CustomField, FaqEntry, LanguageLevel, Profile } from "@/types/profile";
-import { getCustomFields, getCvMeta, getFaqAnswers, getGenerationRules, getLanguageLevels, getPersonalLegend, getProfile } from "./repository";
+import { getCustomFields, getCvMeta, getFaqAnswers, getGenerationRules, getLanguageLevels, getOutreachRules, getPersonalLegend, getProfile } from "./repository";
 
 export interface ApplicantContext {
   profile: Profile;
   cvText: string;
   personalLegend: string;
   generationRules: string;
+  outreachRules: string;
   languageLevels: LanguageLevel[];
   customFields: CustomField[];
   faq: FaqEntry[];
@@ -25,6 +26,7 @@ const CONTEXT_STORAGE_KEYS = new Set([
   "languageLevelsCache",
   "faqAnswersCache",
   "generationRulesCache",
+  "outreachRulesCache",
 ]);
 
 let cached: Promise<ApplicantContext> | null = null;
@@ -35,14 +37,16 @@ function fetchContext(): Promise<ApplicantContext> {
     getCvMeta(),
     getPersonalLegend(),
     getGenerationRules(),
+    getOutreachRules(),
     getLanguageLevels(),
     getCustomFields(),
     getFaqAnswers(),
-  ]).then(([profile, cvMeta, legend, generationRules, languageLevels, customFields, faq]) => ({
+  ]).then(([profile, cvMeta, legend, generationRules, outreachRules, languageLevels, customFields, faq]) => ({
     profile,
     cvText: cvMeta?.text ?? "",
     personalLegend: legend?.content ?? "",
     generationRules: generationRules?.content ?? "",
+    outreachRules: outreachRules?.content ?? "",
     languageLevels,
     customFields,
     faq,

@@ -6,6 +6,7 @@ import type {
   GenerationRules,
   LanguageLevel,
   LegendLibrary,
+  OutreachRules,
   PersonalLegend,
   Profile,
 } from "@/types/profile";
@@ -38,6 +39,7 @@ interface LocalStorageSchema {
   languageLevelsCache: LanguageLevel[];
   faqAnswersCache: FaqEntry[];
   generationRulesCache: GenerationRules;
+  outreachRulesCache: OutreachRules;
   /** Per-CV `{{placeholder}}` templates (Adapt CV tab), keyed by CvMeta.id — Drive `cvTemplates.json` is the source of truth. */
   cvTemplatesCache: CvTemplateLibrary;
   /** Most recently generated/edited cover letter, so the context menu can insert it. */

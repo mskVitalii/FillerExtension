@@ -15,6 +15,7 @@ import {
   getFaqAnswers,
   getGenerationRules,
   getLanguageLevels,
+  getOutreachRules,
   getPersonalLegend,
   getProfile,
 } from "@/features/profile/repository";
@@ -39,6 +40,7 @@ export function App() {
   const [faqAnswers, setFaqAnswers] = useState<FaqEntry[]>([]);
   const [personalLegend, setPersonalLegend] = useState("");
   const [generationRules, setGenerationRules] = useState("");
+  const [outreachRules, setOutreachRules] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
@@ -71,6 +73,7 @@ export function App() {
       loadedFaqAnswers,
       loadedPersonalLegend,
       loadedGenerationRules,
+      loadedOutreachRules,
     ] = await Promise.all([
       getProfile(),
       getCvMeta(),
@@ -79,6 +82,7 @@ export function App() {
       getFaqAnswers(),
       getPersonalLegend(),
       getGenerationRules(),
+      getOutreachRules(),
     ]);
     setProfile(loadedProfile);
     setCvMeta(loadedCv);
@@ -87,6 +91,7 @@ export function App() {
     setFaqAnswers(loadedFaqAnswers);
     setPersonalLegend(loadedPersonalLegend?.content ?? "");
     setGenerationRules(loadedGenerationRules?.content ?? "");
+    setOutreachRules(loadedOutreachRules?.content ?? "");
   }
 
   if (step === "loading") return null;
@@ -156,6 +161,7 @@ export function App() {
         languageLevels={languageLevels}
         faqAnswers={faqAnswers}
         generationRules={generationRules}
+        outreachRules={outreachRules}
         onBack={() => setStep("main")}
         onProfileChange={setProfile}
         onCvChange={setCvMeta}
@@ -164,6 +170,7 @@ export function App() {
         onFaqAnswersChange={setFaqAnswers}
         onPersonalLegendChange={setPersonalLegend}
         onGenerationRulesChange={setGenerationRules}
+        onOutreachRulesChange={setOutreachRules}
         onApiKeyDeleted={() => {
           setHasApiKey(false);
           setStep("api-key");

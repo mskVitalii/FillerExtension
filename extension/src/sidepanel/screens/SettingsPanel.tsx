@@ -27,6 +27,7 @@ import {
   saveFaqAnswers,
   saveGenerationRules,
   saveLanguageLevels,
+  saveOutreachRules,
   saveProfile,
   setActiveCv,
   setActiveLegend,
@@ -66,6 +67,7 @@ interface SettingsPanelProps {
   languageLevels: LanguageLevel[];
   faqAnswers: FaqEntry[];
   generationRules: string;
+  outreachRules: string;
   onBack: () => void;
   onProfileChange: (profile: Profile) => void;
   onCvChange: (cvMeta: CvMeta | null) => void;
@@ -75,6 +77,7 @@ interface SettingsPanelProps {
   /** Fires whenever the active Personal Legend's content changes (upload, manual create, switch, edit) — mirrors it into App-level state so the Job Search preview (spec_8 item 8) stays in sync without a full reload. */
   onPersonalLegendChange: (content: string) => void;
   onGenerationRulesChange: (content: string) => void;
+  onOutreachRulesChange: (content: string) => void;
   onApiKeyDeleted: () => void;
   onGoogleDisconnected: () => void;
 }
@@ -86,6 +89,7 @@ export function SettingsPanel({
   languageLevels,
   faqAnswers,
   generationRules,
+  outreachRules,
   onBack,
   onProfileChange,
   onCvChange,
@@ -94,6 +98,7 @@ export function SettingsPanel({
   onFaqAnswersChange,
   onPersonalLegendChange,
   onGenerationRulesChange,
+  onOutreachRulesChange,
   onApiKeyDeleted,
   onGoogleDisconnected,
 }: SettingsPanelProps) {
@@ -118,6 +123,7 @@ export function SettingsPanel({
   const [extractionModel, setExtractionModel] = useState<string>(MODEL_LUNA);
   const [jobAnalysisModel, setJobAnalysisModel] = useState<string>(MODEL_LUNA);
   const [supportModel, setSupportModel] = useState<string>(MODEL_LUNA);
+  const [outreachModel, setOutreachModel] = useState<string>(MODEL_TERRA);
   const [fieldsDraft, setFieldsDraft] = useState(customFields);
   const [savingFields, setSavingFields] = useState(false);
   const [languagesDraft, setLanguagesDraft] = useState(languageLevels);
@@ -141,6 +147,8 @@ export function SettingsPanel({
   const [savingJobSearchCredentials, setSavingJobSearchCredentials] = useState(false);
   const [rulesDraft, setRulesDraft] = useState(generationRules);
   const [savingRules, setSavingRules] = useState(false);
+  const [outreachRulesDraft, setOutreachRulesDraft] = useState(outreachRules);
+  const [savingOutreachRules, setSavingOutreachRules] = useState(false);
   const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -167,6 +175,7 @@ export function SettingsPanel({
       setExtractionModel(prefs.extractionModel || MODEL_LUNA);
       setJobAnalysisModel(prefs.jobAnalysisModel || MODEL_LUNA);
       setSupportModel(prefs.supportModel || MODEL_LUNA);
+      setOutreachModel(prefs.outreachModel || MODEL_TERRA);
     });
   }, []);
 
@@ -193,6 +202,11 @@ export function SettingsPanel({
   async function handleSupportModelChange(model: string) {
     setSupportModel(model);
     await setPreferences({ supportModel: model });
+  }
+
+  async function handleOutreachModelChange(model: string) {
+    setOutreachModel(model);
+    await setPreferences({ outreachModel: model });
   }
 
   async function handleCvSelected(rawFile: File) {
@@ -448,6 +462,16 @@ export function SettingsPanel({
     }
   }
 
+  async function handleSaveOutreachRules() {
+    setSavingOutreachRules(true);
+    try {
+      await saveOutreachRules(outreachRulesDraft);
+      onOutreachRulesChange(outreachRulesDraft);
+    } finally {
+      setSavingOutreachRules(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
@@ -667,6 +691,28 @@ export function SettingsPanel({
           />
           <Button size="sm" onClick={handleSaveGenerationRules} disabled={savingRules} className="w-fit">
             {savingRules ? "Saving…" : "Save"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Outreach Message</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            Instructions for the "Generate outreach message" email/LinkedIn note sent to a
+            posting's recruiter/hiring contact — tone, length, what to ask for. Kept separate from
+            Generation Rules, which is about the cover letter.
+          </p>
+          <textarea
+            className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
+            placeholder="e.g. Keep it under 80 words. Always ask for a quick call. Sign off with my first name only…"
+            value={outreachRulesDraft}
+            onChange={(e) => setOutreachRulesDraft(e.target.value)}
+          />
+          <Button size="sm" onClick={handleSaveOutreachRules} disabled={savingOutreachRules} className="w-fit">
+            {savingOutreachRules ? "Saving…" : "Save"}
           </Button>
         </CardContent>
       </Card>
@@ -940,7 +986,7 @@ export function SettingsPanel({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Four model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key.
+            Five model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key.
           </p>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">Cover letters</label>
@@ -981,6 +1027,16 @@ export function SettingsPanel({
               Everything else (questions, checkboxes, search, translation)
             </label>
             <Select value={supportModel} onChange={(e) => void handleSupportModelChange(e.target.value)}>
+              {AVAILABLE_MODELS.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Outreach messages</label>
+            <Select value={outreachModel} onChange={(e) => void handleOutreachModelChange(e.target.value)}>
               {AVAILABLE_MODELS.map((model) => (
                 <option key={model} value={model}>
                   {model}

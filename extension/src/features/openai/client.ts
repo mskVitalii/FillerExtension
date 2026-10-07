@@ -41,6 +41,12 @@ export async function getSupportModel(): Promise<string> {
   return prefs.supportModel || MODEL_LUNA;
 }
 
+/** Outreach message to a recruiter/hiring contact (`features/openai/outreach-message.ts`) — goes straight out to a real person, same stakes as a cover letter. */
+export async function getOutreachModel(): Promise<string> {
+  const prefs = await getPreferences();
+  return prefs.outreachModel || MODEL_TERRA;
+}
+
 export class OpenAiError extends Error {
   constructor(
     message: string,
