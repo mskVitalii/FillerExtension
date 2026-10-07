@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
-import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
+import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ const CoverLetterEditor = lazy(() =>
 const EditorFallback = () => (
   <p className="text-xs text-muted-foreground">Loading editor…</p>
 );
-import { EMPTY_JOB, type Job, type JobKeyword, type JobLanguageInfo } from "@/types/job";
+import { EMPTY_JOB, type Job, type JobBrief, type JobKeyword, type JobLanguageInfo } from "@/types/job";
 import type { CustomField, CvMeta, LanguageLevel, Profile } from "@/types/profile";
 import { meetsLevel } from "@/lib/language-level";
 import { sendMessage, type RuntimeMessage } from "@/types/messages";
@@ -62,6 +62,14 @@ const PICKER_GRADIENT = "linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #ec4
 
 /** Matches a bare email address (not a full RFC grammar) — just enough to tell `job.contact` apart from a LinkedIn URL for the outreach-message "open" action. */
 const EMAIL_ADDRESS_RE = /^[\w.+-]+@[\w-]+\.[\w.-]+$/;
+
+/** Appends `contact` to the keyword-highlight list sent to the page, reusing the same green
+ * "match" styling (`features/highlight/keyword-highlight.ts`) — it's not a skill match, but it's
+ * the same "notable, worth a glance" treatment, and introducing a third highlight color for one
+ * extra string isn't worth it. */
+function withContactHighlight(keywords: JobKeyword[], contact: string | null): JobKeyword[] {
+  return contact ? [...keywords, { text: contact, matchesProfile: true }] : keywords;
+}
 
 interface MainViewProps {
   tabId: number;
@@ -167,12 +175,17 @@ export function MainView({
   // Not rendered in the UI (spec: checkboxes are decided and ticked directly
   // on the page — the applicant reviews/changes them there like any other
   // field), but still persisted to the per-tab cache so a re-open doesn't
-  // re-run `handleDecideCheckboxes` needlessly.
+  // re-run `handleAnalyzePageContent` needlessly.
   const [checkboxDecisions, setCheckboxDecisions] = useState<CheckboxDecision[]>([]);
 
   const [showJobText, setShowJobText] = useState(false);
   const [jobLanguage, setJobLanguage] = useState<JobLanguageInfo | null>(null);
   const [jobKeywords, setJobKeywords] = useState<JobKeyword[]>([]);
+  // Language/keyword/contact analysis in flight (handleDetectJobBrief) — distinct from
+  // `loadingJob` (the extraction itself), since this runs as its own request right after.
+  const [briefLoading, setBriefLoading] = useState(false);
+  // The combined checkbox-decision + question-answer call (handleAnalyzePageContent) in flight.
+  const [decidingPageContent, setDecidingPageContent] = useState(false);
   // On by default (spec_8 item 2: "make reading the posting cooler") — the
   // toggle just lets the user turn it back off if they don't like it, or
   // re-run it after `handleReset`.
@@ -314,9 +327,11 @@ export function MainView({
 
   async function handleNavigation() {
     let newJob: Job | undefined;
+    let newBrief: JobBrief | undefined;
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId });
+      const response = await sendMessage<{ type: "JOB_DATA"; job: Job; brief?: JobBrief }>({ type: "GET_JOB", tabId });
       newJob = response?.job;
+      newBrief = response?.brief;
     } catch {
       // No content script on the new page (e.g. a chrome:// page reached mid-flow) — keep the current draft.
     }
@@ -347,13 +362,13 @@ export function MainView({
       setJobLanguage(null);
       setJobKeywords([]);
       void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
-      void handleDetectJobBrief(newJob);
+      if (newBrief) void applyJobBrief(newJob, newBrief);
+      else void handleDetectJobBrief(newJob);
       void checkExistingApplication(newJob.url);
       const prefs = await getPreferences();
       if (prefs.autofillOnOpen) await runAutofill();
     }
-    void handleDetectQuestions(newJob ?? job);
-    void handleDecideCheckboxes();
+    void handleAnalyzePageContent(newJob ?? job);
   }
 
   /**
@@ -533,12 +548,17 @@ export function MainView({
     setError(null);
     let detectedJob: Job = job;
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({ type: "GET_JOB", tabId, force });
+      const response = await sendMessage<{ type: "JOB_DATA"; job: Job; brief?: JobBrief }>({
+        type: "GET_JOB",
+        tabId,
+        force,
+      });
       if (response?.job) {
         detectedJob = response.job;
         extractedJobRef.current = { position: response.job.position, company: response.job.company };
         setJob(response.job);
-        void handleDetectJobBrief(response.job);
+        if (response.brief) void applyJobBrief(response.job, response.brief);
+        else void handleDetectJobBrief(response.job);
         void checkExistingApplication(response.job.url);
         const prefs = await getPreferences();
         if (prefs.autofillOnOpen) await runAutofill();
@@ -549,38 +569,66 @@ export function MainView({
       setLoadingJob(false);
       hasLoadedRef.current = true;
     }
-    void handleDetectQuestions(detectedJob);
-    void handleDecideCheckboxes();
+    void handleAnalyzePageContent(detectedJob);
   }
 
   /**
-   * Language detection + keyword extraction (spec_8 item 2) run automatically on every job
-   * load, combined into one MODEL_LUNA call (`analyzeJobBrief`) instead of two independent
+   * Applies a brief (language, keywords, and — only when the Job didn't already have one — a
+   * found contact) to local state and re-highlights the page. Shared by `handleDetectJobBrief`
+   * (the DOM-sufficient path, which still sends its own DETECT_JOB_BRIEF request) and the
+   * bootstrap/navigation/paste-text call sites that already got a brief for free from the merged
+   * AI extraction call (`extractJobWithAiAndBrief`) — those skip the extra round trip entirely.
+   */
+  async function applyJobBrief(
+    currentJob: Job,
+    brief: { language: JobLanguageInfo | null; keywords: JobKeyword[]; contact: string | null },
+  ) {
+    const resolvedContact = currentJob.contact ?? brief.contact;
+    if (brief.contact && !currentJob.contact) {
+      setJob((j) => ({ ...j, contact: brief.contact }));
+    }
+    setJobLanguage(brief.language);
+    setJobKeywords(brief.keywords);
+    if (!highlightOnPage) return;
+    const highlightList = withContactHighlight(brief.keywords, resolvedContact);
+    if (highlightList.length > 0) {
+      await sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords: highlightList }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Language detection + keyword extraction + a contact lookup (spec_8 item 2) run automatically
+   * on every job load, combined into one MODEL_LUNA call (`analyzeJobBrief`) instead of separate
    * round trips over the same job/applicant context.
    */
   async function handleDetectJobBrief(currentJob: Job) {
     if (!hasApiKey) return;
+    setBriefLoading(true);
     try {
-      const response = await sendMessage<{ type: "JOB_BRIEF_DATA"; language: JobLanguageInfo; keywords: JobKeyword[] }>({
-        type: "DETECT_JOB_BRIEF",
-        job: currentJob,
+      const response = await sendMessage<{
+        type: "JOB_BRIEF_DATA";
+        language: JobLanguageInfo;
+        keywords: JobKeyword[];
+        contact: string | null;
+      }>({ type: "DETECT_JOB_BRIEF", job: currentJob });
+      await applyJobBrief(currentJob, {
+        language: response?.language ?? null,
+        keywords: response?.keywords ?? [],
+        contact: response?.contact ?? null,
       });
-      setJobLanguage(response?.language ?? null);
-      const keywords = response?.keywords ?? [];
-      setJobKeywords(keywords);
-      if (keywords.length > 0 && highlightOnPage) {
-        await sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords }).catch(() => undefined);
-      }
     } catch {
       // No API key yet, or the request failed — leave the brief/keyword list empty.
+    } finally {
+      setBriefLoading(false);
     }
   }
 
   function handleToggleHighlightOnPage() {
     setHighlightOnPage((prev) => {
       const next = !prev;
-      if (next && jobKeywords.length > 0) {
-        void sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords: jobKeywords }).catch(() => undefined);
+      const highlightList = withContactHighlight(jobKeywords, job.contact);
+      if (next && highlightList.length > 0) {
+        void sendMessage({ type: "HIGHLIGHT_KEYWORDS", tabId, keywords: highlightList }).catch(() => undefined);
       } else {
         void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
       }
@@ -676,34 +724,41 @@ export function MainView({
         }
       }
 
-      // Auto-detected questions are written back by matching their label
-      // text on a re-scan; picker-added ones carry a locator instead, since
-      // their field often has no question-shaped label to match.
-      const textAnswers: Record<string, string> = {};
-      const locatorItems: { locator: ElementLocator; answer: string; question?: string }[] = [];
-      for (const q of questions) {
-        const answer = answersByQuestion[questionAnswerKey(q)];
-        if (!answer) continue;
-        if (q.locator) locatorItems.push({ locator: q.locator, answer, question: q.question });
-        else textAnswers[q.question] = answer;
-      }
-      type FillResult = { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number; unfilled: string[] };
-      const fills: Promise<FillResult>[] = [];
-      if (Object.keys(textAnswers).length > 0) {
-        fills.push(sendMessage<FillResult>({ type: "FILL_CUSTOM_QUESTION_ANSWERS", tabId, answers: textAnswers }));
-      }
-      if (locatorItems.length > 0) {
-        fills.push(
-          sendMessage<FillResult>({ type: "FILL_QUESTION_ANSWERS_BY_LOCATOR", tabId, items: locatorItems }),
-        );
-      }
-      const fillResults = await Promise.all(fills);
-      setUnfillableQuestions(fillResults.flatMap((r) => r.unfilled));
+      await fillQuestionAnswers(questions, answersByQuestion);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not answer the application questions.");
     } finally {
       setAnsweringAllQuestions(false);
     }
+  }
+
+  /**
+   * Writes already-known answers (keyed by `questionAnswerKey`) into the page: auto-detected
+   * questions by matching their label text on a re-scan, picker-added ones by their `locator`
+   * instead, since their field often has no question-shaped label to match. Shared by
+   * `answerAndFillQuestions` (one call per question, run in parallel) and
+   * `handleAnalyzePageContent`'s batched question-answering — both end up with the same
+   * `questionAnswerKey -> answer` map to write onto the page.
+   */
+  async function fillQuestionAnswers(questions: CustomQuestion[], answersByQuestion: Record<string, string>) {
+    const textAnswers: Record<string, string> = {};
+    const locatorItems: { locator: ElementLocator; answer: string; question?: string }[] = [];
+    for (const q of questions) {
+      const answer = answersByQuestion[questionAnswerKey(q)];
+      if (!answer) continue;
+      if (q.locator) locatorItems.push({ locator: q.locator, answer, question: q.question });
+      else textAnswers[q.question] = answer;
+    }
+    type FillResult = { type: "CUSTOM_QUESTION_FILL_RESULT"; filled: number; unfilled: string[] };
+    const fills: Promise<FillResult>[] = [];
+    if (Object.keys(textAnswers).length > 0) {
+      fills.push(sendMessage<FillResult>({ type: "FILL_CUSTOM_QUESTION_ANSWERS", tabId, answers: textAnswers }));
+    }
+    if (locatorItems.length > 0) {
+      fills.push(sendMessage<FillResult>({ type: "FILL_QUESTION_ANSWERS_BY_LOCATOR", tabId, items: locatorItems }));
+    }
+    const fillResults = await Promise.all(fills);
+    setUnfillableQuestions(fillResults.flatMap((r) => r.unfilled));
   }
 
   /**
@@ -896,46 +951,84 @@ export function MainView({
   }, []);
 
   /**
-   * Consent / marketing checkboxes: detect on the page, let the AI decide
-   * each (tick the mandatory privacy/terms consents, leave newsletters and
-   * job-alert opt-ins off), then apply. Runs automatically on panel open —
-   * the applicant is here to apply, so ticking the required boxes is what
+   * Consent/marketing checkboxes and custom application questions: detect both on the page
+   * (DOM-only, free), then decide the checkboxes and answer the questions in one combined AI
+   * call (`DECIDE_PAGE_CONTENT`) instead of a separate checkbox-decision call plus one parallel
+   * call per question, and apply both back onto the page. Runs automatically on panel open — the
+   * applicant is here to apply, so ticking the required boxes and pre-filling the answers is what
    * they'd do by hand anyway.
    */
-  async function handleDecideCheckboxes() {
-    if (!hasApiKey) return;
-    let checkboxes: PageCheckbox[] = [];
-    try {
-      const response = await sendMessage<{ type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }>({
+  async function handleAnalyzePageContent(currentJob: Job) {
+    setDetectingQuestions(true);
+    const [checkboxResponse, questionResponse] = await Promise.all([
+      sendMessage<{ type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }>({
         type: "DETECT_CHECKBOXES",
         tabId,
-      });
-      checkboxes = response?.checkboxes ?? [];
-    } catch {
-      return; // no content script on this page
-    }
-    if (checkboxes.length === 0) {
-      setCheckboxDecisions([]);
-      return;
-    }
+      }).catch(() => undefined),
+      sendMessage<{ type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }>({
+        type: "DETECT_CUSTOM_QUESTIONS",
+        tabId,
+      }).catch(() => undefined),
+    ]);
+    setDetectingQuestions(false);
 
+    const checkboxes = checkboxResponse?.checkboxes ?? [];
+    const questions = questionResponse?.questions ?? [];
+    setCustomQuestions(questions);
+    if (checkboxes.length === 0) setCheckboxDecisions([]);
+
+    if (!hasApiKey) return;
+    const pending = questions.filter((q) => !questionAnswers[questionAnswerKey(q)]);
+    if (checkboxes.length === 0 && pending.length === 0) return;
+
+    setDecidingPageContent(true);
     try {
-      const response = await sendMessage<{ type: "CHECKBOX_DECISIONS"; decisions: CheckboxDecision[] }>({
-        type: "DECIDE_CHECKBOXES",
-        checkboxes,
-      });
-      const decisions = response?.decisions ?? [];
-      setCheckboxDecisions(decisions);
-      if (decisions.length > 0) {
-        await sendMessage<{ type: "CHECKBOX_APPLY_RESULT"; changed: number }>({
-          type: "APPLY_CHECKBOX_DECISIONS",
-          tabId,
-          decisions: decisions.map((d) => ({ name: d.name, label: d.label, check: d.check })),
-        });
+      const postingLanguage = jobLanguage?.postingLanguages[0];
+      const response = await sendMessage<{
+        type: "PAGE_CONTENT_DECISIONS";
+        checkboxDecisions: CheckboxDecision[];
+        questionAnswers: { id: string; answer: string; sufficientInfo: boolean }[];
+      }>({ type: "DECIDE_PAGE_CONTENT", checkboxes, questions: pending, job: currentJob, postingLanguage });
+
+      if (checkboxes.length > 0) {
+        const decisions = response?.checkboxDecisions ?? [];
+        setCheckboxDecisions(decisions);
+        if (decisions.length > 0) {
+          await sendMessage<{ type: "CHECKBOX_APPLY_RESULT"; changed: number }>({
+            type: "APPLY_CHECKBOX_DECISIONS",
+            tabId,
+            decisions: decisions.map((d) => ({ name: d.name, label: d.label, check: d.check })),
+          });
+        }
+      }
+
+      if (pending.length > 0) {
+        await applyPageContentQuestionAnswers(questions, pending, response?.questionAnswers ?? []);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not decide on the form's checkboxes.");
+      setError(err instanceof Error ? err.message : "Could not analyze the form's checkboxes/questions.");
+    } finally {
+      setDecidingPageContent(false);
     }
+  }
+
+  /** Merges the batched DECIDE_PAGE_CONTENT question answers (keyed by id) into state and fills them, same as `answerAndFillQuestions`'s tail. */
+  async function applyPageContentQuestionAnswers(
+    allQuestions: CustomQuestion[],
+    pending: CustomQuestion[],
+    raw: { id: string; answer: string; sufficientInfo: boolean }[],
+  ) {
+    const byId = new Map(raw.map((r) => [r.id, r]));
+    const answersByQuestion = { ...questionAnswers };
+    const insufficient = new Set<string>();
+    for (const q of pending) {
+      const found = byId.get(q.id);
+      if (found?.answer) answersByQuestion[questionAnswerKey(q)] = found.answer;
+      else if (found && !found.sufficientInfo) insufficient.add(questionAnswerKey(q));
+    }
+    if (insufficient.size > 0) setInsufficientInfoQuestions((prev) => new Set([...prev, ...insufficient]));
+    setQuestionAnswers((prev) => ({ ...prev, ...answersByQuestion }));
+    await fillQuestionAnswers(allQuestions, answersByQuestion);
   }
 
   async function handleImprove() {
@@ -969,7 +1062,7 @@ export function MainView({
     setPasting(true);
     setError(null);
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job }>({
+      const response = await sendMessage<{ type: "JOB_DATA"; job: Job; brief?: JobBrief }>({
         type: "EXTRACT_JOB_FROM_TEXT",
         tabId,
         text: pasteText,
@@ -977,7 +1070,8 @@ export function MainView({
       if (response?.job) {
         extractedJobRef.current = { position: response.job.position, company: response.job.company };
         setJob(response.job);
-        void handleDetectJobBrief(response.job);
+        if (response.brief) void applyJobBrief(response.job, response.brief);
+        else void handleDetectJobBrief(response.job);
       }
       setPasteMode(false);
       setPasteText("");
@@ -1236,7 +1330,7 @@ export function MainView({
    * only after some initial hydration, or reveals new ones once semantic
    * fields like country get filled, so the panel-open scan can legitimately
    * have missed what's there by the time the user clicks Autofill. The
-   * bootstrap/navigation call sites already run `handleDetectQuestions`
+   * bootstrap/navigation call sites already run `handleAnalyzePageContent`
    * once on their own right after `runAutofill()` — defaulting this to
    * `false` there avoids scanning (and re-answering via the model) twice
    * on every ordinary panel open. `answerAndFillQuestions` re-filters
@@ -1297,6 +1391,12 @@ export function MainView({
     }
   }
 
+  // Every background AI/extraction step kicked off automatically on job load, in one place, so
+  // the user has a single clear signal for "still working" instead of guessing from fields
+  // popping in one at a time — the whole point being asked for (spec: it's otherwise unclear
+  // when extraction/analysis is done and the panel is safe to act on, e.g. before Autofill).
+  const isAnalyzingJob = loadingJob || briefLoading || decidingPageContent;
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
@@ -1323,6 +1423,17 @@ export function MainView({
           </IconButton>
         </div>
       </div>
+
+      {isAnalyzingJob && (
+        <p className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+          {loadingJob
+            ? "Reading job posting…"
+            : decidingPageContent
+              ? "Deciding checkboxes and answering questions…"
+              : "Analyzing language, keywords and contact…"}
+        </p>
+      )}
 
       <SetupBanner
         googleConnected={googleConnected}
@@ -1843,7 +1954,7 @@ export function MainView({
       )}
 
       {/* Consent checkboxes are decided and ticked on the page automatically
-          (handleDecideCheckboxes) — no need to also list them here; the user
+          (handleAnalyzePageContent) — no need to also list them here; the user
           reviews/changes them directly on the form like any other field. */}
 
       <div>
