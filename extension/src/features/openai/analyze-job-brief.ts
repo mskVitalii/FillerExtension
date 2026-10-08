@@ -1,17 +1,14 @@
-import type { Job, JobKeyword, JobLanguageInfo } from "@/types/job";
+import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "@/types/job";
 import { CEFR_LEVELS } from "@/lib/language-level";
 import { getApplicantContext } from "@/features/profile/context";
 import { getJobAnalysisModel, requestStructured } from "./client";
 
-export interface JobBrief {
-  language: JobLanguageInfo;
-  keywords: JobKeyword[];
-}
+export type { JobBrief };
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["postingLanguages", "requirements", "keywords"],
+  required: ["postingLanguages", "requirements", "keywords", "contact"],
   properties: {
     postingLanguages: { type: "array", items: { type: "string" } },
     requirements: {
@@ -38,12 +35,13 @@ const SCHEMA = {
         },
       },
     },
+    contact: { type: ["string", "null"] },
   },
 } as const;
 
-const SYSTEM_PROMPT = `You read a job posting and report two independent things about it: its
-language, and its notable keywords. Judge each against the applicant profile/CV/Personal
-Legend given below.
+const SYSTEM_PROMPT = `You read a job posting and report three independent things about it: its
+language, its notable keywords, and (only if asked below) a recruiter/hiring contact. Judge
+language and keywords against the applicant profile/CV/Personal Legend given below.
 
 LANGUAGE
 - postingLanguages: the language(s) the posting text itself is written in (e.g. "English").
@@ -73,22 +71,36 @@ KEYWORDS
   posting asks for it but nothing in the applicant's material supports it. Judge substance,
   not exact wording (e.g. "Kubernetes" counts as a match if the CV mentions "container
   orchestration with K8s" or "EKS"). When genuinely unsure, set it to false — this flags a
-  possible gap for the applicant to address rather than silently hiding it.`;
+  possible gap for the applicant to address rather than silently hiding it.
+
+CONTACT
+- "job.contact" below is the recruiter/hiring contact already found elsewhere, or null if none
+  was found yet.
+- If it is already set (not null), ignore this entirely and return "contact": null — there is
+  nothing to add.
+- If it is null, look for one in the job's own text (description/requirements/responsibilities):
+  a named recruiter/hiring manager's email address, or a LinkedIn profile/company URL. If you
+  find one, copy it VERBATIM (exact characters) so it can be re-found on the page for
+  highlighting — the same rule as for keywords. If none is mentioned, return "contact": null.`;
 
 interface RawResult {
   postingLanguages: string[];
   requirements: JobLanguageInfo["requirements"];
   keywords: JobKeyword[];
+  contact: string | null;
 }
 
 /**
- * Combines what used to be `detectJobLanguage` + `extractJobKeywords` into a single
- * MODEL_LUNA call — both run automatically on every job load, over the same `job` and the
- * same applicant context, so splitting them into two round trips only doubled network/latency
- * without any independent benefit. The stable applicant-context fields are placed first in the
- * user prompt (ahead of the per-job `job` field) so that block stays a byte-identical prefix
- * across successive job analyses in the same session, which is what OpenAI's automatic prompt
- * caching keys off.
+ * Combines what used to be `detectJobLanguage` + `extractJobKeywords`, plus a contact lookup,
+ * into a single MODEL_LUNA call — all three run automatically on every job load, over the same
+ * `job` and the same applicant context, so splitting them into separate round trips only doubled
+ * network/latency without any independent benefit. The contact lookup only costs anything when
+ * `job.contact` came in null (DOM heuristics found nothing) — this is the one AI pass that always
+ * runs regardless of how `job` was extracted, so it's the cheapest place to give AI a second shot
+ * at a contact the DOM-only heuristic missed. The stable applicant-context fields are placed first
+ * in the user prompt (ahead of the per-job `job` field) so that block stays a byte-identical
+ * prefix across successive job analyses in the same session, which is what OpenAI's automatic
+ * prompt caching keys off.
  */
 export async function analyzeJobBrief(job: Job): Promise<JobBrief> {
   const context = await getApplicantContext();
@@ -116,5 +128,6 @@ export async function analyzeJobBrief(job: Job): Promise<JobBrief> {
   return {
     language: { postingLanguages: result.postingLanguages, requirements: result.requirements },
     keywords: result.keywords,
+    contact: result.contact,
   };
 }

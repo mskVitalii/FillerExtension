@@ -1,4 +1,4 @@
-import type { Job, JobKeyword, JobLanguageInfo } from "./job";
+import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "./job";
 import type { FaqEntry, Profile } from "./profile";
 import type { CvTemplate, CvValueSuggestion } from "./cv-template";
 import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "./job-search";
@@ -18,7 +18,16 @@ import type { DateInputKind } from "@/lib/date-format";
  */
 export type RuntimeMessage =
   | { type: "GET_JOB"; tabId: number; force?: boolean }
-  | { type: "JOB_DATA"; job: Job; sufficient: boolean; visibleText?: string }
+  | {
+      type: "JOB_DATA";
+      job: Job;
+      sufficient: boolean;
+      visibleText?: string;
+      /** Set only when this job came from the merged AI extraction+brief call (the DOM-insufficient
+       * fallback, or a pasted-text extraction) — the brief is already done, so the Side Panel skips
+       * the separate DETECT_JOB_BRIEF round trip it would otherwise send right after. */
+      brief?: JobBrief;
+    }
   | { type: "EXTRACT_JOB_FROM_TEXT"; tabId: number; text: string }
   | { type: "GET_PROFILE" }
   | { type: "PROFILE_DATA"; profile: Profile }
@@ -93,12 +102,31 @@ export type RuntimeMessage =
     }
   | { type: "DETECT_CHECKBOXES"; tabId: number }
   | { type: "CHECKBOXES_DATA"; checkboxes: PageCheckbox[] }
-  | { type: "DECIDE_CHECKBOXES"; checkboxes: PageCheckbox[] }
-  | { type: "CHECKBOX_DECISIONS"; decisions: CheckboxDecision[] }
+  /**
+   * One AI call that decides every consent checkbox and answers every pending custom question
+   * found on the page at panel-open time — a checkbox-decision call plus one parallel call per
+   * question would cost more simultaneous requests against the user's own OpenAI rate limit for
+   * no latency benefit (those ran in parallel already). `questions` should already be filtered
+   * down to the ones genuinely still unanswered; a later single question (manual add, picker)
+   * still goes through ANSWER_CUSTOM_QUESTION on its own.
+   */
+  | {
+      type: "DECIDE_PAGE_CONTENT";
+      checkboxes: PageCheckbox[];
+      questions: CustomQuestion[];
+      job: Job;
+      postingLanguage?: string;
+    }
+  | {
+      type: "PAGE_CONTENT_DECISIONS";
+      checkboxDecisions: CheckboxDecision[];
+      /** Keyed by `CustomQuestion.id`, not position — same answer shape as CUSTOM_QUESTION_ANSWER. */
+      questionAnswers: { id: string; answer: string; sufficientInfo: boolean }[];
+    }
   | { type: "APPLY_CHECKBOX_DECISIONS"; tabId: number; decisions: CheckboxDecisionInput[] }
   | { type: "CHECKBOX_APPLY_RESULT"; changed: number }
   | { type: "DETECT_JOB_BRIEF"; job: Job }
-  | { type: "JOB_BRIEF_DATA"; language: JobLanguageInfo; keywords: JobKeyword[] }
+  | { type: "JOB_BRIEF_DATA"; language: JobLanguageInfo; keywords: JobKeyword[]; contact: string | null }
   | { type: "HIGHLIGHT_KEYWORDS"; tabId: number; keywords: JobKeyword[] }
   | { type: "CLEAR_KEYWORD_HIGHLIGHTS"; tabId: number }
   | { type: "KEYWORD_HIGHLIGHT_RESULT"; matched: number }

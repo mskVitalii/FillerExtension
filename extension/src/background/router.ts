@@ -15,12 +15,12 @@ import { suggestSearchTags } from "@/features/openai/suggest-search-tags";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { generateOutreachMessage } from "@/features/openai/outreach-message";
 import { getApplicantContext } from "@/features/profile/context";
-import { extractJobWithAi } from "@/features/job-extraction/ai-fallback";
+import { extractJobWithAiAndBrief } from "@/features/job-extraction/ai-fallback";
 import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
 import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
 import { answerCustomQuestion } from "@/features/openai/answer-question";
 import { decomposeBlock } from "@/features/openai/decompose-block";
-import { decideCheckboxes } from "@/features/openai/decide-checkboxes";
+import { decidePageContent } from "@/features/openai/decide-page-content";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
 import { ensureContentScript } from "./inject-content-script";
@@ -111,9 +111,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         .slice(0, 20000);
 
       try {
-        const aiJob = await extractJobWithAi(combinedText || best.visibleText || "", best.job.url);
+        const { job: aiJob, brief } = await extractJobWithAiAndBrief(combinedText || best.visibleText || "", best.job.url);
         if (tab?.url) void setCachedJob(tab.url, aiJob);
-        return { type: "JOB_DATA", job: aiJob, sufficient: true };
+        return { type: "JOB_DATA", job: aiJob, sufficient: true, brief };
       } catch {
         // AI fallback failed (e.g. no API key yet) — surface the partial DOM extraction.
         return best;
@@ -122,8 +122,8 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "EXTRACT_JOB_FROM_TEXT": {
       const tab = await chrome.tabs.get(message.tabId).catch(() => undefined);
-      const job = await extractJobWithAi(message.text, tab?.url ?? "");
-      return { type: "JOB_DATA", job, sufficient: true };
+      const { job, brief } = await extractJobWithAiAndBrief(message.text, tab?.url ?? "");
+      return { type: "JOB_DATA", job, sufficient: true, brief };
     }
 
     case "AUTOFILL": {
@@ -335,9 +335,14 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       return { type: "CHECKBOXES_DATA", checkboxes };
     }
 
-    case "DECIDE_CHECKBOXES": {
-      const decisions = await decideCheckboxes(message.checkboxes);
-      return { type: "CHECKBOX_DECISIONS", decisions };
+    case "DECIDE_PAGE_CONTENT": {
+      const { checkboxDecisions, questionAnswers } = await decidePageContent(
+        message.checkboxes,
+        message.questions,
+        message.job,
+        message.postingLanguage,
+      );
+      return { type: "PAGE_CONTENT_DECISIONS", checkboxDecisions, questionAnswers };
     }
 
     case "APPLY_CHECKBOX_DECISIONS": {
@@ -352,7 +357,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "DETECT_JOB_BRIEF": {
       const brief = await analyzeJobBrief(message.job);
-      return { type: "JOB_BRIEF_DATA", language: brief.language, keywords: brief.keywords };
+      return { type: "JOB_BRIEF_DATA", language: brief.language, keywords: brief.keywords, contact: brief.contact };
     }
 
     case "HIGHLIGHT_KEYWORDS": {

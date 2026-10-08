@@ -36,6 +36,17 @@ export interface Job {
   url: string;
 }
 
+/** Combined output of the automatic on-load analysis pass (spec_8 item 2): language detection,
+ * keyword extraction, and — only when the job's own `contact` came up empty — one more look for a
+ * recruiter/hiring contact in the job's own text (`features/openai/analyze-job-brief.ts`, and the
+ * merged AI-extraction path in `features/job-extraction/ai-fallback.ts`). */
+export interface JobBrief {
+  language: JobLanguageInfo;
+  keywords: JobKeyword[];
+  /** A contact found beyond what the Job already carried — null when one was already known, or none was found. Copied verbatim so it can be highlighted on the page like a keyword. */
+  contact: string | null;
+}
+
 export const EMPTY_JOB: Job = {
   company: "",
   position: "",
