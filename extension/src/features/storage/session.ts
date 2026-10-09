@@ -1,7 +1,7 @@
 import type { Job, JobLanguageInfo } from "@/types/job";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
-import type { JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
+import type { JobGrade, JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 
 /**
  * chrome.storage.session — per-tab UI state (current job + cover-letter
@@ -109,6 +109,8 @@ export interface JobSearchState {
   what: string;
   where: string;
   remoteOnly: boolean;
+  /** Optional so state saved before grades existed still loads. */
+  grades?: JobGrade[];
   tags: string[];
   results: JobSearchResult[];
   searched: boolean;

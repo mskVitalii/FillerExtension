@@ -1,6 +1,7 @@
 import type { JobSearchQuery, JobSearchResult } from "@/types/job-search";
 import { formatSalaryRange } from "@/lib/salary";
 import { dropStalePostings } from "./freshness";
+import { applyGradesToTerms } from "./grades";
 
 interface AdzunaJob {
   title: string;
@@ -56,6 +57,8 @@ function sleep(ms: number): Promise<void> {
 
 /** Gap between sequential Adzuna requests (see `searchAdzunaJobs`) — enough to stay clear of their per-second rate limit without noticeably slowing a 2-4 tag search. */
 const REQUEST_GAP_MS = 350;
+/** Upper bound on searches per run (search terms × selected grades). */
+const MAX_ADZUNA_REQUESTS = 12;
 
 async function searchOneTag(
   tag: string,
@@ -119,11 +122,18 @@ export async function searchAdzunaJobs(
   countryCode: string,
   page = 1,
 ): Promise<AdzunaSearchOutcome> {
-  const tags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
+  const baseTags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
+  // Every grade multiplies the request count (they run sequentially, rate-limited), so cap the total.
+  const gradeCount = Math.max(query.grades?.length ?? 0, 1);
+  const maxBase = Math.max(1, Math.floor(MAX_ADZUNA_REQUESTS / gradeCount));
+  const tags = applyGradesToTerms(baseTags.slice(0, maxBase), query.grades);
 
   const seen = new Set<string>();
   const merged: JobSearchResult[] = [];
   const warnings: string[] = [];
+  if (baseTags.length > maxBase) {
+    warnings.push(`Only the first ${maxBase} search terms were used with ${gradeCount} grades selected.`);
+  }
 
   for (let i = 0; i < tags.length; i++) {
     const tag = tags[i];

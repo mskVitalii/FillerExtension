@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { sendMessage } from "@/types/messages";
-import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchTiming } from "@/types/job-search";
+import { JOB_GRADES, type JobGrade, type JobSearchProvider, type JobSearchQuery, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 import { getJobSearchState, setJobSearchState } from "@/features/storage/session";
 import { getJobSearchVisitedLinks, recordJobSearchLinkVisit } from "@/features/storage/local";
 import { cn } from "@/lib/utils";
@@ -114,6 +114,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
   const [what, setWhat] = useState("");
   const [where, setWhere] = useState("");
   const [remoteOnly, setRemoteOnly] = useState(false);
+  const [grades, setGrades] = useState<JobGrade[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagDraft, setTagDraft] = useState("");
   const [suggesting, setSuggesting] = useState(false);
@@ -140,6 +141,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         setWhat(state.what);
         setWhere(state.where);
         setRemoteOnly(state.remoteOnly);
+        setGrades(state.grades ?? []);
         setTags(state.tags);
         setResults(state.results);
         setSearched(state.searched);
@@ -154,8 +156,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
   useEffect(() => {
     if (!hasLoadedRef.current) return;
-    void setJobSearchState({ provider, what, where, remoteOnly, tags, results, searched, page, warnings, timing });
-  }, [provider, what, where, remoteOnly, tags, results, searched, page, warnings, timing]);
+    void setJobSearchState({ provider, what, where, remoteOnly, grades, tags, results, searched, page, warnings, timing });
+  }, [provider, what, where, remoteOnly, grades, tags, results, searched, page, warnings, timing]);
 
   function handleAddTag() {
     const tag = tagDraft.trim();
@@ -165,6 +167,10 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     }
     setTags((prev) => [...prev, tag]);
     setTagDraft("");
+  }
+
+  function handleToggleGrade(grade: JobGrade) {
+    setGrades((prev) => (prev.includes(grade) ? prev.filter((g) => g !== grade) : [...prev, grade]));
   }
 
   function handleRemoveTag(tag: string) {
@@ -244,7 +250,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         stages: JobSearchTiming["stages"];
       }>({
         type: "SEARCH_JOBS",
-        query: { provider, what, where, remoteOnly, tags },
+        query: { provider, what, where, remoteOnly, grades, tags },
         page: nextPage,
         excludeResults: loadMore ? results : undefined,
       });
@@ -367,6 +373,28 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
             <label className="text-xs text-muted-foreground">Location</label>
             <Input value={where} onChange={(e) => setWhere(e.target.value)} placeholder="e.g. Berlin, Germany" />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Grade — pick any number</label>
+            <div className="flex flex-wrap gap-1.5">
+              {JOB_GRADES.map(({ id, label }) => {
+                const active = grades.includes(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => handleToggleGrade(id)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                      active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
             Remote only
@@ -399,7 +427,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
       {!searching && !loadingMore && timing && <SearchTimingSummary timing={timing} />}
 
-      {!searching && provider === "adzuna" && tags.length > 1 ? (
+      {!searching && provider === "adzuna" && groupByTag(results).length > 1 ? (
         <div className="flex flex-col gap-3">
           {groupByTag(results).map(({ tag, jobs }) => (
             <div key={tag} className="flex flex-col gap-2">

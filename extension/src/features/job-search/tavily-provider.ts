@@ -1,5 +1,6 @@
 import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
 import { timeStage } from "./timing";
+import { gradesRefinement } from "./grades";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
 import { ATS_DOMAINS } from "./freshness";
@@ -47,6 +48,7 @@ export async function searchTavilyJobs(
   const refinements = [
     query.what ? `Role/keywords focus: "${query.what}".` : "",
     query.where ? `Location: "${query.where}".` : "",
+    gradesRefinement(query.grades),
     remote,
   ]
     .filter(Boolean)
