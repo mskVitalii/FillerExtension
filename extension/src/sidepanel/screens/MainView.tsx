@@ -132,6 +132,8 @@ export function MainView({
   const [generatingOutreach, setGeneratingOutreach] = useState(false);
   const [outreachError, setOutreachError] = useState<string | null>(null);
   const [outreachCopied, setOutreachCopied] = useState(false);
+  const [outreachImproveInstructions, setOutreachImproveInstructions] = useState("");
+  const [improvingOutreach, setImprovingOutreach] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cleanedNotice, setCleanedNotice] = useState<string | null>(null);
@@ -351,6 +353,7 @@ export function MainView({
       setCoverLetter("");
       setOutreachMessage(null);
       setOutreachError(null);
+      setOutreachImproveInstructions("");
       setCleanedNotice(null);
       setTranslations({});
       setActiveTranslationLanguage("");
@@ -401,6 +404,7 @@ export function MainView({
     setCoverLetter("");
     setOutreachMessage(null);
     setOutreachError(null);
+    setOutreachImproveInstructions("");
     setCleanedNotice(null);
     setTranslations({});
     setActiveTranslationLanguage("");
@@ -1146,6 +1150,27 @@ export function MainView({
     }
   }
 
+  async function handleImproveOutreach() {
+    if (!outreachMessage || !outreachImproveInstructions.trim()) return;
+    setImprovingOutreach(true);
+    setOutreachError(null);
+    try {
+      const response = await sendMessage<{ type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }>({
+        type: "REVISE_OUTREACH_MESSAGE",
+        job,
+        subject: outreachMessage.subject,
+        body: outreachMessage.body,
+        instructions: outreachImproveInstructions,
+      });
+      setOutreachMessage({ subject: response.subject, body: response.body });
+      setOutreachImproveInstructions("");
+    } catch (err) {
+      setOutreachError(err instanceof Error ? err.message : "Could not improve the outreach message.");
+    } finally {
+      setImprovingOutreach(false);
+    }
+  }
+
   async function handleCopyOutreachMessage() {
     if (!outreachMessage) return;
     const text = outreachMessage.subject
@@ -1160,13 +1185,13 @@ export function MainView({
     }
   }
 
-  /** `job.contact`'s own shape decides the channel: an email address opens a mailto: draft, anything else (a LinkedIn URL) just opens that link so the user pastes the message in themselves. */
+  /** `job.contact`'s own shape decides the channel: an email address opens a Gmail compose draft, anything else (a LinkedIn URL) just opens that link so the user pastes the message in themselves. */
   function outreachContactHref(contact: string, message: { subject: string | null; body: string }): string {
     if (EMAIL_ADDRESS_RE.test(contact)) {
-      const params = new URLSearchParams();
-      if (message.subject) params.set("subject", message.subject);
-      params.set("body", message.body);
-      return `mailto:${contact}?${params.toString()}`;
+      // Gmail's web composer rather than `mailto:`: a Side Panel link to `mailto:` silently does nothing when no desktop mail client is registered.
+      const params = new URLSearchParams({ view: "cm", fs: "1", to: contact, body: message.body });
+      if (message.subject) params.set("su", message.subject);
+      return `https://mail.google.com/mail/?${params.toString()}`;
     }
     return contact;
   }
@@ -1657,35 +1682,73 @@ export function MainView({
       {outreachError && <p className="text-xs text-destructive">{outreachError}</p>}
 
       {outreachMessage && (
-        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Outreach Message</p>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => void handleCopyOutreachMessage()}>
+        <div className="flex flex-col overflow-hidden rounded-md border border-border">
+          <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5">
+            <p className="text-xs font-medium text-muted-foreground">Outreach message</p>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" onClick={() => void handleCopyOutreachMessage()}>
                 {outreachCopied ? "Copied" : "Copy"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void handleGenerateOutreach()} disabled={generatingOutreach}>
+                {generatingOutreach ? "Drafting…" : "Regenerate"}
               </Button>
               {job.contact && (
                 <a
                   href={outreachContactHref(job.contact, outreachMessage)}
-                  target={EMAIL_ADDRESS_RE.test(job.contact) ? undefined : "_blank"}
-                  rel={EMAIL_ADDRESS_RE.test(job.contact) ? undefined : "noreferrer"}
-                  className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium hover:bg-muted"
                 >
-                  {EMAIL_ADDRESS_RE.test(job.contact) ? "Open in email" : "Open LinkedIn"}
+                  {EMAIL_ADDRESS_RE.test(job.contact) ? "Open in Gmail" : "Open LinkedIn"}
                 </a>
               )}
-              <Button size="sm" variant="outline" onClick={() => void handleGenerateOutreach()} disabled={generatingOutreach}>
-                Regenerate
-              </Button>
             </div>
           </div>
-          {outreachMessage.subject && (
-            <p className="text-sm">
-              <span className="text-muted-foreground">Subject: </span>
-              {outreachMessage.subject}
-            </p>
-          )}
-          <p className="whitespace-pre-wrap text-sm">{outreachMessage.body}</p>
+          <div className="flex flex-col gap-3 px-4 py-4 text-sm leading-relaxed">
+            {outreachMessage.subject !== null && (
+              <input
+                className="w-full border-b border-border bg-transparent pb-2 font-semibold outline-none"
+                aria-label="Subject"
+                placeholder="Subject"
+                value={outreachMessage.subject}
+                onChange={(e) => setOutreachMessage({ ...outreachMessage, subject: e.target.value })}
+              />
+            )}
+            <textarea
+              className="w-full resize-none bg-transparent outline-none"
+              aria-label="Message"
+              value={outreachMessage.body}
+              ref={(el) => {
+                if (el) {
+                  el.style.height = "auto";
+                  el.style.height = `${el.scrollHeight}px`;
+                }
+              }}
+              onChange={(e) => setOutreachMessage({ ...outreachMessage, body: e.target.value })}
+            />
+          </div>
+          <div className="flex items-end gap-2 border-t border-border bg-muted/30 p-2">
+            <textarea
+              rows={1}
+              className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none"
+              placeholder="Ask for changes: 'make it shorter', 'mention my Go experience'…"
+              value={outreachImproveInstructions}
+              onChange={(e) => setOutreachImproveInstructions(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleImproveOutreach();
+                }
+              }}
+            />
+            <Button
+              size="sm"
+              onClick={() => void handleImproveOutreach()}
+              disabled={improvingOutreach || !outreachImproveInstructions.trim()}
+            >
+              {improvingOutreach ? "Improving…" : "Apply"}
+            </Button>
+          </div>
         </div>
       )}
       {!cvMeta && (

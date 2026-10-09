@@ -61,6 +61,7 @@ export type RuntimeMessage =
   | { type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }
   | { type: "GENERATE_OUTREACH_MESSAGE"; tabId: number; job: Job; contact: string; postingLanguage?: string }
   | { type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }
+  | { type: "REVISE_OUTREACH_MESSAGE"; job: Job; subject: string | null; body: string; instructions: string }
   | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
   | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
   | {

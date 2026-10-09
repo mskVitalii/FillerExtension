@@ -17,6 +17,7 @@ import { generateOutreachMessage } from "@/features/openai/outreach-message";
 import { getApplicantContext } from "@/features/profile/context";
 import { extractJobWithAiAndBrief } from "@/features/job-extraction/ai-fallback";
 import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
+import { reviseOutreachMessage } from "@/features/openai/revise-outreach-message";
 import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
 import { answerCustomQuestion } from "@/features/openai/answer-question";
 import { decomposeBlock } from "@/features/openai/decompose-block";
@@ -191,6 +192,15 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         contact: message.contact,
         postingLanguage: message.postingLanguage,
       });
+      return { type: "OUTREACH_MESSAGE_RESULT", subject: result.subject, body: result.body };
+    }
+
+    case "REVISE_OUTREACH_MESSAGE": {
+      const result = await reviseOutreachMessage(
+        { subject: message.subject, body: message.body },
+        message.instructions,
+        message.job,
+      );
       return { type: "OUTREACH_MESSAGE_RESULT", subject: result.subject, body: result.body };
     }
 
