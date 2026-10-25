@@ -17,7 +17,7 @@ const EditorFallback = () => (
 import { EMPTY_JOB, type Job, type JobBrief, type JobKeyword, type JobLanguageInfo } from "@/types/job";
 import type { CustomField, CvMeta, LanguageLevel, Profile } from "@/types/profile";
 import { meetsLevel } from "@/lib/language-level";
-import { sendMessage, type RuntimeMessage } from "@/types/messages";
+import { sendMessage, type MessageOf, type RuntimeMessage } from "@/types/messages";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { formatProfileValueForDisplay } from "@/features/profile/format-value";
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
@@ -486,7 +486,7 @@ export function MainView({
     const timeout = setTimeout(() => {
       setTranslatingLanguages(new Set(languages));
       for (const language of languages) {
-        sendMessage<{ type: "TRANSLATE_COVER_LETTER_RESULT"; content: string }>({
+        sendMessage<MessageOf<"TRANSLATE_COVER_LETTER_RESULT">>({
           type: "TRANSLATE_COVER_LETTER",
           content: coverLetter,
           targetLanguage: language,
@@ -1040,7 +1040,7 @@ export function MainView({
     setImproving(true);
     setError(null);
     try {
-      const response = await sendMessage<{ type: "REVISE_COVER_LETTER_RESULT"; content: string }>({
+      const response = await sendMessage<MessageOf<"REVISE_COVER_LETTER_RESULT">>({
         type: "REVISE_COVER_LETTER",
         job,
         content: coverLetter,
@@ -1106,12 +1106,7 @@ export function MainView({
     setCleanedNotice(null);
     setCoverLetter("");
     try {
-      const response = await sendMessage<{
-        type: "COVER_LETTER_RESULT";
-        content: string;
-        slopFindings: { pattern: string; match: string }[];
-        cleaned: boolean;
-      }>({ type: "GENERATE_COVER_LETTER", tabId, job, postingLanguage: jobLanguage?.postingLanguages[0] });
+      const response = await sendMessage<MessageOf<"COVER_LETTER_RESULT">>({ type: "GENERATE_COVER_LETTER", tabId, job, postingLanguage: jobLanguage?.postingLanguages[0] });
       setCoverLetter(response.content);
       if (job.url) void recordUrlActivation(job.url);
       if (response.cleaned) {
@@ -1135,7 +1130,7 @@ export function MainView({
     setGeneratingOutreach(true);
     setOutreachError(null);
     try {
-      const response = await sendMessage<{ type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }>({
+      const response = await sendMessage<MessageOf<"OUTREACH_MESSAGE_RESULT">>({
         type: "GENERATE_OUTREACH_MESSAGE",
         tabId,
         job,
@@ -1155,7 +1150,7 @@ export function MainView({
     setImprovingOutreach(true);
     setOutreachError(null);
     try {
-      const response = await sendMessage<{ type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }>({
+      const response = await sendMessage<MessageOf<"OUTREACH_MESSAGE_RESULT">>({
         type: "REVISE_OUTREACH_MESSAGE",
         job,
         subject: outreachMessage.subject,
@@ -1237,7 +1232,7 @@ export function MainView({
     try {
       const file = await renderCoverLetterPdf(coverLetter, `Cover Letter - ${job.company || "application"}.pdf`);
       const base64Data = await fileToBase64(file);
-      const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
+      const response = await sendMessage<MessageOf<"UPLOAD_FILE_RESULT">>({
         type: "UPLOAD_FILE",
         tabId,
         kind: "coverLetter",
@@ -1288,7 +1283,7 @@ export function MainView({
         setAdaptStatus(note);
         return;
       }
-      const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
+      const response = await sendMessage<MessageOf<"UPLOAD_FILE_RESULT">>({
         type: "UPLOAD_FILE",
         tabId,
         kind: "cv",
@@ -1319,7 +1314,7 @@ export function MainView({
       return;
     }
     const base64Data = await fileToBase64(file);
-    const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
+    const response = await sendMessage<MessageOf<"UPLOAD_FILE_RESULT">>({
       type: "UPLOAD_FILE",
       tabId,
       kind: "cv",

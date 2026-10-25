@@ -1,7 +1,7 @@
 import type { Job } from "@/types/job";
 import type { CvMeta, Profile } from "@/types/profile";
-import type { CvTemplate, CvValueSuggestion } from "@/types/cv-template";
-import { sendMessage } from "@/types/messages";
+import type { CvTemplate } from "@/types/cv-template";
+import { sendMessage, type MessageOf } from "@/types/messages";
 import { getCvAdaptState, setCvAdaptState, type CvAdaptEntry } from "@/features/storage/session";
 import { getCvFile } from "@/features/profile/repository";
 import { saveAdaptedCv } from "@/features/applications/repository";
@@ -44,7 +44,7 @@ export function resolveValues(template: CvTemplate, job: Job, values: Record<str
 
 /** AI picks every placeholder's value for `job`, merged over `entry` (a hand-picked value is replaced too — this is an explicit re-suggest). */
 export async function suggestEntry(job: Job, template: CvTemplate, entry: CvAdaptEntry): Promise<CvAdaptEntry> {
-  const response = await sendMessage<{ type: "CV_VALUES"; values: CvValueSuggestion[] }>({
+  const response = await sendMessage<MessageOf<"CV_VALUES">>({
     type: "SUGGEST_CV_VALUES",
     job,
     template,

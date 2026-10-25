@@ -1,3 +1,4 @@
+import type { RuntimeMessage } from "@/types/messages";
 import { buildLocator } from "@/features/autofill/element-locator";
 
 /**
@@ -63,7 +64,7 @@ export function initFileDropCatcher(): void {
 
       const target = nearestFileTarget(event.target);
       const locator = target ? buildLocator(target, "") : null;
-      void chrome.runtime.sendMessage({ type: "ATTACH_FILE_AT", kind, locator });
+      void chrome.runtime.sendMessage({ type: "ATTACH_FILE_AT", kind, locator } satisfies RuntimeMessage);
     },
     true,
   );
