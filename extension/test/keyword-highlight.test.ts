@@ -92,3 +92,38 @@ describe("keyword highlighting", () => {
     vi.useRealTimers();
   });
 });
+
+describe("keyword highlighting: whole words only", () => {
+  afterEach(() => {
+    clearKeywordHighlights();
+    document.body.innerHTML = "";
+  });
+
+  const highlighted = () => [...document.querySelectorAll(".filler-keyword-highlight")].map((el) => el.textContent);
+
+  it("doesn't highlight a keyword inside a longer word", () => {
+    document.body.innerHTML = "<p>At Google we use JavaScript, Go and Java; let's go.</p>";
+    highlightKeywords([kw("Go", true), kw("Java", false)]);
+    expect(highlighted()).toEqual(["Go", "Java"]);
+  });
+
+  it("highlights C++, C#, .NET, Node.js and CI/CD as whole tokens", () => {
+    document.body.innerHTML = "<p>C++ or C#, ASP.NET or .NET, Node.js, CI/CD.</p>";
+    highlightKeywords([kw("C++", true), kw("C#", true), kw(".NET", true), kw("Node", true), kw("CI/CD", false)]);
+    expect(highlighted()).toEqual(["C++", "C#", ".NET", "CI/CD"]);
+  });
+
+  it("works on Cyrillic text", () => {
+    document.body.innerHTML = "<p>Тестирование, тест-дизайн и ответственность.</p>";
+    highlightKeywords([kw("тест", true), kw("Ответственность", true)]);
+    expect(highlighted()).toEqual(["тест", "ответственность"]);
+  });
+
+  it("colors each match by its own keyword", () => {
+    document.body.innerHTML = "<p>Go and Rust</p>";
+    highlightKeywords([kw("Go", true), kw("Rust", false)]);
+    const [go, rust] = document.querySelectorAll(".filler-keyword-highlight");
+    expect(go?.classList.contains("filler-keyword-highlight--match")).toBe(true);
+    expect(rust?.classList.contains("filler-keyword-highlight--gap")).toBe(true);
+  });
+});

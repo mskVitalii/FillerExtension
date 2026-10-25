@@ -3,6 +3,8 @@ import type { CvTemplate, CvValueSuggestion, CvVariable } from "@/types/cv-templ
 import { getApplicantContext } from "@/features/profile/context";
 import { defaultValue, extractVariableNames, findOptionsInPosting } from "@/features/cv-template/template";
 import { getSupportModel, requestStructured } from "./client";
+import { isSkillListVariable } from "@/features/cv-template/defaults";
+import { filterKeywordList } from "@/features/keywords/filter";
 import { stripEmDashes } from "./house-style";
 
 const SCHEMA = {
@@ -63,7 +65,8 @@ function snapToOption(value: string, variable: CvVariable): string | null {
  * Picks every placeholder's value for `job` in one call (the support-model
  * tier — this is structured selection, not prose). A `choice` answer that
  * doesn't match an option falls back to the offline heuristic instead of
- * leaking an invented variant into the PDF.
+ * leaking an invented variant into the PDF, and a skill list like
+ * {{keywords}} loses any company/location/generic-word junk.
  */
 export async function suggestCvValues(job: Job, template: CvTemplate): Promise<CvValueSuggestion[]> {
   const usedNames = new Set(extractVariableNames(template.content));
@@ -114,6 +117,11 @@ export async function suggestCvValues(job: Job, template: CvTemplate): Promise<C
       if (!snapped) return { name: variable.name, value: defaultValue(variable, job), reason: "" };
       return { name: variable.name, value: snapped, reason: stripEmDashes(answer.reason) };
     }
-    return { name: variable.name, value: stripEmDashes(answer.value), reason: stripEmDashes(answer.reason) };
+    const value = stripEmDashes(answer.value);
+    return {
+      name: variable.name,
+      value: isSkillListVariable(variable.name) ? filterKeywordList(value, job) : value,
+      reason: stripEmDashes(answer.reason),
+    };
   });
 }

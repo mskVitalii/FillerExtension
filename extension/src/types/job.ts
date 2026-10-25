@@ -16,9 +16,13 @@ export interface JobLanguageInfo {
 /** A notable keyword/phrase extracted from a posting (spec_8 item 2), classified against the
  * applicant's own profile/CV/Personal Legend so the Side Panel list and the on-page highlight
  * can distinguish a skill the applicant already has from a gap in the posting's ask. */
+export type KeywordKind = "hard" | "soft";
+
 export interface JobKeyword {
   /** Copied verbatim from the posting text — the extension re-finds this exact string on the page. */
   text: string;
+  /** A hard (technical) or soft skill — absent on the recruiter contact MainView appends for highlighting. */
+  kind?: KeywordKind;
   /** True when the applicant's profile/CV/Personal Legend shows they already have/use/meet this. */
   matchesProfile: boolean;
 }

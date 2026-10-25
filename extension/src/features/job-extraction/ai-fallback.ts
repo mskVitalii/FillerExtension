@@ -2,6 +2,8 @@ import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "@/types/job";
 import { CEFR_LEVELS } from "@/lib/language-level";
 import { getApplicantContext } from "@/features/profile/context";
 import { getExtractionModel, requestStructured } from "@/features/openai/client";
+import { KEYWORDS_SCHEMA, keywordRules } from "@/features/keywords/prompt";
+import { filterJobKeywords } from "@/features/keywords/filter";
 
 const SCHEMA = {
   type: "object",
@@ -43,18 +45,7 @@ const SCHEMA = {
         },
       },
     },
-    keywords: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["text", "matchesProfile"],
-        properties: {
-          text: { type: "string" },
-          matchesProfile: { type: "boolean" },
-        },
-      },
-    },
+    keywords: KEYWORDS_SCHEMA,
   },
 } as const;
 
@@ -76,24 +67,7 @@ LANGUAGE
   can be reasonably inferred, set level to null. Do not invent a requirement that isn't stated in
   the text. If nothing is stated, return an empty array.
 
-KEYWORDS
-- Pick the notable keywords/key phrases out of the posting — the skills, tools, technologies,
-  qualifications, and requirements a candidate would want to notice at a glance.
-- Every keyword's "text" MUST be copied VERBATIM from "pageText" — the exact same characters and
-  casing, not a paraphrase, synonym, or translation — because the extension re-finds this exact
-  text on the page to highlight it. A keyword that doesn't appear verbatim in the text is useless.
-- Prefer short phrases: single words or 2-3 word phrases (e.g. "TypeScript", "Kubernetes",
-  "5+ years", "product management", "Bachelor's degree") — not full sentences.
-- Pick 8-15 of the most important ones. Skip generic filler ("team player", "fast-paced
-  environment") unless the posting has almost nothing more specific.
-- No duplicates, and no two keywords where one is a substring of the other (keep the more
-  specific/longer one).
-- Set "matchesProfile" to true when the applicant's profile/cvText/personalLegend shows they
-  already have, use, or meet that skill/tool/technology/qualification — false when the posting
-  asks for it but nothing in the applicant's material supports it. Judge substance, not exact
-  wording (e.g. "Kubernetes" counts as a match if the CV mentions "container orchestration with
-  K8s" or "EKS"). When genuinely unsure, set it to false — this flags a possible gap for the
-  applicant to address rather than silently hiding it.`;
+${keywordRules('"pageText"')}`;
 
 interface RawResult {
   company: string;
@@ -162,7 +136,7 @@ export async function extractJobWithAiAndBrief(
   };
   const brief: JobBrief = {
     language: { postingLanguages: result.postingLanguages, requirements: result.languageRequirements },
-    keywords: result.keywords,
+    keywords: filterJobKeywords(result.keywords, job),
     // The extraction above already had its one shot at `contact` — nothing further to add.
     contact: null,
   };

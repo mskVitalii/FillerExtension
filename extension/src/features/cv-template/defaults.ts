@@ -16,6 +16,8 @@ interface KnownVariable {
   description: string;
   mode: CvVariable["mode"];
   fromJob?: (job: Job) => string;
+  /** A list of skills — the AI's value goes through the keyword junk filter. */
+  skillList?: true;
 }
 
 /** "Munich, Bavaria, Germany (Hybrid)" → parts without work-mode noise. */
@@ -78,8 +80,9 @@ export const KNOWN_VARIABLES: KnownVariable[] = [
   {
     names: ["keywords", "skills", "tech_stack", "stack"],
     description:
-      "4 to 8 comma-separated technologies and skills the posting asks for that the applicant's CV or Personal Legend actually backs up, most important first.",
+      "4 to 8 comma-separated hard or soft skills (technologies, tools, methods, interpersonal skills) the posting asks for that the applicant's CV or Personal Legend actually backs up, most important first. Never the company, a location, a benefit, a job title or a generic word like \"team\" or \"experience\".",
     mode: "free",
+    skillList: true,
   },
   {
     names: ["headline", "summary_title"],
@@ -97,6 +100,11 @@ function known(name: string): KnownVariable | undefined {
 export function initialVariable(name: string): CvVariable {
   const match = known(name);
   return { name, description: match?.description ?? "", options: [], mode: match?.mode ?? "choice" };
+}
+
+/** Whether a placeholder holds a list of skills, like {{keywords}}. */
+export function isSkillListVariable(name: string): boolean {
+  return known(name)?.skillList === true;
 }
 
 /** A value read straight off the posting for a known placeholder (city, job title, company…), or "". */
