@@ -2,16 +2,63 @@ import { getOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
+const MODELS_URL = "https://api.openai.com/v1/models";
 
-/** High-quality model — used for text that goes straight into the application (spec_2 item 4). */
-export const MODEL_TERRA = "gpt-5.6-terra";
+// OpenAI's current text models (developers.openai.com/api/docs/models, Oct 2026). All three
+// support the Responses API with `text.format: json_schema`.
+
+/** High-quality model — used for text that goes straight into the application (spec_2 item 4): near-Astra quality at a fifth of its price. */
+export const MODEL_TERRA = "gpt-6.1-sol";
 /** Smaller/faster model — used for support tasks (analysis, translation) where latency matters more than nuance. */
-export const MODEL_LUNA = "gpt-5.6-luna";
-export const MODEL_SOL = "gpt-5.6-sol";
-export const MODEL_ASTRA = "gpt-5.6-astra";
+export const MODEL_LUNA = "gpt-6-luna";
+/** Flagship — strongest and most expensive; offered in Settings, never a default. */
+export const MODEL_ASTRA = "gpt-6-astra";
 
-export const AVAILABLE_MODELS = [MODEL_TERRA, MODEL_LUNA, MODEL_SOL, MODEL_ASTRA] as const;
-export type AiModel = (typeof AVAILABLE_MODELS)[number];
+/** Curated list for the Settings selectors, and the fallback when `GET /v1/models` can't be reached. */
+export const AVAILABLE_MODELS = [MODEL_TERRA, MODEL_LUNA, MODEL_ASTRA] as const;
+
+const NON_TEXT_MODEL = /realtime|audio|tts|transcribe|whisper|image|live|cyber|search|embedding|codex/;
+
+/**
+ * Whether `id` is a model this extension can call: a curated one, or a newer GPT-6+ general text
+ * model (`gpt-6.2-luna`, …) that `/v1/models` lists. Dated snapshots and specialized variants
+ * (realtime, audio, image, transcription, cyber) don't count. Neither does an id saved by an
+ * older version of the extension (the retired `gpt-5.6-*` ones), so such a stale preference falls
+ * back to the tier default instead of failing every request.
+ */
+export function isSupportedModel(id: string): boolean {
+  if ((AVAILABLE_MODELS as readonly string[]).includes(id)) return true;
+  const match = /^gpt-(\d+)(?:\.\d+)?-[a-z]+$/.exec(id);
+  return !!match && Number(match[1]) >= 6 && !NON_TEXT_MODEL.test(id);
+}
+
+/** The user's choice for a tier when it's still a supported model, otherwise the tier default. */
+export function resolveModel(chosen: string, fallback: string): string {
+  return chosen && isSupportedModel(chosen) ? chosen : fallback;
+}
+
+/**
+ * Models for the Settings selectors: `GET /v1/models` with the user's key, narrowed by
+ * `isSupportedModel`, so the list follows what that key can actually use (curated models first).
+ * Falls back to `AVAILABLE_MODELS` without a key or when the call fails.
+ */
+export async function listAvailableModels(): Promise<string[]> {
+  const fallback: string[] = [...AVAILABLE_MODELS];
+  const apiKey = await getOpenAiApiKey();
+  if (!apiKey) return fallback;
+  try {
+    const res = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) return fallback;
+    const data = (await res.json()) as { data?: { id: string }[] };
+    const ids = (data.data ?? []).map((model) => model.id).filter(isSupportedModel);
+    if (ids.length === 0) return fallback;
+    const curated = fallback.filter((id) => ids.includes(id));
+    const newer = ids.filter((id) => !curated.includes(id)).sort();
+    return [...curated, ...newer];
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Resolves which model each tier actually calls, honoring the user's choice
@@ -21,30 +68,30 @@ export type AiModel = (typeof AVAILABLE_MODELS)[number];
  */
 export async function getCoverLetterModel(): Promise<string> {
   const prefs = await getPreferences();
-  return prefs.coverLetterModel || MODEL_TERRA;
+  return resolveModel(prefs.coverLetterModel, MODEL_TERRA);
 }
 
 /** Job-posting extraction from raw page/pasted text (`features/job-extraction/ai-fallback.ts`). */
 export async function getExtractionModel(): Promise<string> {
   const prefs = await getPreferences();
-  return prefs.extractionModel || MODEL_LUNA;
+  return resolveModel(prefs.extractionModel, MODEL_LUNA);
 }
 
 /** Analysis of an already-extracted job posting (`job-analysis.ts`, `analyze-job-brief.ts`). */
 export async function getJobAnalysisModel(): Promise<string> {
   const prefs = await getPreferences();
-  return prefs.jobAnalysisModel || MODEL_LUNA;
+  return resolveModel(prefs.jobAnalysisModel, MODEL_LUNA);
 }
 
 export async function getSupportModel(): Promise<string> {
   const prefs = await getPreferences();
-  return prefs.supportModel || MODEL_LUNA;
+  return resolveModel(prefs.supportModel, MODEL_LUNA);
 }
 
 /** Outreach message to a recruiter/hiring contact (`features/openai/outreach-message.ts`) — goes straight out to a real person, same stakes as a cover letter. */
 export async function getOutreachModel(): Promise<string> {
   const prefs = await getPreferences();
-  return prefs.outreachModel || MODEL_TERRA;
+  return resolveModel(prefs.outreachModel, MODEL_TERRA);
 }
 
 export class OpenAiError extends Error {
