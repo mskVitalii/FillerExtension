@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Embedded application form</title>
+    <style>
+      body { font-family: sans-serif; margin: 12px; display: flex; flex-direction: column; gap: 10px; }
+      label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+      input, textarea { padding: 6px 8px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <!-- Loaded in an iframe by autofill-test.html (same-origin and cross-origin) to stand in for an embedded ATS form. -->
+    <p style="font-size: 12px; margin: 0">Embedded form · <span id="origin"></span></p>
+    <label>First name <input name="first_name" autocomplete="given-name" /></label>
+    <label>Email <input type="email" name="email" autocomplete="email" /></label>
+    <label>Why do you want to work with us? <textarea name="why_us" rows="3"></textarea></label>
+    <div>
+      <p>Tell us about a project you are proud of.</p>
+      <textarea name="proud_project" rows="3" placeholder="Type your answer here..."></textarea>
+    </div>
+    <script>
+      document.getElementById("origin").textContent = location.origin;
+    </script>
+  </body>
+</html>

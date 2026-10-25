@@ -1,3 +1,6 @@
+import { afterEach } from "vitest";
+import { stopFillGuards } from "@/features/autofill/refill-guard";
+
 /**
  * jsdom does no real layout, so every element's `offsetParent` is always
  * `null` — the "is this field actually visible" checks scattered across the
@@ -88,3 +91,8 @@ if (typeof globalThis.DragEvent === "undefined") {
 // behavior under test is correct either way. Stub it directly so test
 // output isn't full of that noise.
 document.execCommand = () => false;
+
+// The refill guard (`refill-guard.ts`) keeps watching the document for a few
+// seconds after every fill. Stop it between tests, or a guard left running
+// by one test would "refill" fields of the next test's freshly loaded fixture.
+afterEach(() => stopFillGuards());

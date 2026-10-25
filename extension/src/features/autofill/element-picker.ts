@@ -1,4 +1,7 @@
 import { decomposeContainer, type PickedField } from "./pick-questions";
+import { mountOverlayHost } from "./overlay-host";
+import { highlightFields } from "./field-highlight";
+import { resolveLocator } from "./element-locator";
 
 const FIELD_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 
@@ -9,8 +12,9 @@ const FIELD_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role
  * the user drops into this mode, hovers the block, and clicks it — we then
  * split it into fields + questions exactly as the auto scan would have.
  *
- * The overlay lives in a shadow root attached to `<html>` so the page's CSS
- * can't restyle it and its own keyframes can't leak onto the page. It runs
+ * The overlay lives in a shadow root on a top-layer host (`overlay-host.ts`)
+ * so the page's CSS, z-index, transforms and modal dialogs can't hide or
+ * shift it, and its own keyframes can't leak onto the page. It runs
  * per-frame: `background/router.ts` starts it in every frame and the first
  * frame to report a pick wins (the block is often inside an ATS iframe).
  */
@@ -80,6 +84,15 @@ const STYLE = `
   }
 `;
 
+/** Outlines what a pick just took, so a successful click is visible on the page. */
+function showPicked(picked: PickedField[]): void {
+  const targets = picked.flatMap((p) => {
+    const el = resolveLocator(p.locator);
+    return el ? [{ el, label: p.question.slice(0, 80), locate: () => resolveLocator(p.locator) }] : [];
+  });
+  highlightFields(targets);
+}
+
 export function startElementPicker(): Promise<PickerOutcome> {
   cancelActivePicker();
 
@@ -97,28 +110,15 @@ export function startElementPicker(): Promise<PickerOutcome> {
 }
 
 function runPicker(resolve: (outcome: PickerOutcome) => void): void {
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;";
-  const shadow = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = STYLE;
+  const overlay = mountOverlayHost(STYLE);
+  const { host, shadow } = overlay;
   const box = document.createElement("div");
   box.className = "box";
   box.hidden = true;
   const chip = document.createElement("div");
   chip.className = "chip";
   chip.hidden = true;
-  shadow.append(style, box, chip);
-  // A native <dialog> shown via showModal() (LinkedIn's Easy Apply modal
-  // included) is promoted to the browser's top layer, which paints above
-  // *everything* outside it regardless of z-index — an overlay appended to
-  // <html> would render invisibly behind it. `:modal` matches whichever
-  // element currently owns the top layer, so mounting there (last child,
-  // so it still paints above the dialog's own content) keeps the glow box
-  // and hover chip visible. `pointer-events: none` on the host means this
-  // never changes what a click actually hits.
-  const modalHost = document.querySelector(":modal");
-  (modalHost instanceof HTMLElement ? modalHost : document.documentElement).appendChild(host);
+  shadow.append(box, chip);
 
   let current: HTMLElement | null = null;
   let done = false;
@@ -135,6 +135,25 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
     box.style.left = `${r.left}px`;
     box.style.width = `${r.width}px`;
     box.style.height = `${r.height}px`;
+
+    // The pointer is over an iframe: from here on its own document gets the
+    // mouse events, so this frame can't see what's under the pointer. When
+    // Filler runs in that frame, its own picker draws there; when it can't
+    // (a cross-origin embed without access), say so instead of showing
+    // nothing at all.
+    if (current instanceof HTMLIFrameElement) {
+      let frameHost = "";
+      try {
+        frameHost = new URL(current.src, location.href).host;
+      } catch {
+        /* srcdoc / about:blank */
+      }
+      chip.hidden = false;
+      chip.textContent = `embedded form${frameHost ? ` · ${frameHost}` : ""} · pick inside it · if nothing highlights there, allow access in the side panel`;
+      chip.style.top = `${Math.max(r.top, 22)}px`;
+      chip.style.left = `${Math.max(r.left, 4)}px`;
+      return;
+    }
 
     // Cheap approximate count for the hover chip — the accurate
     // shadow-piercing pass runs once, at pick time, in decomposeContainer.
@@ -165,6 +184,16 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
     paint();
   });
 
+  // Entering an iframe fires `mouseover` on the <iframe> element here, then
+  // every further move goes to the iframe's own document — so this is the
+  // only chance to paint the frame's outline and explain it (see `paint`).
+  const onOver = guard((e: MouseEvent) => {
+    if (e.target instanceof HTMLIFrameElement) {
+      current = e.target;
+      paint();
+    }
+  });
+
   const swallow = (e: Event) => {
     e.stopImmediatePropagation();
   };
@@ -180,6 +209,7 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
     try {
       const { picked, blockText, semanticCount } = decomposeContainer(el);
       finish({ cancelled: false, picked, blockText, semanticCount });
+      showPicked(picked);
     } catch {
       // Decompose blew up on this block (exotic shadow DOM, a getter that
       // throws). Don't wedge the loop — end this pick cleanly; the user can
@@ -227,13 +257,14 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
     if (activeCancel === cancel) activeCancel = null;
     try {
       document.removeEventListener("mousemove", onMove, true);
+      document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("mousedown", swallow, true);
       document.removeEventListener("pointerdown", swallow, true);
       document.removeEventListener("click", onClick, true);
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition, true);
-      host.remove();
+      overlay.remove();
     } catch {
       /* best-effort cleanup — the Promise still resolves either way */
     }
@@ -245,6 +276,7 @@ function runPicker(resolve: (outcome: PickerOutcome) => void): void {
 
   activeCancel = cancel;
   document.addEventListener("mousemove", onMove, true);
+  document.addEventListener("mouseover", onOver, true);
   document.addEventListener("mousedown", swallow, true);
   document.addEventListener("pointerdown", swallow, true);
   document.addEventListener("click", onClick, true);
