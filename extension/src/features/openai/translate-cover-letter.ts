@@ -1,14 +1,6 @@
 import { requestStructured } from "./client";
 import { stripEmDashes } from "./house-style";
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["content"],
-  properties: {
-    content: { type: "string" },
-  },
-} as const;
+import { CONTENT_SCHEMA, type ContentResult } from "./schemas";
 
 const SYSTEM_PROMPT = `You translate a cover letter for the applicant's own understanding —
 not for submission. Translate faithfully, preserve paragraph breaks, and keep
@@ -25,12 +17,12 @@ prose paragraphs, no markdown headers, no notes about the translation itself.`;
 export async function translateCoverLetter(content: string, targetLanguage: string): Promise<string> {
   const userPrompt = JSON.stringify({ content, targetLanguage }, null, 2);
 
-  const result = await requestStructured<{ content: string }>({
+  const result = await requestStructured<ContentResult>({
     schemaName: "cover_letter_translation",
-    schema: SCHEMA,
+    schema: CONTENT_SCHEMA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    parse: (raw) => JSON.parse(raw) as { content: string },
+    parse: (raw) => JSON.parse(raw) as ContentResult,
   });
 
   return stripEmDashes(result.content);
