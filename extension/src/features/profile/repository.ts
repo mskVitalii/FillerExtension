@@ -13,6 +13,7 @@ import {
   type Profile,
 } from "@/types/profile";
 import { getLocal, setLocal } from "@/features/storage/local";
+import { readCachedJson, readCachedText, writeCachedJson, writeCachedText } from "@/features/storage/drive-cache";
 import * as drive from "@/features/google-drive/client";
 import { extractPdfText } from "@/lib/pdf-text";
 import { isLatexFile } from "@/features/cv-template/latex";
@@ -51,8 +52,7 @@ function legendFileName(id: string): string {
 }
 
 async function saveLegendLibrary(library: LegendLibrary): Promise<void> {
-  await setLocal("legendLibraryCache", library);
-  await drive.writeJsonFile("legendLibrary.json", library);
+  await writeCachedJson("legendLibraryCache", "legendLibrary.json", library);
 }
 
 /**
@@ -81,17 +81,9 @@ async function migrateLegacyLegend(): Promise<LegendLibrary> {
 }
 
 export async function getLegendLibrary(): Promise<LegendLibrary> {
-  const cached = await getLocal("legendLibraryCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<LegendLibrary>("legendLibrary.json");
-    if (remote) {
-      await setLocal("legendLibraryCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to the legacy migration/empty library.
-  }
+  const stored = await readCachedJson("legendLibraryCache", "legendLibrary.json");
+  if (stored) return stored;
+  // Not stored yet (or Google not connected) — fall through to the legacy migration/empty library.
   const migrated = await migrateLegacyLegend();
   await saveLegendLibrary(migrated);
   return migrated;
@@ -168,8 +160,7 @@ async function writeCompiledCv(id: string, pdf: File | null | undefined): Promis
 }
 
 async function saveCvLibrary(library: CvLibrary): Promise<void> {
-  await setLocal("cvLibraryCache", library);
-  await drive.writeJsonFile("cvLibrary.json", library);
+  await writeCachedJson("cvLibraryCache", "cvLibrary.json", library);
 }
 
 /**
@@ -196,17 +187,9 @@ async function migrateLegacyCv(): Promise<CvLibrary> {
 }
 
 export async function getCvLibrary(): Promise<CvLibrary> {
-  const cached = await getLocal("cvLibraryCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<CvLibrary>("cvLibrary.json");
-    if (remote) {
-      await setLocal("cvLibraryCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to the legacy migration/empty library.
-  }
+  const stored = await readCachedJson("cvLibraryCache", "cvLibrary.json");
+  if (stored) return stored;
+  // Not stored yet (or Google not connected) — fall through to the legacy migration/empty library.
   const migrated = await migrateLegacyCv();
   await saveCvLibrary(migrated);
   return migrated;
@@ -312,23 +295,11 @@ export async function deleteCv(id: string): Promise<void> {
  * but stored separately since they're drag-only and never fed into autofill.
  */
 export async function getCustomFields(): Promise<CustomField[]> {
-  const cached = await getLocal("customFieldsCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<CustomField[]>("customFields.json");
-    if (remote) {
-      await setLocal("customFieldsCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to empty list.
-  }
-  return [];
+  return (await readCachedJson("customFieldsCache", "customFields.json")) ?? [];
 }
 
 export async function saveCustomFields(fields: CustomField[]): Promise<void> {
-  await setLocal("customFieldsCache", fields);
-  await drive.writeJsonFile("customFields.json", fields);
+  await writeCachedJson("customFieldsCache", "customFields.json", fields);
 }
 
 /**
@@ -336,23 +307,11 @@ export async function saveCustomFields(fields: CustomField[]): Promise<void> {
  * Custom Fields, compared against a posting's detected language requirements.
  */
 export async function getLanguageLevels(): Promise<LanguageLevel[]> {
-  const cached = await getLocal("languageLevelsCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<LanguageLevel[]>("languageLevels.json");
-    if (remote) {
-      await setLocal("languageLevelsCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to empty list.
-  }
-  return [];
+  return (await readCachedJson("languageLevelsCache", "languageLevels.json")) ?? [];
 }
 
 export async function saveLanguageLevels(levels: LanguageLevel[]): Promise<void> {
-  await setLocal("languageLevelsCache", levels);
-  await drive.writeJsonFile("languageLevels.json", levels);
+  await writeCachedJson("languageLevelsCache", "languageLevels.json", levels);
 }
 
 /**
@@ -360,23 +319,11 @@ export async function saveLanguageLevels(levels: LanguageLevel[]): Promise<void>
  * pattern as Custom Fields / Language Levels.
  */
 export async function getFaqAnswers(): Promise<FaqEntry[]> {
-  const cached = await getLocal("faqAnswersCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<FaqEntry[]>("faq.json");
-    if (remote) {
-      await setLocal("faqAnswersCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to empty list.
-  }
-  return [];
+  return (await readCachedJson("faqAnswersCache", "faq.json")) ?? [];
 }
 
 export async function saveFaqAnswers(entries: FaqEntry[]): Promise<void> {
-  await setLocal("faqAnswersCache", entries);
-  await drive.writeJsonFile("faq.json", entries);
+  await writeCachedJson("faqAnswersCache", "faq.json", entries);
 }
 
 /**
@@ -385,25 +332,11 @@ export async function saveFaqAnswers(entries: FaqEntry[]): Promise<void> {
  * Candidate Summary.
  */
 export async function getGenerationRules(): Promise<GenerationRules | null> {
-  const cached = await getLocal("generationRulesCache");
-  if (cached) return cached;
-  try {
-    const content = await drive.readTextFile("generationRules.md");
-    if (content !== null) {
-      const rules: GenerationRules = { content, updatedAt: new Date().toISOString() };
-      await setLocal("generationRulesCache", rules);
-      return rules;
-    }
-  } catch {
-    // Google not connected yet.
-  }
-  return null;
+  return readCachedText("generationRulesCache", "generationRules.md");
 }
 
 export async function saveGenerationRules(content: string): Promise<void> {
-  const rules: GenerationRules = { content, updatedAt: new Date().toISOString() };
-  await setLocal("generationRulesCache", rules);
-  await drive.writeTextFile("generationRules.md", content);
+  await writeCachedText("generationRulesCache", "generationRules.md", content);
 }
 
 /**
@@ -412,23 +345,9 @@ export async function saveGenerationRules(content: string): Promise<void> {
  * own Drive file so it can be edited independently.
  */
 export async function getOutreachRules(): Promise<OutreachRules | null> {
-  const cached = await getLocal("outreachRulesCache");
-  if (cached) return cached;
-  try {
-    const content = await drive.readTextFile("outreachRules.md");
-    if (content !== null) {
-      const rules: OutreachRules = { content, updatedAt: new Date().toISOString() };
-      await setLocal("outreachRulesCache", rules);
-      return rules;
-    }
-  } catch {
-    // Google not connected yet.
-  }
-  return null;
+  return readCachedText("outreachRulesCache", "outreachRules.md");
 }
 
 export async function saveOutreachRules(content: string): Promise<void> {
-  const rules: OutreachRules = { content, updatedAt: new Date().toISOString() };
-  await setLocal("outreachRulesCache", rules);
-  await drive.writeTextFile("outreachRules.md", content);
+  await writeCachedText("outreachRulesCache", "outreachRules.md", content);
 }

@@ -1,7 +1,6 @@
 import type { CvTemplate, CvTemplateFormat, CvTemplateLibrary } from "@/types/cv-template";
 import type { CvMeta } from "@/types/profile";
-import { getLocal, setLocal } from "@/features/storage/local";
-import * as drive from "@/features/google-drive/client";
+import { readCachedJson, writeCachedJson } from "@/features/storage/drive-cache";
 import { isDocxFile } from "@/lib/cv-text";
 import { isLatexFile } from "./latex";
 import { normalizePlaceholders, syncVariables } from "./template";
@@ -22,18 +21,7 @@ export function cvFormat(cv: Pick<CvMeta, "fileName" | "mimeType">): CvTemplateF
 
 /** Same cache-then-Drive pattern as the profile repository: local cache first, Drive `cvTemplates.json` as source of truth. */
 export async function getCvTemplates(): Promise<CvTemplateLibrary> {
-  const cached = await getLocal("cvTemplatesCache");
-  if (cached) return cached;
-  try {
-    const remote = await drive.readJsonFile<CvTemplateLibrary>("cvTemplates.json");
-    if (remote) {
-      await setLocal("cvTemplatesCache", remote);
-      return remote;
-    }
-  } catch {
-    // Google not connected yet — fall through to no templates.
-  }
-  return {};
+  return (await readCachedJson("cvTemplatesCache", "cvTemplates.json")) ?? {};
 }
 
 /**
@@ -67,7 +55,6 @@ export async function saveCvTemplate(
   const library = await getCvTemplates();
   const next: CvTemplateLibrary = { [cvId]: saved };
   for (const id of liveCvIds) if (id !== cvId && library[id]) next[id] = library[id];
-  await setLocal("cvTemplatesCache", next);
-  await drive.writeJsonFile("cvTemplates.json", next);
+  await writeCachedJson("cvTemplatesCache", "cvTemplates.json", next);
   return saved;
 }
