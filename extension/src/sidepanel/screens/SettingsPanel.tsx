@@ -37,7 +37,13 @@ import {
 } from "@/features/profile/repository";
 import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { disconnectGoogle } from "@/features/google-drive/auth";
-import { AVAILABLE_MODELS, MODEL_LUNA, MODEL_TERRA } from "@/features/openai/client";
+import {
+  AVAILABLE_MODELS,
+  MODEL_LUNA,
+  MODEL_TERRA,
+  listAvailableModels,
+  resolveModel,
+} from "@/features/openai/client";
 import {
   deleteOpenAiApiKey,
   getJobSearchCredentials,
@@ -124,6 +130,7 @@ export function SettingsPanel({
   const [jobAnalysisModel, setJobAnalysisModel] = useState<string>(MODEL_LUNA);
   const [supportModel, setSupportModel] = useState<string>(MODEL_LUNA);
   const [outreachModel, setOutreachModel] = useState<string>(MODEL_TERRA);
+  const [modelOptions, setModelOptions] = useState<string[]>([...AVAILABLE_MODELS]);
   const [fieldsDraft, setFieldsDraft] = useState(customFields);
   const [savingFields, setSavingFields] = useState(false);
   const [languagesDraft, setLanguagesDraft] = useState(languageLevels);
@@ -171,13 +178,29 @@ export function SettingsPanel({
   useEffect(() => {
     void getPreferences().then((prefs) => {
       setAutofillOnOpen(prefs.autofillOnOpen);
-      setCoverLetterModel(prefs.coverLetterModel || MODEL_TERRA);
-      setExtractionModel(prefs.extractionModel || MODEL_LUNA);
-      setJobAnalysisModel(prefs.jobAnalysisModel || MODEL_LUNA);
-      setSupportModel(prefs.supportModel || MODEL_LUNA);
-      setOutreachModel(prefs.outreachModel || MODEL_TERRA);
+      setCoverLetterModel(resolveModel(prefs.coverLetterModel, MODEL_TERRA));
+      setExtractionModel(resolveModel(prefs.extractionModel, MODEL_LUNA));
+      setJobAnalysisModel(resolveModel(prefs.jobAnalysisModel, MODEL_LUNA));
+      setSupportModel(resolveModel(prefs.supportModel, MODEL_LUNA));
+      setOutreachModel(resolveModel(prefs.outreachModel, MODEL_TERRA));
+      // A model id saved by an older version (e.g. the retired gpt-5.6-* ones) is already
+      // ignored at request time; reset it to "" so the tier follows its default from now on.
+      const modelKeys = ["coverLetterModel", "extractionModel", "jobAnalysisModel", "supportModel", "outreachModel"] as const;
+      const stale = modelKeys.filter((key) => prefs[key] && resolveModel(prefs[key], "") === "");
+      if (stale.length > 0) void setPreferences(Object.fromEntries(stale.map((key) => [key, ""])));
     });
+    void listAvailableModels().then(setModelOptions);
   }, []);
+
+  /** Options for one tier's selector, keeping the current choice listed even if this key's model list lacks it. */
+  function renderModelOptions(selected: string, tierDefault: string) {
+    const models = modelOptions.includes(selected) ? modelOptions : [selected, ...modelOptions];
+    return models.map((model) => (
+      <option key={model} value={model}>
+        {model === tierDefault ? `${model} (default)` : model}
+      </option>
+    ));
+  }
 
   async function handleToggleAutofillOnOpen(checked: boolean) {
     setAutofillOnOpen(checked);
@@ -986,16 +1009,12 @@ export function SettingsPanel({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Five model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key.
+            Five model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key. The list shows the OpenAI models your key can use.
           </p>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">Cover letters</label>
             <Select value={coverLetterModel} onChange={(e) => void handleCoverLetterModelChange(e.target.value)}>
-              {AVAILABLE_MODELS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+              {renderModelOptions(coverLetterModel, MODEL_TERRA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
@@ -1003,11 +1022,7 @@ export function SettingsPanel({
               Job posting extraction (from page text or pasted text)
             </label>
             <Select value={extractionModel} onChange={(e) => void handleExtractionModelChange(e.target.value)}>
-              {AVAILABLE_MODELS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+              {renderModelOptions(extractionModel, MODEL_LUNA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
@@ -1015,11 +1030,7 @@ export function SettingsPanel({
               Job analysis (requirements, tone, language, keywords)
             </label>
             <Select value={jobAnalysisModel} onChange={(e) => void handleJobAnalysisModelChange(e.target.value)}>
-              {AVAILABLE_MODELS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+              {renderModelOptions(jobAnalysisModel, MODEL_LUNA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
@@ -1027,21 +1038,13 @@ export function SettingsPanel({
               Everything else (questions, checkboxes, search, translation)
             </label>
             <Select value={supportModel} onChange={(e) => void handleSupportModelChange(e.target.value)}>
-              {AVAILABLE_MODELS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+              {renderModelOptions(supportModel, MODEL_LUNA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">Outreach messages</label>
             <Select value={outreachModel} onChange={(e) => void handleOutreachModelChange(e.target.value)}>
-              {AVAILABLE_MODELS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+              {renderModelOptions(outreachModel, MODEL_TERRA)}
             </Select>
           </div>
         </CardContent>
