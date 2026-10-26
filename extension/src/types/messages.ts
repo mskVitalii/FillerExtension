@@ -144,7 +144,7 @@ export type RuntimeMessage =
       /** Echoed on `JOB_SEARCH_PROGRESS`, so the panel can tell this search's partial results from a stale one's. */
       searchId?: string;
     }
-  /** Background → panel broadcast while a search runs: results already in (Adzuna, per tag), ahead of the final `JOB_SEARCH_RESULTS`. */
+  /** Background → panel broadcast while a search runs: results already in (OpenAI per posting, Adzuna per tag), ahead of the final `JOB_SEARCH_RESULTS`. */
   | { type: "JOB_SEARCH_PROGRESS"; searchId: string; results: JobSearchResult[] }
   | {
       type: "JOB_SEARCH_RESULTS";

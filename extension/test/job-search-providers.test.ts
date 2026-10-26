@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobSearchQuery } from "@/types/job-search";
 
 const requestStructured = vi.fn();
+const streamWithWebSearch = vi.fn();
 vi.mock("@/features/openai/client", () => ({
   requestStructured: (...args: unknown[]) => requestStructured(...args),
-  requestWithWebSearch: vi.fn(),
+  streamWithWebSearch: (...args: unknown[]) => streamWithWebSearch(...args),
 }));
 
-const { buildOpenAiSearchPrompt } = await import("@/features/job-search/openai-provider");
+const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS } = await import("@/features/job-search/openai-provider");
 const { buildTavilyRequest } = await import("@/features/job-search/tavily-provider");
 const { buildAdzunaUrl, searchAdzunaJobs } = await import("@/features/job-search/adzuna-provider");
 const { extractJobListings } = await import("@/features/openai/extract-job-listings");
@@ -30,6 +31,64 @@ describe("OpenAI provider prompt", () => {
 
   it("says nothing about exclusions without one", () => {
     expect(buildOpenAiSearchPrompt(query(), "")).not.toContain("does NOT want");
+  });
+
+  it("asks for a capped number of JSON Lines", () => {
+    const prompt = buildOpenAiSearchPrompt(query(), "");
+    expect(prompt).toContain(`Up to ${MAX_OPENAI_RESULTS} of the best matches`);
+    expect(prompt).toContain("one JSON object per line");
+  });
+});
+
+describe("searchOpenAiJobs", () => {
+  beforeEach(() => {
+    streamWithWebSearch.mockReset();
+    requestStructured.mockReset();
+  });
+
+  function streams(chunks: string[]) {
+    streamWithWebSearch.mockImplementation(async (_prompt: string, onDelta: (d: string) => void) => {
+      for (const chunk of chunks) onDelta(chunk);
+      return chunks.join("");
+    });
+  }
+
+  it("emits each posting as soon as its line is complete, with no parse call", async () => {
+    const line = (n: number, extra = "") => `{"title":"Go dev ${n}","company":"Acme","location":"","url":"https://jobs.lever.co/acme/${n}","salary":"","postedAt":"${extra}","snippet":"fits"}`;
+    const lines = [line(1), line(2, "2020-01-01"), line(1), line(3)];
+    // Split mid-object and mid-line, the way SSE deltas arrive.
+    const text = `${lines.join("\n")}`;
+    const emitted: string[][] = [];
+    streams([text.slice(0, 40), text.slice(40, 200), text.slice(200)]);
+    const stages: { label: string; ms: number }[] = [];
+    const results = await searchOpenAiJobs(query(), "bg", [], stages, (jobs) => emitted.push(jobs.map((j) => j.title)));
+
+    // The stale and the duplicate posting are dropped.
+    expect(results.map((r) => r.title)).toEqual(["Go dev 1", "Go dev 3"]);
+    expect(emitted).toEqual([["Go dev 1"], ["Go dev 3"]]);
+    expect(results[0].source).toBe("openai");
+    expect(requestStructured).not.toHaveBeenCalled();
+    expect(stages.map((s) => s.label)).toEqual(["Web search", "First result"]);
+  });
+
+  it("falls back to the parse pass when the model answers in prose", async () => {
+    streams(["Here are some roles:\n1. Go developer at Acme — https://acme.dev/jobs/1"]);
+    requestStructured.mockResolvedValue({
+      jobs: [{ title: "Go developer", company: "Acme", location: "", url: "https://acme.dev/jobs/1", salary: "", snippet: "", postedAt: "" }],
+    });
+    const stages: { label: string; ms: number }[] = [];
+    const results = await searchOpenAiJobs(query({ negative: "no crypto" }), "bg", [], stages);
+    expect(results.map((r) => r.url)).toEqual(["https://acme.dev/jobs/1"]);
+    const request = requestStructured.mock.calls[0][0] as { systemPrompt: string; reasoningEffort: string };
+    expect(request.systemPrompt).toContain('"no crypto"');
+    expect(request.reasoningEffort).toBe("low");
+    expect(stages.map((s) => s.label)).toEqual(["Web search", "Parse results"]);
+  });
+
+  it("returns nothing, without a parse call, when the model wrote nothing", async () => {
+    streams([]);
+    expect(await searchOpenAiJobs(query(), "bg")).toEqual([]);
+    expect(requestStructured).not.toHaveBeenCalled();
   });
 });
 
@@ -66,11 +125,11 @@ describe("Adzuna request", () => {
 describe("parse pass", () => {
   beforeEach(() => requestStructured.mockReset().mockResolvedValue({ jobs: [] }));
 
-  it("tells the parser to drop excluded postings, at low reasoning effort", async () => {
-    await extractJobListings("raw", "openai", "background", "no crypto");
-    const request = requestStructured.mock.calls[0][0] as { systemPrompt: string; reasoningEffort: string };
+  it("tells the parser to drop excluded postings, at the model's default effort unless asked", async () => {
+    await extractJobListings("raw", "tavily", "background", { negative: "no crypto" });
+    const request = requestStructured.mock.calls[0][0] as { systemPrompt: string; reasoningEffort?: string };
     expect(request.systemPrompt).toContain('"no crypto"');
-    expect(request.reasoningEffort).toBe("low");
+    expect(request.reasoningEffort).toBeUndefined();
   });
 
   it("adds no exclusion rule without a negative prompt", async () => {
@@ -80,36 +139,18 @@ describe("parse pass", () => {
 });
 
 describe("searchAdzunaJobs", () => {
-  let inFlight = 0;
-  let maxInFlight = 0;
-  let attempts: Record<string, number> = {};
-
-  function respond(tag: string): Response {
-    const results = [
-      { title: `${tag} 1`, redirect_url: `https://adzuna/${tag}/1` },
-      { title: "shared", redirect_url: "https://adzuna/shared" },
-    ];
-    return new Response(JSON.stringify({ results }), { status: 200 });
-  }
-
   beforeEach(() => {
     vi.useFakeTimers();
-    inFlight = 0;
-    maxInFlight = 0;
-    attempts = {};
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string) => {
         const tag = new URL(input).searchParams.get("what")!;
-        attempts[tag] = (attempts[tag] ?? 0) + 1;
-        inFlight++;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        // Later tags answer sooner, so arrival order differs from tag order.
-        await new Promise((resolve) => setTimeout(resolve, 2000 - tag.length * 100));
-        inFlight--;
-        if (tag === "limited" && attempts[tag] === 1) return new Response("slow down", { status: 429 });
         if (tag === "broken") return new Response("nope", { status: 500 });
-        return respond(tag);
+        const results = [
+          { title: `${tag} 1`, redirect_url: `https://adzuna/${tag}/1` },
+          { title: "shared", redirect_url: "https://adzuna/shared" },
+        ];
+        return new Response(JSON.stringify({ results }), { status: 200 });
       }),
     );
   });
@@ -119,28 +160,16 @@ describe("searchAdzunaJobs", () => {
     vi.unstubAllGlobals();
   });
 
-  it("runs a few tags at once, streams each tag's new results, and keeps tag order in the result", async () => {
-    const tags = ["a", "bb", "ccc", "dddd", "limited", "broken"];
-    const streamed: string[] = [];
-    const outcome = searchAdzunaJobs(query({ provider: "adzuna", tags }), { appId: "i", appKey: "k" }, "de", 1, (jobs) =>
-      streamed.push(...jobs.map((j) => j.url)),
+  it("runs tags one by one and streams each tag's new results", async () => {
+    const streamed: string[][] = [];
+    const outcome = searchAdzunaJobs(query({ provider: "adzuna", tags: ["a", "broken", "b"] }), { appId: "i", appKey: "k" }, "de", 1, (jobs) =>
+      streamed.push(jobs.map((j) => j.url)),
     );
     await vi.runAllTimersAsync();
     const { results, warnings } = await outcome;
 
-    expect(maxInFlight).toBe(3);
-    expect(attempts.limited).toBe(2);
-    expect(results.map((r) => r.url)).toEqual([
-      "https://adzuna/a/1",
-      "https://adzuna/shared",
-      "https://adzuna/bb/1",
-      "https://adzuna/ccc/1",
-      "https://adzuna/dddd/1",
-      "https://adzuna/limited/1",
-    ]);
-    expect(results.find((r) => r.url === "https://adzuna/shared")?.tag).toBe("a");
-    // Every result was streamed exactly once, whatever order the tags answered in.
-    expect([...streamed].sort()).toEqual(results.map((r) => r.url).sort());
+    expect(results.map((r) => r.url)).toEqual(["https://adzuna/a/1", "https://adzuna/shared", "https://adzuna/b/1"]);
+    expect(streamed).toEqual([["https://adzuna/a/1", "https://adzuna/shared"], ["https://adzuna/b/1"]]);
     expect(warnings).toEqual([expect.stringContaining('"broken"')]);
   });
 });

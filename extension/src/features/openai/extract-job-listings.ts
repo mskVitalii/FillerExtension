@@ -1,5 +1,5 @@
 import type { JobSearchResult } from "@/types/job-search";
-import { requestStructured } from "./client";
+import { requestStructured, type ReasoningEffort } from "./client";
 import { dropStalePostings, MAX_POSTING_AGE_DAYS } from "@/features/job-search/freshness";
 import { negativeInstruction } from "@/features/job-search/negative";
 import { todayISO } from "@/lib/date-format";
@@ -64,17 +64,15 @@ Rules:
  * `candidateBackground` (the applicant's own Personal Legend, spec_8 item
  * 8), when given, lets this pass also rank/filter for fit and write a
  * fit-focused snippet, rather than blindly extracting every posting-shaped
- * thing in the text. `negative` (the Search tab's "what I don't want") drops
- * matching postings here too, behind the offline `splitByNegative` pass.
- *
- * Runs at low reasoning effort: it mostly copies fields out of text it was
- * handed, and every second of thinking here is a second the user waits.
+ * thing in the text. `options.negative` (the Search tab's "what I don't
+ * want") drops matching postings here too, behind the offline
+ * `splitByNegative` pass.
  */
 export async function extractJobListings(
   rawText: string,
   source: "openai" | "tavily",
   candidateBackground?: string,
-  negative?: string,
+  options: { negative?: string; reasoningEffort?: ReasoningEffort } = {},
 ): Promise<JobSearchResult[]> {
   const userPrompt = candidateBackground
     ? `candidate:\n${candidateBackground}\n\n---\n\n${rawText.slice(0, 40000)}`
@@ -85,9 +83,9 @@ export async function extractJobListings(
   }>({
     schemaName: "job_listings",
     schema: SCHEMA,
-    systemPrompt: systemPrompt(todayISO(), negative),
+    systemPrompt: systemPrompt(todayISO(), options.negative),
     userPrompt,
-    reasoningEffort: "low",
+    reasoningEffort: options.reasoningEffort,
     parse: (raw) => JSON.parse(raw) as { jobs: Omit<JobSearchResult, "source">[] },
   });
   // The model is told to drop old postings itself; this catches the ones it let through anyway.

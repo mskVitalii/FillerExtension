@@ -1,7 +1,7 @@
 import type { RuntimeMessage } from "@/types/messages";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
-import type { JobSearchStageTiming } from "@/types/job-search";
+import type { JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
 import { getFaqAnswers, getPersonalLegend, getProfile, saveFaqAnswers } from "@/features/profile/repository";
 import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
 import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
@@ -454,6 +454,16 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       const startedAt = performance.now();
       const stages: JobSearchStageTiming[] = [];
       const timing = () => ({ totalMs: performance.now() - startedAt, stages });
+      const { searchId } = message;
+      // Results already in, ahead of the final reply. Fire-and-forget, like the
+      // cover-letter stream: the final reply still carries everything.
+      const onResults = searchId
+        ? (partial: JobSearchResult[]) => {
+            chrome.runtime
+              .sendMessage({ type: "JOB_SEARCH_PROGRESS", searchId, results: partial } satisfies RuntimeMessage)
+              .catch(() => {});
+          }
+        : undefined;
       if (provider === "adzuna") {
         // Adzuna's "what" is a keyword search field, not an LLM prompt — the
         // candidate digest below is for the two AI-backed providers only.
@@ -488,21 +498,13 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
             };
           }
         }
-        const { searchId } = message;
         const { results, warnings } = await timeStage(stages, "Adzuna search", () =>
           searchAdzunaJobs(
             query,
             { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
             adzunaCountryCode(profile.country),
             message.page ?? 1,
-            searchId
-              ? (partial) => {
-                  // Fire-and-forget, like the cover-letter stream: the final reply still carries everything.
-                  chrome.runtime
-                    .sendMessage({ type: "JOB_SEARCH_PROGRESS", searchId, results: partial } satisfies RuntimeMessage)
-                    .catch(() => {});
-                }
-              : undefined,
+            onResults,
           ),
         );
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings, ...timing() };
@@ -518,7 +520,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults, stages);
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
       }
-      const results = await searchOpenAiJobs(message.query, background, message.excludeResults, stages);
+      const results = await searchOpenAiJobs(message.query, background, message.excludeResults, stages, onResults);
       return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
     }
 

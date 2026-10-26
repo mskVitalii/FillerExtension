@@ -101,5 +101,5 @@ export async function searchTavilyJobs(
   const rawText = data.results
     .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${r.content}`)
     .join("\n\n---\n\n");
-  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground, query.negative));
+  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground, { negative: query.negative }));
 }

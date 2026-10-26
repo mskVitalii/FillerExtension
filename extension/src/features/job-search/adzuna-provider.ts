@@ -56,23 +56,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Gap between request *launches* (see `searchAdzunaJobs`) — keeps the request rate at what the old one-at-a-time loop could reach at best, ~3/s. */
+/** Gap between sequential Adzuna requests (see `searchAdzunaJobs`) — enough to stay clear of their per-second rate limit without noticeably slowing a 2-4 tag search. */
 const REQUEST_GAP_MS = 350;
-/** Requests in flight at once. Firing every tag at once tripped Adzuna's rate limit (spec_7 item 13); three, staggered, didn't. */
-const MAX_CONCURRENT_REQUESTS = 3;
-/** One retry for a 429, after this long. */
-const RATE_LIMIT_RETRY_MS = 1200;
 /** Upper bound on searches per run (search terms × selected grades). */
 const MAX_ADZUNA_REQUESTS = 12;
-
-class AdzunaHttpError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-  ) {
-    super(message);
-  }
-}
 
 export function buildAdzunaUrl(
   tag: string,
@@ -103,7 +90,7 @@ async function searchOneTag(
   const res = await fetch(buildAdzunaUrl(tag, query, credentials, countryCode, page));
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AdzunaHttpError(`Adzuna search failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+    throw new Error(`Adzuna search failed (${res.status}): ${body.slice(0, 300)}`);
   }
 
   const data = (await res.json()) as AdzunaResponse;
@@ -121,16 +108,6 @@ async function searchOneTag(
   return dropStalePostings(jobs);
 }
 
-async function searchOneTagWithRetry(...args: Parameters<typeof searchOneTag>): Promise<JobSearchResult[]> {
-  try {
-    return await searchOneTag(...args);
-  } catch (err) {
-    if (!(err instanceof AdzunaHttpError) || err.status !== 429) throw err;
-    await sleep(RATE_LIMIT_RETRY_MS);
-    return searchOneTag(...args);
-  }
-}
-
 export interface AdzunaSearchOutcome {
   results: JobSearchResult[];
   /** One message per tag whose request failed (spec_7 item 13) — a 429 on one tag no longer aborts the whole search. */
@@ -146,14 +123,12 @@ export interface AdzunaSearchOutcome {
  * when no tags were resolved (a user-typed "what", or a provider other than
  * Adzuna's tag flow never ran).
  *
- * Requests run a few at a time (`MAX_CONCURRENT_REQUESTS`), each launched
- * `REQUEST_GAP_MS` after the previous one — not all at once, which routinely
- * tripped Adzuna's rate limit (spec_7 item 13), and not strictly one after
- * another, which made a 12-term search wait out 12 round trips. Each tag is
- * independently try/caught (a 429 gets one retry): a failure just contributes
- * a warning and the rest still come back. `onTagResults` sees each tag's new
- * (not yet seen) results as soon as they arrive, so the panel can show them
- * before the slowest tag is done; the returned list keeps the tags' order.
+ * Requests run **sequentially**, not `Promise.all` — firing every tag at
+ * once routinely tripped Adzuna's rate limit (spec_7 item 13). Each tag is
+ * independently try/caught: one 429 no longer aborts the whole search, it
+ * just contributes a warning and the rest still come back. `onTagResults`
+ * sees each tag's new results as soon as they arrive, so the panel can show
+ * them before the last tag is done.
  */
 export async function searchAdzunaJobs(
   query: JobSearchQuery,
@@ -163,47 +138,31 @@ export async function searchAdzunaJobs(
   onTagResults?: (results: JobSearchResult[]) => void,
 ): Promise<AdzunaSearchOutcome> {
   const baseTags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
-  // Every grade multiplies the request count, so cap the total.
+  // Every grade multiplies the request count (they run sequentially, rate-limited), so cap the total.
   const gradeCount = Math.max(query.grades?.length ?? 0, 1);
   const maxBase = Math.max(1, Math.floor(MAX_ADZUNA_REQUESTS / gradeCount));
   const tags = applyGradesToTerms(baseTags.slice(0, maxBase), query.grades);
 
+  const seen = new Set<string>();
+  const merged: JobSearchResult[] = [];
   const warnings: string[] = [];
   if (baseTags.length > maxBase) {
     warnings.push(`Only the first ${maxBase} search terms were used with ${gradeCount} grades selected.`);
   }
 
-  const perTag: JobSearchResult[][] = tags.map(() => []);
-  const failures: (string | null)[] = tags.map(() => null);
-  const streamed = new Set<string>();
-  let next = 0;
-  let lastLaunch = 0;
-
-  async function worker(): Promise<void> {
-    while (next < tags.length) {
-      const i = next++;
-      const wait = lastLaunch + REQUEST_GAP_MS - Date.now();
-      lastLaunch = Math.max(Date.now(), lastLaunch + REQUEST_GAP_MS);
-      if (wait > 0) await sleep(wait);
-      try {
-        perTag[i] = await searchOneTagWithRetry(tags[i], query, credentials, countryCode, page);
-        const fresh = perTag[i].filter((job) => !streamed.has(job.url));
-        for (const job of fresh) streamed.add(job.url);
-        if (fresh.length > 0) onTagResults?.(fresh);
-      } catch (err) {
-        failures[i] = `"${tags[i]}" — ${err instanceof Error ? err.message : "search failed"}`;
-      }
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    try {
+      const jobs = await searchOneTag(tag, query, credentials, countryCode, page);
+      const fresh = jobs.filter((job) => !seen.has(job.url));
+      for (const job of fresh) seen.add(job.url);
+      merged.push(...fresh);
+      if (fresh.length > 0) onTagResults?.(fresh);
+    } catch (err) {
+      warnings.push(`"${tag}" — ${err instanceof Error ? err.message : "search failed"}`);
     }
+    if (i < tags.length - 1) await sleep(REQUEST_GAP_MS);
   }
-  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_REQUESTS, tags.length) }, worker));
 
-  const seen = new Set<string>();
-  const merged: JobSearchResult[] = [];
-  for (const job of perTag.flat()) {
-    if (seen.has(job.url)) continue;
-    seen.add(job.url);
-    merged.push(job);
-  }
-  warnings.push(...failures.filter((f): f is string => f !== null));
   return { results: merged, warnings };
 }

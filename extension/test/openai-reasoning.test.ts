@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/features/storage/local", () => ({ getOpenAiApiKey: async () => "sk-test" }));
 vi.mock("@/features/storage/sync", () => ({ getPreferences: async () => ({ supportModel: "" }) }));
 
-const { requestStructured } = await import("@/features/openai/client");
+const { requestStructured, streamWithWebSearch } = await import("@/features/openai/client");
 
 const OK = { output: [{ type: "message", content: [{ type: "output_text", text: '{"ok":true}' }] }] };
 
@@ -47,5 +47,41 @@ describe("reasoning effort", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(request()).rejects.toThrow("Invalid schema");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("streamWithWebSearch", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function sse(chunks: string[]): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+    return new Response(body);
+  }
+
+  const frame = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
+
+  it("streams output_text deltas, even when a frame is split across chunks, with the web_search tool on", async () => {
+    const all = frame({ type: "response.output_text.delta", delta: "{\"a\":" }) + frame({ type: "response.output_text.delta", delta: "1}\n" }) + "data: [DONE]\n\n";
+    const fetchMock = vi.fn(async () => sse([all.slice(0, 25), all.slice(25)]));
+    vi.stubGlobal("fetch", fetchMock);
+    const deltas: string[] = [];
+    expect(await streamWithWebSearch("find jobs", (d) => deltas.push(d))).toBe('{"a":1}\n');
+    expect(deltas).toEqual(['{"a":', "1}\n"]);
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({ stream: true, tools: [{ type: "web_search" }] });
+    expect(body).not.toHaveProperty("reasoning");
+  });
+
+  it("returns an empty string when the model wrote nothing, and throws a reported failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sse(["data: [DONE]\n\n"])));
+    expect(await streamWithWebSearch("find jobs", () => {})).toBe("");
+    vi.stubGlobal("fetch", vi.fn(async () => sse([frame({ type: "response.failed", response: { error: { message: "quota" } } })])));
+    await expect(streamWithWebSearch("find jobs", () => {})).rejects.toThrow("quota");
   });
 });
