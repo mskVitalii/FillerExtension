@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
 import { SetupBanner } from "@/components/SetupBanner";
+import { FrameAccessBanner } from "@/components/FrameAccessBanner";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
 const CoverLetterEditor = lazy(() =>
@@ -1335,8 +1336,10 @@ export function MainView({
       if (sender.tab?.id !== tabId) return;
       const msg = message as { type?: string; kind?: "cv" | "coverLetter"; locator?: ElementLocator | null };
       if (msg.type !== "ATTACH_FILE_AT") return;
-      if (msg.kind === "cv") void handleAttachCvToPage(msg.locator ?? null);
-      else if (msg.kind === "coverLetter") void handleUploadCoverLetterToPage(msg.locator ?? null);
+      // The drop happened in one frame — send the file back to that frame only.
+      const locator = msg.locator ? { ...msg.locator, frameId: sender.frameId } : null;
+      if (msg.kind === "cv") void handleAttachCvToPage(locator);
+      else if (msg.kind === "coverLetter") void handleUploadCoverLetterToPage(locator);
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
@@ -1461,6 +1464,8 @@ export function MainView({
         onConnectGoogle={onRequestGoogleConnect}
         onAddApiKey={onRequestApiKey}
       />
+
+      <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 

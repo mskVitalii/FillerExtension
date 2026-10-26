@@ -370,6 +370,41 @@
       </div>
     </fieldset>
 
+    <fieldset id="rerender-demo">
+      <legend>React-style re-renders — fill must survive, and must not loop</legend>
+      <p style="font-size: 13px; margin: 0">
+        Each field below misbehaves the way SPA/React forms do. After "Autofill Application" all three should
+        end up filled; the counters show how often the page wiped a value (the extension refills at most 2 times
+        per field, then stops watching after ~6 s).
+      </p>
+      <div id="rr-remount-root">
+        <label>First name (form remounts once after the first edit — node replaced, value lost)
+          <input name="rr_first_name" autocomplete="given-name" /></label>
+      </div>
+      <label>Email (controlled: value reset once 200 ms after the fill, no DOM mutation)
+        <input name="rr_email" type="email" autocomplete="email" id="rr-email" /></label>
+      <div id="rr-hostile-root">
+        <label>City (hostile: wiped by a brand-new node after <em>every</em> edit — must not loop)
+          <input name="rr_city" autocomplete="address-level2" /></label>
+      </div>
+      <p style="font-size: 13px; margin: 0">
+        Remounts: <span id="rr-remounts">0</span> · Resets: <span id="rr-resets">0</span> · Hostile wipes:
+        <span id="rr-wipes">0</span> (should stop at 3: the fill + 2 refills)
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Forms inside iframes (one same-origin, one cross-origin)</legend>
+      <p style="font-size: 13px; margin: 0">
+        Serve this folder over HTTP (<code>python3 -m http.server 8000</code>) and open
+        <code>http://localhost:8000/autofill-test.html</code>. The second frame is loaded from
+        <code>127.0.0.1</code> — a different origin, like a Greenhouse/Lever embed. Until access is allowed, the
+        Side Panel should show an "Allow access" banner for it, and the picker shows an "embedded form" chip over it.
+      </p>
+      <iframe id="frame-same" src="autofill-iframe.html" title="Same-origin embedded form" style="width: 100%; height: 330px; border: 1px solid #ccc"></iframe>
+      <iframe id="frame-cross" data-cross-origin title="Cross-origin embedded form" style="width: 100%; height: 330px; border: 1px solid #ccc"></iframe>
+    </fieldset>
+
     <fieldset>
       <legend>Password fields — generated password should fill create/confirm, never login</legend>
 
@@ -410,6 +445,50 @@
         const file = e.dataTransfer?.files?.[0];
         zone.textContent = file ? `Received: ${file.name}` : "Drop event fired (no file)";
       });
+
+      // --- React-style re-render demo -----------------------------------
+      // Plain JS standing in for a React form: a remount swaps the node for
+      // an empty one; a controlled reset writes `.value` back without any
+      // DOM mutation; a hostile field wipes itself after every edit.
+      const bump = (id) => {
+        const el = document.getElementById(id);
+        el.textContent = String(Number(el.textContent) + 1);
+      };
+      let remounted = false;
+      document.getElementById("rr-remount-root").addEventListener("input", () => {
+        if (remounted) return;
+        remounted = true;
+        setTimeout(() => {
+          const root = document.getElementById("rr-remount-root");
+          root.innerHTML = root.innerHTML; // new nodes, value gone
+          bump("rr-remounts");
+        }, 300);
+      });
+      let reset = false;
+      document.getElementById("rr-email").addEventListener("input", (e) => {
+        if (reset) return;
+        reset = true;
+        setTimeout(() => {
+          e.target.value = "";
+          bump("rr-resets");
+        }, 200);
+      });
+      document.getElementById("rr-hostile-root").addEventListener("input", () => {
+        setTimeout(() => {
+          const root = document.getElementById("rr-hostile-root");
+          root.innerHTML = root.innerHTML;
+          bump("rr-wipes");
+        }, 100);
+      });
+
+      // --- Cross-origin iframe: swap localhost <-> 127.0.0.1 --------------
+      const cross = document.querySelector("[data-cross-origin]");
+      if (location.protocol.startsWith("http")) {
+        const otherHost = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+        cross.src = `${location.protocol}//${otherHost}:${location.port}/autofill-iframe.html`;
+      } else {
+        cross.srcdoc = "<p style='font:13px sans-serif'>Open this page over http:// to get a cross-origin frame.</p>";
+      }
     </script>
   </body>
 </html>

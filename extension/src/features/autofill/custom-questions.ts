@@ -5,6 +5,7 @@ import { wantsNumericValue, dateInputKind } from "./field-format";
 import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
+import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -122,6 +123,15 @@ export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
   }));
 }
 
+/** The fields `detectCustomQuestions` found, for the on-page highlight (`field-highlight.ts`). */
+export function questionFieldTargets(): { el: HTMLElement; label: string; locate: () => HTMLElement | null }[] {
+  return scanQuestionFields().map(({ el, question }) => ({
+    el,
+    label: question.slice(0, 80),
+    locate: () => scanQuestionFields().find((f) => f.question === question)?.el ?? null,
+  }));
+}
+
 /**
  * The key `answerAndFillQuestions` (Side Panel) uses to store/look up one
  * question's answer. Picker-added questions must key off their `locator`,
@@ -182,11 +192,22 @@ export async function fillCustomQuestionAnswers(
 ): Promise<{ filled: number; unfilled: string[] }> {
   let filled = 0;
   const unfilled: string[] = [];
+  const guarded: GuardedFill[] = [];
   for (const { question, el } of scanQuestionFields()) {
     const answer = answers[question];
     if (!answer || !isEmptyField(el)) continue;
-    if (await fillComboboxAnswer(el, answer)) filled++;
-    else unfilled.push(question);
+    const before = readValue(el);
+    if (await fillComboboxAnswer(el, answer)) {
+      filled++;
+      guarded.push({
+        el,
+        before,
+        // Re-found the same way this function found it: by its question text.
+        locate: () => scanQuestionFields().find((f) => f.question === question)?.el ?? null,
+        refill: (fresh) => fillComboboxAnswer(fresh, answer),
+      });
+    } else unfilled.push(question);
   }
+  void guardFills(guarded);
   return { filled, unfilled };
 }

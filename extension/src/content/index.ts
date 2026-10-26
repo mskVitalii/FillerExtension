@@ -6,7 +6,12 @@ import { fillDialCodeField, fillSalaryField, resolvePhoneFill } from "@/features
 import { findConfirmPasswordFields } from "@/features/autofill/password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { getInsertTarget, initFocusTracker } from "@/features/autofill/focus-tracker";
-import { detectCustomQuestions, fillCustomQuestionAnswers } from "@/features/autofill/custom-questions";
+import {
+  detectCustomQuestions,
+  fillCustomQuestionAnswers,
+  questionFieldTargets,
+} from "@/features/autofill/custom-questions";
+import { highlightFields } from "@/features/autofill/field-highlight";
 import { fillAnswersByLocator } from "@/features/autofill/pick-questions";
 import { cancelActivePicker, startElementPicker } from "@/features/autofill/element-picker";
 import { applyCheckboxDecisions, detectCheckboxes } from "@/features/autofill/checkboxes";
@@ -138,6 +143,9 @@ function registerMessageListener(): void {
           .then((questions) => {
             const response: RuntimeMessage = { type: "CUSTOM_QUESTIONS_DATA", questions };
             sendResponse(response);
+            // Show where the detected questions are — otherwise the Side
+            // Panel lists them with no hint of which field each one is.
+            if (questions.length > 0) highlightFields(questionFieldTargets());
           })
           .catch((error: unknown) => {
             // Logged rather than silently mapped to "0 questions found" — a

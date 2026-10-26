@@ -62,6 +62,9 @@ export type RuntimeMessage =
   | { type: "GENERATE_OUTREACH_MESSAGE"; tabId: number; job: Job; contact: string; postingLanguage?: string }
   | { type: "OUTREACH_MESSAGE_RESULT"; subject: string | null; body: string }
   | { type: "REVISE_OUTREACH_MESSAGE"; job: Job; subject: string | null; body: string; instructions: string }
+  /** Cross-origin iframes on the tab the content script can't reach yet (no host permission for them). */
+  | { type: "GET_FRAME_ACCESS"; tabId: number }
+  | { type: "FRAME_ACCESS"; blockedOrigins: string[] }
   | { type: "DETECT_CUSTOM_QUESTIONS"; tabId: number }
   | { type: "CUSTOM_QUESTIONS_DATA"; questions: CustomQuestion[] }
   | {

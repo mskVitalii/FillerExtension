@@ -51,7 +51,42 @@ function dispatchChangeEvents(el: HTMLElement, options: { blur?: boolean } = {})
   // uncommitted state — doing that immediately after we just typed into it
   // is how those widgets end up looking "unfillable". Plain inputs are fine
   // to blur since that's the ordinary signal frameworks use to validate.
-  if (options.blur !== false) el.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+  if (options.blur !== false) {
+    el.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    // React 17+ wires `onBlur` to `focusout`, not `blur` — Formik/react-hook-form
+    // "touched"/validate-on-blur never ran on a filled field without it.
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  }
+}
+
+/**
+ * Last resort when a controlled input threw our value away (it's empty
+ * again right after the events): select its content and let the browser
+ * itself insert the text. `execCommand("insertText")` goes through the
+ * real editing pipeline, so `beforeinput`/`input` arrive as trusted events
+ * a framework can't tell from typing. Returns whether the value now holds.
+ */
+function insertViaEditing(el: HTMLInputElement | HTMLTextAreaElement, value: string): boolean {
+  if (typeof document.execCommand !== "function") return false;
+  try {
+    el.focus();
+    el.select();
+    document.execCommand("insertText", false, value);
+  } catch {
+    return false;
+  }
+  if (el.value.trim() === "") return false;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+/** Sets, notifies, and checks the value actually stuck — see `insertViaEditing`. */
+function writeTextValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): boolean {
+  el.focus();
+  setNativeInputValue(el, value);
+  dispatchChangeEvents(el);
+  if (el.value.trim() !== "" || value.trim() === "") return true;
+  return insertViaEditing(el, value);
 }
 
 /**
@@ -155,18 +190,12 @@ export function fillElement(el: HTMLElement, value: string): boolean {
       if (coercer) {
         const coerced = coercer(value);
         if (coerced === null) return false;
-        el.focus();
-        setNativeInputValue(el, coerced);
-        dispatchChangeEvents(el);
-        return true;
+        return writeTextValue(el, coerced);
       }
     }
 
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-      el.focus();
-      setNativeInputValue(el, value);
-      dispatchChangeEvents(el);
-      return true;
+      return writeTextValue(el, value);
     }
 
     if (el instanceof HTMLSelectElement) {

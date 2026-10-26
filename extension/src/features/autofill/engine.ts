@@ -5,6 +5,9 @@ import { fillDialCodeField, findDialCodeField, fillSalaryField, resolvePhoneFill
 import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { generatePassword } from "@/lib/generate-password";
+import { queryFillableDeep } from "./dom-query";
+import { describeField, findByKey } from "./element-locator";
+import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 
@@ -18,25 +21,7 @@ function isFillable(el: Element): el is HTMLElement {
   return true;
 }
 
-/**
- * Elements inside an open shadow root (e.g. web-component-based ATS
- * widgets) are invisible to a plain `querySelectorAll` on `document` since
- * it doesn't pierce shadow boundaries. Walks every shadow root it can reach
- * (closed roots are inaccessible to any script, extension included — no
- * fix possible there) and collects matches from each. Reused by
- * custom-questions.ts so both passes see the same set of fields.
- */
-export function queryFillableDeep(selector: string, root: ParentNode = document): HTMLElement[] {
-  const found: HTMLElement[] = [];
-  const walk = (node: ParentNode) => {
-    found.push(...(Array.from(node.querySelectorAll(selector)) as HTMLElement[]));
-    for (const el of node.querySelectorAll("*")) {
-      if (el.shadowRoot) walk(el.shadowRoot);
-    }
-  };
-  walk(root);
-  return found;
-}
+export { queryFillableDeep };
 
 function profileValue(profile: Profile, field: ProfileFieldKey): string {
   return profile[field] ?? "";
@@ -133,6 +118,7 @@ export async function autofillDocument(
   }
 
   let filled = 0;
+  const guarded: GuardedFill[] = [];
   for (const el of elements) {
     // Defense in depth on top of the label-matching patterns themselves:
     // no profile value is ever a password, so a password-type input is
@@ -145,8 +131,21 @@ export async function autofillDocument(
     if (!field) continue;
     const value = profileValue(profile, field);
     if (!value) continue;
-    if (await fillSemanticField(el, field, value, profile)) filled++;
+    const before = readValue(el);
+    const key = describeField(el);
+    if (await fillSemanticField(el, field, value, profile)) {
+      filled++;
+      guarded.push({
+        el,
+        before,
+        locate: () => findByKey(key),
+        refill: (fresh) => fillSemanticField(fresh, field, value, profile),
+      });
+    }
   }
+  // Not awaited: the Side Panel gets its count now, while the guard keeps
+  // the values in place through the form's next re-render (refill-guard.ts).
+  void guardFills(guarded);
 
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);
   filled += passwordFilled;

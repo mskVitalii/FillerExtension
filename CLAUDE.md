@@ -77,7 +77,10 @@ actually live, not the React Side Panel UI itself (message-passing plumbing, AI 
 Manual autofill testing page: [test-pages/autofill-test.html](./test-pages/autofill-test.html) —
 covers plain inputs, `aria-label`/`placeholder`-only fields, `autocomplete` tokens,
 `contenteditable`, a custom combobox, a file input and a drag/drop zone, application questions,
-consent checkboxes, and radio-group questions (via "Pick fields on page").
+consent checkboxes, radio-group questions (via "Pick fields on page"), React-style re-renders
+(remount / controlled reset / a hostile field that must not loop), and same- and cross-origin
+iframe forms (`test-pages/autofill-iframe.html`; serve the folder over HTTP — the cross-origin
+frame swaps `localhost` ↔ `127.0.0.1`).
 
 Loading the built extension: `chrome://extensions` → enable Developer Mode → "Load unpacked" →
 select `extension/dist`.
@@ -126,6 +129,22 @@ resolves, if the user switched tabs meanwhile. `src/content/index.ts` is the sin
 entry point for the content script and owns all DOM access — extraction, autofill,
 context-menu inserts, file injection; it guards against duplicate listener registration when
 re-injected into the same tab (`window.__fillerContentScriptLoaded`).
+
+Frames: injection is `allFrames: true` and `router.ts` broadcasts tab requests to every frame,
+merging the answers. The activeTab grant only covers the top frame's *origin*, so a cross-origin
+ATS iframe (Greenhouse/Lever/Workday embeds) is skipped until the user grants that origin through
+`optional_host_permissions` — `findBlockedFrameOrigins` detects those and the Side Panel's
+`FrameAccessBanner` requests them (the request must run in the panel's click handler). Locators
+carry the `frameId` they were found in (stamped by the background on a pick, or from
+`sender.frameId` on a drop), so write-backs go to that frame only (`sendToFrameOrAll`).
+
+Re-renders: after every fill, `autofill/refill-guard.ts` watches the filled fields for a few
+seconds and refills one a React/SPA re-render replaced or reset, re-finding it by
+`ElementLocator.key`/`describeField` (name/autocomplete/label/position, never the node). It is
+bounded by design — debounced, ignores its own mutations, max 2 refills per field, stops on
+settle/timeout/navigation or a trusted user edit. On-page visuals (picker box, the highlight of
+picked/detected fields) go through `autofill/overlay-host.ts`: a custom-element host with
+`!important` inline styles in the top layer (`popover`), re-attached if the page removes it.
 
 The Side Panel is *contextual*, not the manifest's default per-window behavior: it's disabled
 for every tab by default and only enabled for the specific tab whose action icon was clicked

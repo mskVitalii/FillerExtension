@@ -7,6 +7,7 @@ import { wantsNumericValue, dateInputKind } from "./field-format";
 import type { DateInputKind } from "@/lib/date-format";
 import { buildLocator, resolveLocator, type ElementLocator } from "./element-locator";
 import { setChecked } from "./checkboxes";
+import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -580,6 +581,9 @@ export async function fillAnswersByLocator(
 ): Promise<{ filled: number; unfilled: string[] }> {
   let filled = 0;
   const unfilled: string[] = [];
+  // Plain fields and selects only: a radio/button/checkbox group's state is
+  // `checked`/`aria-pressed`, which `readValue` can't see revert.
+  const guarded: GuardedFill[] = [];
   for (const { locator, answer, question } of items) {
     try {
       if (!answer) continue;
@@ -614,21 +618,30 @@ export async function fillAnswersByLocator(
         continue;
       }
 
+      const before = readValue(el);
+      const guard = (refill: (fresh: HTMLElement) => boolean | Promise<boolean>) =>
+        guarded.push({ el, before, locate: () => resolveLocator(locator), refill });
+
       if (el instanceof HTMLSelectElement) {
         if (el.value && el.selectedIndex > 0) continue;
-        if (fillElement(el, answer)) filled++;
-        else if (question) unfilled.push(question);
+        if (fillElement(el, answer)) {
+          filled++;
+          guard((fresh) => fillElement(fresh, answer));
+        } else if (question) unfilled.push(question);
         continue;
       }
 
       if (!isEmptyField(el)) continue;
-      if (await fillComboboxAnswer(el, answer)) filled++;
-      else if (question) unfilled.push(question);
+      if (await fillComboboxAnswer(el, answer)) {
+        filled++;
+        guard((fresh) => fillComboboxAnswer(fresh, answer));
+      } else if (question) unfilled.push(question);
     } catch {
       // one field's write failed — keep filling the rest, but still report
       // it as needing a manual answer rather than dropping it silently
       if (question) unfilled.push(question);
     }
   }
+  void guardFills(guarded);
   return { filled, unfilled };
 }

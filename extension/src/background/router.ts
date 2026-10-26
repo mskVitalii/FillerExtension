@@ -24,17 +24,9 @@ import { decomposeBlock } from "@/features/openai/decompose-block";
 import { decidePageContent } from "@/features/openai/decide-page-content";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
-import { ensureContentScript } from "./inject-content-script";
+import { ensureContentScript, findBlockedFrameOrigins } from "./inject-content-script";
+import type { ElementLocator } from "@/features/autofill/element-locator";
 
-/**
- * Sends `message` to every frame in `frameIds` (not just the main frame —
- * `tabs.sendMessage` without a `frameId` only ever reaches frame 0) and
- * returns whatever each frame answered, dropping frames that didn't respond
- * (restricted subframe, no content script reached it, etc).
- * Extraction/autofill/question-detection all need this: the actual
- * application form frequently lives inside an embedded ATS iframe, not the
- * top document.
- */
 /** Tell every frame's element picker to dismiss its overlay. Also used when the Side Panel port disconnects. */
 export async function cancelElementPicker(tabId: number): Promise<void> {
   const frameIds = await ensureContentScript(tabId);
@@ -47,7 +39,15 @@ export async function cancelElementPicker(tabId: number): Promise<void> {
   );
 }
 
-
+/**
+ * Sends `message` to every frame in `frameIds` (not just the main frame —
+ * `tabs.sendMessage` without a `frameId` only ever reaches frame 0) and
+ * returns whatever each frame answered, dropping frames that didn't respond
+ * (restricted subframe, no content script reached it, etc).
+ * Extraction/autofill/question-detection all need this: the actual
+ * application form frequently lives inside an embedded ATS iframe, not the
+ * top document.
+ */
 async function sendToFrames(tabId: number, frameIds: number[], message: RuntimeMessage): Promise<RuntimeMessage[]> {
   const responses = await Promise.all(
     frameIds.map((frameId) =>
@@ -57,6 +57,38 @@ async function sendToFrames(tabId: number, frameIds: number[], message: RuntimeM
     ),
   );
   return responses.filter((r): r is RuntimeMessage => Boolean(r));
+}
+
+/**
+ * A write-back for one element (a picked field's answer, a file dropped on
+ * a field) goes to the frame that element was found in — broadcasting it
+ * would let a loose locator match a look-alike field in some other frame.
+ * Falls back to every frame when the frame id is unknown (locators cached
+ * before frame ids existed) or that frame no longer answers (iframe gone).
+ */
+async function sendToFrameOrAll(
+  tabId: number,
+  frameIds: number[],
+  frameId: number | undefined,
+  message: RuntimeMessage,
+): Promise<RuntimeMessage[]> {
+  if (frameId !== undefined && frameIds.includes(frameId)) {
+    const response = (await chrome.tabs.sendMessage(tabId, message, { frameId }).catch(() => undefined)) as
+      | RuntimeMessage
+      | undefined;
+    if (response) return [response];
+  }
+  return sendToFrames(tabId, frameIds, message);
+}
+
+/** Groups items by the frame their locator was stamped with (`undefined` = unknown frame). */
+function groupByFrame<T extends { locator: ElementLocator }>(items: T[]): Map<number | undefined, T[]> {
+  const groups = new Map<number | undefined, T[]>();
+  for (const item of items) {
+    const key = item.locator.frameId;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return groups;
 }
 
 /**
@@ -161,7 +193,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "UPLOAD_FILE": {
       const frameIds = await ensureContentScript(message.tabId);
-      const responses = await sendToFrames(message.tabId, frameIds, message);
+      const responses = message.targetLocator
+        ? await sendToFrameOrAll(message.tabId, frameIds, message.targetLocator.frameId, message)
+        : await sendToFrames(message.tabId, frameIds, message);
       const results = responses.filter(
         (r): r is Extract<RuntimeMessage, { type: "UPLOAD_FILE_RESULT" }> => r.type === "UPLOAD_FILE_RESULT",
       );
@@ -204,6 +238,11 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         message.job,
       );
       return { type: "OUTREACH_MESSAGE_RESULT", subject: result.subject, body: result.body };
+    }
+
+    case "GET_FRAME_ACCESS": {
+      const blockedOrigins = await findBlockedFrameOrigins(message.tabId);
+      return { type: "FRAME_ACCESS", blockedOrigins };
     }
 
     case "DETECT_CUSTOM_QUESTIONS": {
@@ -259,14 +298,14 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       // inside an embedded ATS iframe, not the top document). The first
       // frame to report a real pick wins; the rest are then dismissed.
       const frameIds = await ensureContentScript(message.tabId);
-      const framePicks = frameIds.map(
-        (frameId) =>
-          chrome.tabs.sendMessage(message.tabId, message, { frameId }).catch(() => undefined) as Promise<
-            Extract<RuntimeMessage, { type: "ELEMENT_PICKER_RESULT" }> | undefined
-          >,
+      type PickResult = Extract<RuntimeMessage, { type: "ELEMENT_PICKER_RESULT" }>;
+      const framePicks = frameIds.map((frameId) =>
+        (chrome.tabs.sendMessage(message.tabId, message, { frameId }) as Promise<PickResult | undefined>)
+          .then((result) => (result ? { result, frameId } : undefined))
+          .catch(() => undefined),
       );
 
-      const winner = await new Promise<Extract<RuntimeMessage, { type: "ELEMENT_PICKER_RESULT" }> | undefined>(
+      const winner = await new Promise<{ result: PickResult; frameId: number } | undefined>(
         (resolve) => {
           let pending = framePicks.length;
           if (pending === 0) resolve(undefined);
@@ -301,9 +340,15 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         ),
       );
 
-      return (
-        winner ?? { type: "ELEMENT_PICKER_RESULT", cancelled: true, picked: [], blockText: "", semanticCount: 0 }
-      );
+      if (!winner) {
+        return { type: "ELEMENT_PICKER_RESULT", cancelled: true, picked: [], blockText: "", semanticCount: 0 };
+      }
+      // Stamp the frame the pick happened in, so the answers are written
+      // back to that frame only (FILL_QUESTION_ANSWERS_BY_LOCATOR below).
+      return {
+        ...winner.result,
+        picked: winner.result.picked.map((p) => ({ ...p, locator: { ...p.locator, frameId: winner.frameId } })),
+      };
     }
 
     case "CANCEL_ELEMENT_PICKER": {
@@ -318,7 +363,13 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "FILL_QUESTION_ANSWERS_BY_LOCATOR": {
       const frameIds = await ensureContentScript(message.tabId);
-      const responses = await sendToFrames(message.tabId, frameIds, message);
+      const responses = (
+        await Promise.all(
+          [...groupByFrame(message.items)].map(([frameId, items]) =>
+            sendToFrameOrAll(message.tabId, frameIds, frameId, { ...message, items }),
+          ),
+        )
+      ).flat();
       let filled = 0;
       const unfilled: string[] = [];
       for (const r of responses) {
