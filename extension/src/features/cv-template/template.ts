@@ -1,6 +1,7 @@
 import type { Job } from "@/types/job";
 import type { CvVariable } from "@/types/cv-template";
 import { initialVariable, valueFromJob } from "./defaults";
+import { countKeyword } from "@/features/keywords/match";
 
 /**
  * Private-use characters wrapped around every substituted value when
@@ -67,10 +68,6 @@ export function fillTemplate(content: string, values: Record<string, string>, op
   });
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function postingText(job: Job): string {
   return [job.position, job.location, job.description, ...job.requirements, ...job.responsibilities, ...job.techStack]
     .filter(Boolean)
@@ -83,8 +80,8 @@ function postingText(job: Job): string {
  * (the AI pass in `openai/suggest-cv-values.ts` covers what needs judgment,
  * e.g. "Golang" → "Go", or a city that isn't in the option list).
  *
- * Word boundaries are Unicode-aware and treat `#`/`+` as part of a word, so
- * "C" doesn't match inside "C#" or "C++". Multi-line / long options (whole
+ * Whole-word, via `features/keywords/match.ts`: "C" doesn't match inside
+ * "C#"/"C++", nor "Go" inside "Google". Multi-line / long options (whole
  * swappable blocks) are skipped — they never appear verbatim in a posting.
  */
 export function findOptionsInPosting(options: string[], job: Job): string[] {
@@ -94,8 +91,7 @@ export function findOptionsInPosting(options: string[], job: Job): string[] {
   for (const option of options) {
     const needle = option.trim();
     if (!needle || needle.includes("\n") || needle.length > 60) continue;
-    const re = new RegExp(`(?<![\\p{L}\\p{N}#+])${escapeRegExp(needle)}(?![\\p{L}\\p{N}#+])`, "giu");
-    const count = haystack.match(re)?.length ?? 0;
+    const count = countKeyword(haystack, needle);
     if (count > 0) counts.set(option, count);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([option]) => option);

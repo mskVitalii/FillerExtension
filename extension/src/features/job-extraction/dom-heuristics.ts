@@ -1,4 +1,5 @@
 import type { Job } from "@/types/job";
+import { containsKeyword } from "@/features/keywords/match";
 
 function meta(doc: Document, name: string): string | null {
   const el =
@@ -76,8 +77,7 @@ const TECH_KEYWORDS = [
 function detectTechStack(text: string): string[] {
   const found = new Set<string>();
   for (const tech of TECH_KEYWORDS) {
-    const pattern = new RegExp(`\\b${tech.replace(/[.+]/g, "\\$&")}\\b`, "i");
-    if (pattern.test(text)) found.add(tech);
+    if (containsKeyword(text, tech)) found.add(tech);
   }
   return Array.from(found);
 }

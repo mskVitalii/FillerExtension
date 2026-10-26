@@ -1561,20 +1561,24 @@ export function MainView({
                 </button>
               </div>
               <ul className="flex flex-wrap gap-1">
-                {jobKeywords.map((kw) => (
-                  <li
-                    key={kw.text}
-                    title={kw.matchesProfile ? "Matches your profile" : "Not found in your profile"}
-                    className={cn(
-                      "rounded-full border px-2 py-0.5 text-xs font-medium",
-                      kw.matchesProfile
-                        ? "border-emerald-300 bg-emerald-100/60 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                        : "border-rose-300 bg-rose-100/60 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300",
-                    )}
-                  >
-                    {kw.text}
-                  </li>
-                ))}
+                {[...jobKeywords]
+                  .sort((a, b) => Number(a.kind === "soft") - Number(b.kind === "soft"))
+                  .map((kw) => (
+                    <li
+                      key={kw.text}
+                      title={`${kw.kind === "soft" ? "Soft skill" : "Hard skill"} · ${
+                        kw.matchesProfile ? "Matches your profile" : "Not found in your profile"
+                      }`}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-xs font-medium",
+                        kw.matchesProfile
+                          ? "border-emerald-300 bg-emerald-100/60 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          : "border-rose-300 bg-rose-100/60 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300",
+                      )}
+                    >
+                      {kw.text}
+                    </li>
+                  ))}
               </ul>
             </div>
           )}

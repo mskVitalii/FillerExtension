@@ -1,4 +1,5 @@
 import type { JobKeyword } from "@/types/job";
+import { createKeywordMatcher, type KeywordMatch } from "@/features/keywords/match";
 
 /**
  * Highlights keywords in the live page's own text (spec_8 item 2) by
@@ -25,6 +26,9 @@ import type { JobKeyword } from "@/types/job";
  * notable". Both tones stay dark/mid-saturation rather than pastel, and each
  * chip gets a matching 1px border, so the text stays legible pasted onto an
  * unpredictable third-party page background instead of washing out.
+ *
+ * Matching is whole-word (`features/keywords/match.ts`): "Go" never lights up
+ * inside "Google", nor "Java" inside "JavaScript".
  */
 
 const WRAPPER_CLASS = "filler-keyword-highlight";
@@ -43,20 +47,9 @@ const REAPPLY_DEBOUNCE_MS = 150;
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "SELECT", "TITLE", "SVG"]);
 
 let activeKeywords: JobKeyword[] = [];
-// Keyed by lowercased keyword text — the match regex is a literal alternation
-// of `activeKeywords`' own text run case-insensitively, so whatever exec()
-// returns is always one of them modulo case.
-let matchByText: Map<string, boolean> = new Map();
+let findMatches: (text: string) => KeywordMatch[] = () => [];
 let observer: MutationObserver | null = null;
 let reapplyTimer: ReturnType<typeof setTimeout> | null = null;
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function buildPattern(keywords: JobKeyword[]): RegExp {
-  return new RegExp(`(?:${keywords.map((k) => escapeRegExp(k.text)).join("|")})`, "gi");
-}
 
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -118,8 +111,7 @@ function textNodes(): Text[] {
   return nodes;
 }
 
-function createHighlightElement(text: string): HTMLElement {
-  const isMatch = matchByText.get(text.toLowerCase()) ?? false;
+function createHighlightElement(text: string, isMatch: boolean): HTMLElement {
   const outer = document.createElement("span");
   outer.className = `${WRAPPER_CLASS} ${isMatch ? MATCH_CLASS : GAP_CLASS}`;
   const inner = document.createElement("span");
@@ -136,25 +128,20 @@ function countWrapped(): number {
 /** Wraps every not-yet-wrapped occurrence of `activeKeywords`. Idempotent. */
 function applyHighlights(): number {
   if (activeKeywords.length === 0) return 0;
-  const pattern = buildPattern(activeKeywords);
   let total = countWrapped();
   if (total >= MAX_MATCHES) return total;
 
   outer: for (const node of textNodes()) {
     const text = node.textContent ?? "";
-    pattern.lastIndex = 0;
     const frag = document.createDocumentFragment();
     let lastIndex = 0;
     let any = false;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text))) {
+    for (const match of findMatches(text)) {
       if (match.index > lastIndex) frag.append(text.slice(lastIndex, match.index));
-      frag.append(createHighlightElement(match[0]));
-      lastIndex = match.index + match[0].length;
+      frag.append(createHighlightElement(match.text, activeKeywords[match.keyword].matchesProfile));
+      lastIndex = match.index + match.text.length;
       any = true;
       total++;
-      // A zero-width match would spin `pattern.lastIndex` forever.
-      if (match[0].length === 0) pattern.lastIndex++;
       if (total >= MAX_MATCHES) break;
     }
     if (any) {
@@ -182,9 +169,9 @@ function startObserver(): void {
  * Highlights every occurrence of `keywords` in the page's visible text —
  * green/teal for one `matchesProfile: true`, rose for `false` — and keeps
  * re-applying it if the host page re-renders over the highlighted text.
- * Longest keyword first so e.g. "Senior Product Manager" wins over the
- * shorter "Product Manager" also being in the list, instead of the shorter
- * one partially shadowing it. Returns how many matches were wrapped.
+ * The longest keyword wins where two overlap, so e.g. "Senior Product
+ * Manager" isn't partially shadowed by a shorter "Product Manager" also in
+ * the list. Returns how many matches were wrapped.
  */
 export function highlightKeywords(keywords: JobKeyword[]): number {
   clearKeywordHighlights();
@@ -196,13 +183,12 @@ export function highlightKeywords(keywords: JobKeyword[]): number {
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    cleaned.push({ text, matchesProfile: keyword.matchesProfile });
+    cleaned.push({ ...keyword, text });
   }
-  cleaned.sort((a, b) => b.text.length - a.text.length);
   if (cleaned.length === 0) return 0;
 
   activeKeywords = cleaned;
-  matchByText = new Map(cleaned.map((k) => [k.text.toLowerCase(), k.matchesProfile]));
+  findMatches = createKeywordMatcher(cleaned.map((k) => k.text));
   ensureStyle();
   const matched = applyHighlights();
   if (matched > 0) startObserver();
@@ -217,7 +203,7 @@ export function clearKeywordHighlights(): void {
     reapplyTimer = null;
   }
   activeKeywords = [];
-  matchByText = new Map();
+  findMatches = () => [];
 
   const wrappers = document.querySelectorAll<HTMLElement>(`.${WRAPPER_CLASS}`);
   for (const wrapper of wrappers) {
