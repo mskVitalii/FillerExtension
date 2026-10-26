@@ -47,6 +47,8 @@ export async function suggestSearchQuery(): Promise<{ what: string; where: strin
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { what: string; where: string },
+    // A short answer read straight off the CV — not worth the wait of a long think.
+    reasoningEffort: "low",
   });
 
   return {

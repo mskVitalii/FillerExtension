@@ -111,12 +111,16 @@ export class MissingApiKeyError extends OpenAiError {
   }
 }
 
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+
 interface JsonSchemaRequest<T> {
   systemPrompt: string;
   userPrompt: string;
   schemaName: string;
   schema: Record<string, unknown>;
   model?: string;
+  /** `reasoning.effort` — "low" for mechanical support steps (parsing, short suggestions) that don't gain from long thinking. Absent = the model's default. */
+  reasoningEffort?: ReasoningEffort;
   /** Used only to make failures easier to diagnose; never logged in production. */
   parse: (raw: string) => T;
 }
@@ -126,6 +130,28 @@ interface ResponsesApiOutput {
     type: string;
     content?: { type: string; text?: string }[];
   }[];
+}
+
+/**
+ * POSTs one Responses API body. With `reasoningEffort`, a 400 that names the
+ * `reasoning` parameter (a model picked in Settings that doesn't reason) is
+ * retried once without it, so a speed hint can never fail the request.
+ */
+async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort): Promise<Response> {
+  const send = (payload: Record<string, unknown>) =>
+    fetch(RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  if (!reasoningEffort) return send(body);
+  const res = await send({ ...body, reasoning: { effort: reasoningEffort } });
+  if (res.status !== 400) return res;
+  const error = await res.clone().text().catch(() => "");
+  return /reasoning/i.test(error) ? send(body) : res;
 }
 
 /**
@@ -140,13 +166,9 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   if (!apiKey) throw new MissingApiKeyError();
   const model = request.model ?? (await getSupportModel());
 
-  const res = await fetch(RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+  const res = await postResponses(
+    apiKey,
+    {
       model,
       input: [
         { role: "system", content: request.systemPrompt },
@@ -160,8 +182,9 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
           schema: request.schema,
         },
       },
-    }),
-  });
+    },
+    request.reasoningEffort,
+  );
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -175,58 +198,98 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   return request.parse(raw);
 }
 
+interface StreamEvent {
+  type?: string;
+  delta?: string;
+  /** On `error` / `response.failed` events. */
+  message?: string;
+  response?: { error?: { message?: string } };
+}
+
+/**
+ * Reads a Responses API SSE stream (`response.output_text.delta` events), calling `onDelta`
+ * for each chunk as it arrives and returning the fully assembled text once the stream ends.
+ * A failure reported mid-stream (`error` / `response.failed`) is thrown.
+ */
+async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (delta: string) => void): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by a blank line; a frame may still be split across two
+    // `reader.read()` chunks, so only consume complete frames and keep the remainder buffered.
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+
+      const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+      if (!dataLine) continue;
+      const payload = dataLine.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+
+      let event: StreamEvent;
+      try {
+        event = JSON.parse(payload) as StreamEvent;
+      } catch {
+        continue;
+      }
+      if (event.type === "error" || event.type === "response.failed") {
+        const reason = event.message ?? event.response?.error?.message ?? "unknown error";
+        throw new OpenAiError(`OpenAI streaming request failed: ${reason}`);
+      }
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+        full += event.delta;
+        onDelta(event.delta);
+      }
+    }
+  }
+
+  return full;
+}
+
 /**
  * spec_5 section C: a plain-text Responses API call with OpenAI's hosted
  * `web_search` tool enabled, so the model can search the live internet
- * before answering — used to find current job postings. Deliberately
- * separate from `requestStructured`: combining `tools` and a strict
- * `text.format: json_schema` in the same call isn't a documented-safe
- * combination, so the caller runs this first for raw, citation-bearing
- * text, then a second ordinary `requestStructured` call (no tools) to
- * parse that text into the app's normalized job-listing shape.
+ * before answering — used to find current job postings. Streamed, so the
+ * caller can show each posting as soon as the model has written it instead
+ * of waiting for the whole answer (`job-search/openai-provider.ts` asks for
+ * one JSON object per line for exactly that). Deliberately no strict
+ * `text.format: json_schema`: combining it with `tools` isn't a
+ * documented-safe combination, and a partial JSON document can't be read
+ * mid-stream anyway. Returns "" when the model wrote nothing.
  */
-export async function requestWithWebSearch(prompt: string, model?: string): Promise<string> {
+export async function streamWithWebSearch(prompt: string, onDelta: (delta: string) => void, model?: string): Promise<string> {
   const apiKey = await getOpenAiApiKey();
   if (!apiKey) throw new MissingApiKeyError();
   const resolvedModel = model ?? (await getSupportModel());
 
-  const res = await fetch(RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: resolvedModel,
-      tools: [{ type: "web_search" }],
-      input: [{ role: "user", content: prompt }],
-    }),
+  const res = await postResponses(apiKey, {
+    model: resolvedModel,
+    stream: true,
+    tools: [{ type: "web_search" }],
+    input: [{ role: "user", content: prompt }],
   });
 
-  if (!res.ok) {
+  if (!res.ok || !res.body) {
     const body = await res.text().catch(() => "");
     throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
   }
-
-  const data = (await res.json()) as ResponsesApiOutput;
-  const message = data.output.find((item) => item.type === "message");
-  const raw = message?.content?.find((c) => c.type === "output_text")?.text;
-  if (!raw) throw new OpenAiError("OpenAI web search response had no content.");
-  return raw;
-}
-
-interface StreamEvent {
-  type?: string;
-  delta?: string;
+  return readOutputTextStream(res.body, onDelta);
 }
 
 /**
  * Streaming counterpart to `requestStructured`, for the one call whose output the user watches
  * appear live (cover-letter generation) — deliberately plain text, not `text.format:
  * json_schema`: a partial JSON string fragment can't be shown mid-stream, so this drops the
- * schema wrapper entirely rather than trying to stream valid-but-incomplete JSON. Parses the
- * Responses API's SSE stream directly (`response.output_text.delta` events), calling `onDelta`
- * for each chunk as it arrives and returning the fully assembled text once the stream ends.
+ * schema wrapper entirely rather than trying to stream valid-but-incomplete JSON
+ * (`readOutputTextStream` does the SSE parsing).
  */
 export async function requestTextStream(
   systemPrompt: string,
@@ -259,41 +322,7 @@ export async function requestTextStream(
     throw new OpenAiError(`OpenAI streaming request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let full = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE frames are separated by a blank line; a frame may still be split across two
-    // `reader.read()` chunks, so only consume complete frames and keep the remainder buffered.
-    let boundary: number;
-    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
-      if (!dataLine) continue;
-      const payload = dataLine.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-
-      let event: StreamEvent;
-      try {
-        event = JSON.parse(payload) as StreamEvent;
-      } catch {
-        continue;
-      }
-      if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
-        full += event.delta;
-        onDelta(event.delta);
-      }
-    }
-  }
-
+  const full = await readOutputTextStream(res.body, onDelta);
   if (!full) throw new OpenAiError("OpenAI streaming response had no content.");
   return full;
 }

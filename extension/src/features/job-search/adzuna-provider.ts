@@ -2,6 +2,7 @@ import type { JobSearchQuery, JobSearchResult } from "@/types/job-search";
 import { formatSalaryRange } from "@/lib/salary";
 import { dropStalePostings } from "./freshness";
 import { applyGradesToTerms } from "./grades";
+import { adzunaExcludeWords } from "./negative";
 
 interface AdzunaJob {
   title: string;
@@ -60,22 +61,33 @@ const REQUEST_GAP_MS = 350;
 /** Upper bound on searches per run (search terms × selected grades). */
 const MAX_ADZUNA_REQUESTS = 12;
 
-async function searchOneTag(
+export function buildAdzunaUrl(
   tag: string,
-  where: string,
+  query: Pick<JobSearchQuery, "where" | "negative">,
   credentials: AdzunaCredentials,
   countryCode: string,
   page: number,
-): Promise<JobSearchResult[]> {
+): string {
   const url = new URL(`https://api.adzuna.com/v1/api/jobs/${countryCode}/search/${page}`);
   url.searchParams.set("app_id", credentials.appId);
   url.searchParams.set("app_key", credentials.appKey);
   url.searchParams.set("results_per_page", "15");
   url.searchParams.set("content-type", "application/json");
   if (tag) url.searchParams.set("what", tag);
-  if (where) url.searchParams.set("where", where);
+  if (query.where) url.searchParams.set("where", query.where);
+  const exclude = adzunaExcludeWords(query.negative);
+  if (exclude) url.searchParams.set("what_exclude", exclude);
+  return url.toString();
+}
 
-  const res = await fetch(url.toString());
+async function searchOneTag(
+  tag: string,
+  query: JobSearchQuery,
+  credentials: AdzunaCredentials,
+  countryCode: string,
+  page: number,
+): Promise<JobSearchResult[]> {
+  const res = await fetch(buildAdzunaUrl(tag, query, credentials, countryCode, page));
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Adzuna search failed (${res.status}): ${body.slice(0, 300)}`);
@@ -114,13 +126,16 @@ export interface AdzunaSearchOutcome {
  * Requests run **sequentially**, not `Promise.all` — firing every tag at
  * once routinely tripped Adzuna's rate limit (spec_7 item 13). Each tag is
  * independently try/caught: one 429 no longer aborts the whole search, it
- * just contributes a warning and the rest still come back.
+ * just contributes a warning and the rest still come back. `onTagResults`
+ * sees each tag's new results as soon as they arrive, so the panel can show
+ * them before the last tag is done.
  */
 export async function searchAdzunaJobs(
   query: JobSearchQuery,
   credentials: AdzunaCredentials,
   countryCode: string,
   page = 1,
+  onTagResults?: (results: JobSearchResult[]) => void,
 ): Promise<AdzunaSearchOutcome> {
   const baseTags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
   // Every grade multiplies the request count (they run sequentially, rate-limited), so cap the total.
@@ -138,12 +153,11 @@ export async function searchAdzunaJobs(
   for (let i = 0; i < tags.length; i++) {
     const tag = tags[i];
     try {
-      const jobs = await searchOneTag(tag, query.where, credentials, countryCode, page);
-      for (const job of jobs) {
-        if (seen.has(job.url)) continue;
-        seen.add(job.url);
-        merged.push(job);
-      }
+      const jobs = await searchOneTag(tag, query, credentials, countryCode, page);
+      const fresh = jobs.filter((job) => !seen.has(job.url));
+      for (const job of fresh) seen.add(job.url);
+      merged.push(...fresh);
+      if (fresh.length > 0) onTagResults?.(fresh);
     } catch (err) {
       warnings.push(`"${tag}" — ${err instanceof Error ? err.message : "search failed"}`);
     }

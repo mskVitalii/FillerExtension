@@ -1,6 +1,7 @@
 import type { JobSearchResult } from "@/types/job-search";
-import { requestStructured } from "./client";
+import { requestStructured, type ReasoningEffort } from "./client";
 import { dropStalePostings, MAX_POSTING_AGE_DAYS } from "@/features/job-search/freshness";
+import { negativeInstruction } from "@/features/job-search/negative";
 import { todayISO } from "@/lib/date-format";
 
 const SCHEMA = {
@@ -28,7 +29,8 @@ const SCHEMA = {
   },
 } as const;
 
-function systemPrompt(today: string): string {
+function systemPrompt(today: string, negative?: string): string {
+  const exclusion = negativeInstruction(negative);
   return `You turn raw web-search results about job openings into a clean,
 structured list. The input text was produced by a live internet search and may include
 citations, markdown links, or unrelated surrounding prose — extract only genuine
@@ -51,7 +53,7 @@ Rules:
 - If a "candidate" background is given, drop postings that are a poor fit for them (wrong
   seniority, unrelated field) even if they're genuine job postings — only surface ones
   actually worth their time.
-- Deduplicate: the same posting linked twice becomes one entry.
+- Deduplicate: the same posting linked twice becomes one entry.${exclusion ? `\n- ${exclusion}` : ""}
 - If nothing in the text is actually a job posting, return an empty "jobs" array.`;
 }
 
@@ -62,12 +64,15 @@ Rules:
  * `candidateBackground` (the applicant's own Personal Legend, spec_8 item
  * 8), when given, lets this pass also rank/filter for fit and write a
  * fit-focused snippet, rather than blindly extracting every posting-shaped
- * thing in the text.
+ * thing in the text. `options.negative` (the Search tab's "what I don't
+ * want") drops matching postings here too, behind the offline
+ * `splitByNegative` pass.
  */
 export async function extractJobListings(
   rawText: string,
   source: "openai" | "tavily",
   candidateBackground?: string,
+  options: { negative?: string; reasoningEffort?: ReasoningEffort } = {},
 ): Promise<JobSearchResult[]> {
   const userPrompt = candidateBackground
     ? `candidate:\n${candidateBackground}\n\n---\n\n${rawText.slice(0, 40000)}`
@@ -78,8 +83,9 @@ export async function extractJobListings(
   }>({
     schemaName: "job_listings",
     schema: SCHEMA,
-    systemPrompt: systemPrompt(todayISO()),
+    systemPrompt: systemPrompt(todayISO(), options.negative),
     userPrompt,
+    reasoningEffort: options.reasoningEffort,
     parse: (raw) => JSON.parse(raw) as { jobs: Omit<JobSearchResult, "source">[] },
   });
   // The model is told to drop old postings itself; this catches the ones it let through anyway.
