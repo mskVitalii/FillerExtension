@@ -6,12 +6,16 @@ MANIFEST_JSON := $(EXT_DIR)/manifest.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev build build-release typecheck lint lint-fix test clean zip package \
+.PHONY: help init install dev build build-release typecheck lint lint-fix test clean zip package \
         version version-patch version-minor version-major release publish rebuild
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+init: install ## First-time setup: install dependencies and create extension/.env.local from .env.example (never overwrites)
+	@if [ -f $(EXT_DIR)/.env.local ]; then echo "$(EXT_DIR)/.env.local already exists, leaving it untouched"; \
+	else cp $(EXT_DIR)/.env.example $(EXT_DIR)/.env.local && echo "Created $(EXT_DIR)/.env.local - set VITE_DEV_GOOGLE_CLIENT_ID in it"; fi
 
 install: ## Install extension dependencies
 	cd $(EXT_DIR) && npm install
