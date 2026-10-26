@@ -154,9 +154,8 @@ export type RuntimeMessage =
 
 export type RuntimeMessageType = RuntimeMessage["type"];
 
-export function sendMessageToTab<T = unknown>(tabId: number, message: RuntimeMessage): Promise<T> {
-  return chrome.tabs.sendMessage(tabId, message);
-}
+/** The `RuntimeMessage` member for one `type` — use it for a response type instead of restating its fields. */
+export type MessageOf<T extends RuntimeMessageType> = Extract<RuntimeMessage, { type: T }>;
 
 export async function sendMessage<T = unknown>(message: RuntimeMessage): Promise<T> {
   const response = (await chrome.runtime.sendMessage(message)) as T | Extract<RuntimeMessage, { type: "ERROR" }>;

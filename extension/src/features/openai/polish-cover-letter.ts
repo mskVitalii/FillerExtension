@@ -1,16 +1,8 @@
 import { requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
+import { CONTENT_SCHEMA, type ContentResult } from "./schemas";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import { applicantRulesSection } from "./cover-letter";
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["content"],
-  properties: {
-    content: { type: "string" },
-  },
-} as const;
 
 const SYSTEM_PROMPT = `You are a sharp human editor cleaning up a cover letter draft.
 
@@ -57,12 +49,12 @@ export async function polishCoverLetter(
       2,
     ) + applicantRulesSection(generationRules);
 
-  const result = await requestStructured<{ content: string }>({
+  const result = await requestStructured<ContentResult>({
     schemaName: "cover_letter_polish",
-    schema: SCHEMA,
+    schema: CONTENT_SCHEMA,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    parse: (raw) => JSON.parse(raw) as { content: string },
+    parse: (raw) => JSON.parse(raw) as ContentResult,
   });
 
   return stripEmDashes(result.content);

@@ -1,4 +1,5 @@
 import { unzipSync } from "fflate";
+import { bytesToBase64 } from "@/lib/base64";
 
 /**
  * A LaTeX CV — an Overleaf project downloaded as .zip (main .tex, photo,
@@ -129,12 +130,6 @@ export function detectCompiler(source: string): "pdflatex" | "xelatex" | "lualat
   return "pdflatex";
 }
 
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
-
 /** The first TeX error ("! LaTeX Error: File `x.sty' not found.") with the line after it, from a failed build's log. */
 function firstTexError(log: string): string | null {
   const lines = log.split("\n");
@@ -152,7 +147,7 @@ export async function compileLatex(project: LatexProject, source: string, option
   const resources = [...project.files].map(([path, bytes]) => {
     if (path === project.mainPath) return { main: true, path, content: source };
     if (TEXT_EXTENSIONS.test(path)) return { path, content: decodeUtf8(bytes) };
-    return { path, file: toBase64(bytes) };
+    return { path, file: bytesToBase64(bytes) };
   });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90_000);

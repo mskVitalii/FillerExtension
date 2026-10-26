@@ -1,17 +1,8 @@
 import type { Job } from "@/types/job";
 import { getOutreachModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
+import { OUTREACH_SCHEMA } from "./schemas";
 import type { OutreachMessageResult } from "./outreach-message";
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["subject", "body"],
-  properties: {
-    subject: { type: ["string", "null"] },
-    body: { type: "string" },
-  },
-} as const;
 
 const SYSTEM_PROMPT = `You are editing an existing outreach message (an email or LinkedIn note
 to a recruiter/hiring contact) on the applicant's instructions.
@@ -39,7 +30,7 @@ export async function reviseOutreachMessage(
 
   const result = await requestStructured<OutreachMessageResult>({
     schemaName: "outreach_message_revision",
-    schema: SCHEMA,
+    schema: OUTREACH_SCHEMA,
     model: await getOutreachModel(),
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,

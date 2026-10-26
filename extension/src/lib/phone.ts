@@ -1,6 +1,5 @@
 import {
   parsePhoneNumberFromString,
-  getCountryCallingCode,
   type CountryCode,
   type PhoneNumber,
 } from "libphonenumber-js/min";
@@ -69,15 +68,4 @@ export function resolvePhone(raw: string, regionHint?: string): ResolvedPhone | 
 /** Canonical E.164 form for storage, or the trimmed input unchanged if it can't be parsed. */
 export function canonicalPhone(raw: string, regionHint?: string): string {
   return parsePhone(raw, regionHint)?.number ?? raw.trim();
-}
-
-/** Dial code for an English country name (e.g. "Germany" → "49"), or null. */
-export function callingCodeForCountry(countryName: string): string | null {
-  const iso2 = countryNameToIso2(countryName);
-  if (!iso2) return null;
-  try {
-    return getCountryCallingCode(iso2 as CountryCode);
-  } catch {
-    return null;
-  }
 }

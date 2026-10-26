@@ -7,7 +7,7 @@ import { CvPreview } from "@/components/cv-template/CvPreview";
 import { VariableEditor } from "@/components/cv-template/VariableEditor";
 import { VariableSelector } from "@/components/cv-template/VariableSelector";
 import { PlaceholderExplainer, PlaceholderHowTo } from "@/components/cv-template/PlaceholderExplainer";
-import { sendMessage } from "@/types/messages";
+import { sendMessage, type MessageOf } from "@/types/messages";
 import { EMPTY_JOB, type Job } from "@/types/job";
 import type { CvMeta, Profile } from "@/types/profile";
 import {
@@ -368,7 +368,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     setStatus(null);
     try {
       const file = await renderOutput();
-      const response = await sendMessage<{ type: "UPLOAD_FILE_RESULT"; nativeInputs: number; dropZones: number }>({
+      const response = await sendMessage<MessageOf<"UPLOAD_FILE_RESULT">>({
         type: "UPLOAD_FILE",
         tabId,
         kind: "cv",

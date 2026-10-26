@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { sendMessage } from "@/types/messages";
-import { JOB_GRADES, type JobGrade, type JobSearchProvider, type JobSearchQuery, JobSearchResult, JobSearchTiming } from "@/types/job-search";
+import { sendMessage, type MessageOf } from "@/types/messages";
+import { JOB_GRADES, type JobGrade, type JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 import { getJobSearchState, setJobSearchState } from "@/features/storage/session";
 import { getJobSearchVisitedLinks, recordJobSearchLinkVisit } from "@/features/storage/local";
 import { cn } from "@/lib/utils";
@@ -197,12 +197,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     setSuggesting(true);
     setError(null);
     try {
-      const suggestion = await sendMessage<{
-        type: "SEARCH_QUERY_SUGGESTION";
-        what: string;
-        where: string;
-        tags?: string[];
-      }>({
+      const suggestion = await sendMessage<MessageOf<"SEARCH_QUERY_SUGGESTION">>({
         type: "SUGGEST_SEARCH_QUERY",
         provider,
       });
@@ -241,14 +236,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     if (!loadMore) setSearched(true);
     const nextPage = loadMore ? page + 1 : 1;
     try {
-      const response = await sendMessage<{
-        type: "JOB_SEARCH_RESULTS";
-        results: JobSearchResult[];
-        resolvedQuery: JobSearchQuery;
-        warnings?: string[];
-        totalMs: number;
-        stages: JobSearchTiming["stages"];
-      }>({
+      const response = await sendMessage<MessageOf<"JOB_SEARCH_RESULTS">>({
         type: "SEARCH_JOBS",
         query: { provider, what, where, remoteOnly, grades, tags },
         page: nextPage,

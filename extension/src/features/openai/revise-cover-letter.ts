@@ -1,15 +1,7 @@
 import type { Job } from "@/types/job";
 import { getCoverLetterModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["content"],
-  properties: {
-    content: { type: "string" },
-  },
-} as const;
+import { CONTENT_SCHEMA, type ContentResult } from "./schemas";
 
 const SYSTEM_PROMPT = `You are editing an existing cover letter draft on the applicant's
 instructions.
@@ -37,13 +29,13 @@ ${HOUSE_STYLE_RULES}`;
 export async function reviseCoverLetter(content: string, instructions: string, job: Job): Promise<string> {
   const userPrompt = JSON.stringify({ draft: content, instructions, job }, null, 2);
 
-  const result = await requestStructured<{ content: string }>({
+  const result = await requestStructured<ContentResult>({
     schemaName: "cover_letter_revision",
-    schema: SCHEMA,
+    schema: CONTENT_SCHEMA,
     model: await getCoverLetterModel(),
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    parse: (raw) => JSON.parse(raw) as { content: string },
+    parse: (raw) => JSON.parse(raw) as ContentResult,
   });
 
   return stripEmDashes(result.content);

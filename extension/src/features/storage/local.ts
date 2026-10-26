@@ -22,7 +22,7 @@ import { todayISO } from "@/lib/date-format";
  * Never store large documents here; the source of truth for CV/legend/
  * profile is Google Drive appDataFolder.
  */
-interface LocalStorageSchema {
+export interface LocalStorageSchema {
   openaiApiKey: string;
   /** spec_5 section C — optional secondary job-search providers, same "local only" trust tier as the OpenAI key. */
   tavilyApiKey: string;

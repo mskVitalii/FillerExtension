@@ -2,6 +2,7 @@ import type { Job } from "@/types/job";
 import type { Profile } from "@/types/profile";
 import { getOutreachModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
+import { OUTREACH_SCHEMA } from "./schemas";
 
 export interface OutreachMessageInput {
   profile: Profile;
@@ -20,16 +21,6 @@ export interface OutreachMessageResult {
   subject: string | null;
   body: string;
 }
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["subject", "body"],
-  properties: {
-    subject: { type: ["string", "null"] },
-    body: { type: "string" },
-  },
-} as const;
 
 const SYSTEM_PROMPT = `You write a short outreach message an applicant sends to a named
 recruiter/hiring contact BEFORE or alongside applying, to start a conversation about a specific
@@ -86,7 +77,7 @@ export async function generateOutreachMessage(input: OutreachMessageInput): Prom
 
   const result = await requestStructured<OutreachMessageResult>({
     schemaName: "outreach_message",
-    schema: SCHEMA,
+    schema: OUTREACH_SCHEMA,
     model: await getOutreachModel(),
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,

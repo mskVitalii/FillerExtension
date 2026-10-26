@@ -146,7 +146,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       const result = await runCoverLetterPipeline(message.job, message.postingLanguage, (delta) => {
         // Fire-and-forget: a dropped chunk (e.g. the panel closed mid-generation) shouldn't
         // fail the generation itself — COVER_LETTER_RESULT below still carries the full text.
-        chrome.runtime.sendMessage({ type: "COVER_LETTER_STREAM_CHUNK", tabId, delta }).catch(() => {});
+        chrome.runtime
+          .sendMessage({ type: "COVER_LETTER_STREAM_CHUNK", tabId, delta } satisfies RuntimeMessage)
+          .catch(() => {});
       });
       await setLocal("lastCoverLetter", result.content);
       return {
