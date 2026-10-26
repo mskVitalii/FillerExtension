@@ -160,9 +160,13 @@ from `job-extraction/sites/` when one recognises the page (`sites/index.ts` disp
 fuses role+company into `og:title`) → a JSON-LD structured-data pass (`json-ld.ts`). Each
 overlay fills only its non-empty fields via `applyOverlay()`. Add a site by dropping a module
 in `sites/` and appending it to `SITE_EXTRACTORS`. `isExtractionSufficient()` gates whether
-the background falls back to an AI extraction pass (`job-extraction/ai-fallback.ts`, via
-`router.ts`'s `GET_JOB` handler) when the combined pass didn't produce enough signal (missing
-position/company, or a short description).
+the DOM result needs AI help (missing position/company, or a short description). If it does,
+`GET_JOB` still answers at once, with `sufficient: false`, the DOM job and the page's main-content
+text (`pageMainText`). The Side Panel shows that job and sends `COMPLETE_JOB` in the background
+(`completeJobWithAiAndBrief` in `job-extraction/ai-fallback.ts`). That call asks the AI only for
+the missing fields plus the brief, never the description, and runs at `reasoning.effort: "low"`.
+The panel merges the answer without overwriting fields the user edited meanwhile
+(`job-extraction/completion.ts`).
 
 ### Storage: three tiers with different trust/durability
 

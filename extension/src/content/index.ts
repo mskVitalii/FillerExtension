@@ -1,5 +1,6 @@
 import type { RuntimeMessage } from "@/types/messages";
 import { extractJob, isExtractionSufficient } from "@/features/job-extraction/extractor";
+import { pageMainText } from "@/features/job-extraction/dom-heuristics";
 import { autofillDocument } from "@/features/autofill/engine";
 import { fillElement } from "@/features/autofill/native-setter";
 import { fillDialCodeField, fillSalaryField, resolvePhoneFill } from "@/features/autofill/field-format";
@@ -71,7 +72,7 @@ function registerMessageListener(): void {
               type: "JOB_DATA",
               job,
               sufficient: false,
-              visibleText: (document.body.innerText || "").slice(0, 20000),
+              visibleText: pageMainText(document).slice(0, 20000),
             };
         sendResponse(response);
         return false;

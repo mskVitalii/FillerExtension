@@ -26,6 +26,7 @@ import { formatProfileValueForDisplay } from "@/features/profile/format-value";
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
 import { fileToBase64 } from "@/lib/base64";
 import { recordUrlActivation, setCachedJob, setLocal } from "@/features/storage/local";
+import { keepUserEdits } from "@/features/job-extraction/completion";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
 import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
@@ -190,6 +191,9 @@ export function MainView({
   // Language/keyword/contact analysis in flight (handleDetectJobBrief) — distinct from
   // `loadingJob` (the extraction itself), since this runs as its own request right after.
   const [briefLoading, setBriefLoading] = useState(false);
+  // The AI pass filling what a DOM-insufficient extraction missed (completeJobInBackground) —
+  // the DOM result is already on screen while it runs.
+  const [completingJob, setCompletingJob] = useState(false);
   // The combined checkbox-decision + question-answer call (handleAnalyzePageContent) in flight.
   const [decidingPageContent, setDecidingPageContent] = useState(false);
   // On by default (spec_8 item 2: "make reading the posting cooler") — the
@@ -205,6 +209,9 @@ export function MainView({
   const hasLoadedRef = useRef(false);
   /** Position/company as extracted, before a manual correction — see `TabState.extractedPosition`. */
   const extractedJobRef = useRef({ position: "", company: "" });
+  /** The job on screen right now, for merging a background completion without a stale closure. */
+  const jobRef = useRef(job);
+  jobRef.current = job;
   // Picker mode is a loop, not a one-shot: `pickingRef` gates the loop and
   // `pickerPortRef` is a disconnect-on-close channel to the background.
   const pickingRef = useRef(false);
@@ -334,10 +341,12 @@ export function MainView({
   async function handleNavigation() {
     let newJob: Job | undefined;
     let newBrief: JobBrief | undefined;
+    let incomplete: MessageOf<"JOB_DATA"> | undefined;
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job; brief?: JobBrief }>({ type: "GET_JOB", tabId });
+      const response = await sendMessage<MessageOf<"JOB_DATA"> | undefined>({ type: "GET_JOB", tabId });
       newJob = response?.job;
       newBrief = response?.brief;
+      if (response && !response.sufficient) incomplete = response;
     } catch {
       // No content script on the new page (e.g. a chrome:// page reached mid-flow) — keep the current draft.
     }
@@ -370,10 +379,14 @@ export function MainView({
       setJobKeywords([]);
       void sendMessage({ type: "CLEAR_KEYWORD_HIGHLIGHTS", tabId }).catch(() => undefined);
       if (newBrief) void applyJobBrief(newJob, newBrief);
-      else void handleDetectJobBrief(newJob);
+      else if (!incomplete) void handleDetectJobBrief(newJob);
       void checkExistingApplication(newJob.url);
       const prefs = await getPreferences();
       if (prefs.autofillOnOpen) await runAutofill();
+      if (incomplete) {
+        void completeJobInBackground(incomplete).then((completed) => handleAnalyzePageContent(completed));
+        return;
+      }
     }
     void handleAnalyzePageContent(newJob ?? job);
   }
@@ -555,8 +568,9 @@ export function MainView({
     setLoadingJob(true);
     setError(null);
     let detectedJob: Job = job;
+    let incomplete: MessageOf<"JOB_DATA"> | undefined;
     try {
-      const response = await sendMessage<{ type: "JOB_DATA"; job: Job; brief?: JobBrief }>({
+      const response = await sendMessage<MessageOf<"JOB_DATA"> | undefined>({
         type: "GET_JOB",
         tabId,
         force,
@@ -565,8 +579,9 @@ export function MainView({
         detectedJob = response.job;
         extractedJobRef.current = { position: response.job.position, company: response.job.company };
         setJob(response.job);
+        if (!response.sufficient) incomplete = response;
         if (response.brief) void applyJobBrief(response.job, response.brief);
-        else void handleDetectJobBrief(response.job);
+        else if (!incomplete) void handleDetectJobBrief(response.job);
         void checkExistingApplication(response.job.url);
         const prefs = await getPreferences();
         if (prefs.autofillOnOpen) await runAutofill();
@@ -577,7 +592,38 @@ export function MainView({
       setLoadingJob(false);
       hasLoadedRef.current = true;
     }
-    void handleAnalyzePageContent(detectedJob);
+    // Not awaited: the panel is usable on the DOM result while the AI fills the gaps.
+    if (incomplete) void completeJobInBackground(incomplete).then((completed) => handleAnalyzePageContent(completed));
+    else void handleAnalyzePageContent(detectedJob);
+  }
+
+  /**
+   * Fills what a DOM-insufficient extraction missed (usually the company) and brings the brief
+   * along, while the DOM result is already on screen. Fields the user edited meanwhile are kept,
+   * and a result for a page the panel has since left is dropped. Resolves to the job on screen.
+   */
+  async function completeJobInBackground(partial: MessageOf<"JOB_DATA">): Promise<Job> {
+    const dom = partial.job;
+    if (!hasApiKey) return dom;
+    setCompletingJob(true);
+    try {
+      const response = await sendMessage<MessageOf<"JOB_DATA"> | undefined>({
+        type: "COMPLETE_JOB",
+        job: dom,
+        text: partial.visibleText ?? "",
+      });
+      if (!response?.job || jobRef.current.url !== dom.url) return jobRef.current;
+      const merged = keepUserEdits(jobRef.current, dom, response.job);
+      setJob(merged);
+      if (response.brief) void applyJobBrief(merged, response.brief);
+      if (partial.pageUrl && merged.position) void setCachedJob(partial.pageUrl, merged).catch(() => undefined);
+      return merged;
+    } catch {
+      // No API key yet, or the request failed — keep the DOM result as it is.
+      return jobRef.current;
+    } finally {
+      setCompletingJob(false);
+    }
   }
 
   /**
@@ -1421,7 +1467,7 @@ export function MainView({
   // the user has a single clear signal for "still working" instead of guessing from fields
   // popping in one at a time — the whole point being asked for (spec: it's otherwise unclear
   // when extraction/analysis is done and the panel is safe to act on, e.g. before Autofill).
-  const isAnalyzingJob = loadingJob || briefLoading || decidingPageContent;
+  const isAnalyzingJob = loadingJob || completingJob || briefLoading || decidingPageContent;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -1455,7 +1501,9 @@ export function MainView({
           <Loader2 className="size-3 shrink-0 animate-spin" />
           {loadingJob
             ? "Reading job posting…"
-            : decidingPageContent
+            : completingJob
+              ? "Filling in missing job details…"
+              : decidingPageContent
               ? "Deciding checkboxes and answering questions…"
               : "Analyzing language, keywords and contact…"}
         </p>

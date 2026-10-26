@@ -27,8 +27,13 @@ export type RuntimeMessage =
        * fallback, or a pasted-text extraction) — the brief is already done, so the Side Panel skips
        * the separate DETECT_JOB_BRIEF round trip it would otherwise send right after. */
       brief?: JobBrief;
+      /** The tab's URL, set on a DOM-insufficient answer — the key the Side Panel caches the
+       * completed job under once `COMPLETE_JOB` returns. */
+      pageUrl?: string;
     }
   | { type: "EXTRACT_JOB_FROM_TEXT"; tabId: number; text: string }
+  /** Fills what a DOM-insufficient `GET_JOB` missed (AI), from that answer's job and visible text. */
+  | { type: "COMPLETE_JOB"; job: Job; text: string }
   | { type: "GET_PROFILE" }
   | { type: "PROFILE_DATA"; profile: Profile }
   | { type: "AUTOFILL"; tabId: number; profile: Profile }

@@ -14,7 +14,7 @@ import { getSearchSuggestion } from "@/features/job-search/suggestion-cache";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { generateOutreachMessage } from "@/features/openai/outreach-message";
 import { getApplicantContext } from "@/features/profile/context";
-import { extractJobWithAiAndBrief } from "@/features/job-extraction/ai-fallback";
+import { completeJobWithAiAndBrief, extractJobWithAiAndBrief } from "@/features/job-extraction/ai-fallback";
 import { reviseCoverLetter } from "@/features/openai/revise-cover-letter";
 import { reviseOutreachMessage } from "@/features/openai/revise-outreach-message";
 import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
@@ -133,23 +133,28 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
       // No single frame had enough signal on its own — a job's description
       // commonly lives in a different frame than its title/company header
-      // (e.g. an embedded ATS widget under a career-page shell). Combine
-      // every frame's visible text before falling back to the AI pass.
+      // (e.g. an embedded ATS widget under a career-page shell). Answer with
+      // the DOM result right away plus every frame's visible text; the Side
+      // Panel shows it and fills the gaps through COMPLETE_JOB in the
+      // background, instead of the whole panel waiting on an AI call.
       const best = jobResponses.reduce((a, b) => (b.job.description.length > a.job.description.length ? b : a));
       const combinedText = jobResponses
         .map((r) => r.visibleText ?? "")
         .filter(Boolean)
         .join("\n\n")
         .slice(0, 20000);
+      return {
+        type: "JOB_DATA",
+        job: best.job,
+        sufficient: false,
+        visibleText: combinedText || best.visibleText || "",
+        pageUrl: tab?.url,
+      };
+    }
 
-      try {
-        const { job: aiJob, brief } = await extractJobWithAiAndBrief(combinedText || best.visibleText || "", best.job.url);
-        if (tab?.url) void setCachedJob(tab.url, aiJob);
-        return { type: "JOB_DATA", job: aiJob, sufficient: true, brief };
-      } catch {
-        // AI fallback failed (e.g. no API key yet) — surface the partial DOM extraction.
-        return best;
-      }
+    case "COMPLETE_JOB": {
+      const { job, brief } = await completeJobWithAiAndBrief(message.job, message.text);
+      return { type: "JOB_DATA", job, sufficient: true, brief };
     }
 
     case "EXTRACT_JOB_FROM_TEXT": {

@@ -16,6 +16,20 @@ function mainContent(doc: Document): HTMLElement {
   );
 }
 
+/** Below this, an `article`/`main` is a card or a stub, not the posting — read the whole body instead. */
+const MIN_MAIN_TEXT = 500;
+
+/**
+ * The page text the AI pass reads: the main content region, so the nav, footer, cookie banner and
+ * "similar jobs" rail don't eat the prompt — or the whole body when no region holds the posting.
+ */
+export function pageMainText(doc: Document): string {
+  const root = mainContent(doc);
+  const text = root.innerText || root.textContent || "";
+  if (root === doc.body || text.trim().length >= MIN_MAIN_TEXT) return text;
+  return doc.body.innerText || doc.body.textContent || "";
+}
+
 function firstHeadingText(root: HTMLElement): string {
   const heading = root.querySelector("h1") ?? document.querySelector("h1");
   return heading?.textContent?.trim() ?? "";
