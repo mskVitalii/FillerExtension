@@ -5,8 +5,10 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DraggableValue } from "@/components/DraggableValue";
+import { PinHint } from "@/components/PinHint";
 import { SetupBanner } from "@/components/SetupBanner";
 import { FrameAccessBanner } from "@/components/FrameAccessBanner";
+import { useToolbarPinned } from "../hooks/useToolbarPinned";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
 const CoverLetterEditor = lazy(() =>
@@ -121,6 +123,7 @@ export function MainView({
   // them silently error keeps the panel down to what actually works —
   // extraction + Autofill Application, neither of which needs either.
   const setupComplete = hasApiKey && googleConnected;
+  const toolbarPinned = useToolbarPinned();
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [loadingJob, setLoadingJob] = useState(true);
   // spec_7 item 8 — a previously-saved Drive record for the current job URL,
@@ -1466,6 +1469,7 @@ export function MainView({
       />
 
       <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
+      {toolbarPinned === false && <PinHint />}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
