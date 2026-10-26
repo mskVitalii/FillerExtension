@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ExternalLink, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { sendMessage, type MessageOf } from "@/types/messages";
+import { sendMessage, type MessageOf, type RuntimeMessage } from "@/types/messages";
 import { JOB_GRADES, type JobGrade, type JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 import { getJobSearchState, setJobSearchState } from "@/features/storage/session";
 import { getJobSearchVisitedLinks, recordJobSearchLinkVisit } from "@/features/storage/local";
 import { cn } from "@/lib/utils";
 import { formatPostedAgo } from "@/features/job-search/freshness";
+import { MAX_NEGATIVE_PROMPT_LENGTH, splitByNegative } from "@/features/job-search/negative";
+import { getPreferences, setPreferences } from "@/features/storage/sync";
+
+/** `chrome.storage.sync` allows ~120 writes a minute — save once typing pauses, not per keystroke. */
+const SAVE_NEGATIVE_DELAY_MS = 800;
 
 /** Dedupes by listing URL — needed once "load more" starts appending to the same list. */
 function dedupeByUrl(jobs: JobSearchResult[]): JobSearchResult[] {
@@ -127,8 +132,21 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
   const [page, setPage] = useState(1);
   const [visitedLinks, setVisitedLinks] = useState<Set<string>>(new Set());
   const [timing, setTiming] = useState<JobSearchTiming | null>(null);
+  const [negative, setNegative] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  /** Results already streamed in by the running search (`JOB_SEARCH_PROGRESS`), shown before it finishes. */
+  const [streamed, setStreamed] = useState<JobSearchResult[]>([]);
   const elapsed = useElapsedSeconds(searching || loadingMore);
   const hasLoadedRef = useRef(false);
+  const negativeLoadedRef = useRef(false);
+  const searchIdRef = useRef<string | null>(null);
+
+  // The offline negative filter runs here, not in the background, so editing
+  // the field re-filters the results already on screen without a new search.
+  const split = useMemo(() => splitByNegative(results, negative), [results, negative]);
+  const streamedVisible = useMemo(() => splitByNegative(streamed, negative).kept, [streamed, negative]);
+  const visibleResults = showHidden ? results : split.kept;
+  const hiddenTerms = useMemo(() => new Map(split.hidden.map(({ result, term }) => [result.url, term])), [split]);
 
   // Restores the last query/results (spec_7 item 15) — opening the Side
   // Panel on a different tab gets its own fresh document, so without this
@@ -152,6 +170,27 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       setVisitedLinks(new Set(visited));
       hasLoadedRef.current = true;
     })();
+    void getPreferences().then((prefs) => {
+      setNegative(prefs.jobSearchNegativePrompt);
+      negativeLoadedRef.current = true;
+    });
+  }, []);
+
+  // A durable preference (sync), unlike the rest of this screen's session state.
+  useEffect(() => {
+    if (!negativeLoadedRef.current) return;
+    const id = setTimeout(() => void setPreferences({ jobSearchNegativePrompt: negative }), SAVE_NEGATIVE_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [negative]);
+
+  useEffect(() => {
+    function handleProgress(message: RuntimeMessage) {
+      if (message.type === "JOB_SEARCH_PROGRESS" && message.searchId === searchIdRef.current) {
+        setStreamed((prev) => dedupeByUrl([...prev, ...message.results]));
+      }
+    }
+    chrome.runtime.onMessage.addListener(handleProgress);
+    return () => chrome.runtime.onMessage.removeListener(handleProgress);
   }, []);
 
   useEffect(() => {
@@ -234,13 +273,17 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     setWarnings([]);
     setTiming(null);
     if (!loadMore) setSearched(true);
+    setStreamed([]);
+    const searchId = crypto.randomUUID();
+    searchIdRef.current = searchId;
     const nextPage = loadMore ? page + 1 : 1;
     try {
       const response = await sendMessage<MessageOf<"JOB_SEARCH_RESULTS">>({
         type: "SEARCH_JOBS",
-        query: { provider, what, where, remoteOnly, grades, tags },
+        query: { provider, what, where, remoteOnly, grades, tags, negative: negative.trim() },
         page: nextPage,
         excludeResults: loadMore ? results : undefined,
+        searchId,
       });
       setWhat(response.resolvedQuery.what);
       setWhere(response.resolvedQuery.where);
@@ -253,6 +296,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       setError(err instanceof Error ? err.message : "Search failed.");
       if (!loadMore) setResults([]);
     } finally {
+      searchIdRef.current = null;
+      setStreamed([]);
       (loadMore ? setLoadingMore : setSearching)(false);
     }
   }
@@ -387,6 +432,18 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
             <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
             Remote only
           </label>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="job-search-negative" className="text-xs text-muted-foreground">
+              What I don't want — comma-separated, remembered
+            </label>
+            <Input
+              id="job-search-negative"
+              value={negative}
+              maxLength={MAX_NEGATIVE_PROMPT_LENGTH}
+              onChange={(e) => setNegative(e.target.value)}
+              placeholder="e.g. no crypto, no gambling, no on-site only, no agencies"
+            />
+          </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => void handleSuggest()} disabled={suggesting}>
               <Sparkles className="mr-1 h-3 w-3" />
@@ -411,13 +468,38 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         <p className="text-sm text-muted-foreground">No postings found — try a broader query.</p>
       )}
 
+      {searching && streamedVisible.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {streamedVisible.map((job, i) => (
+            <JobResultCard
+              key={`${job.url}-${i}`}
+              job={job}
+              visited={visitedLinks.has(job.url)}
+              onVisit={() => handleVisitLink(job.url)}
+            />
+          ))}
+        </div>
+      )}
+
       {searching && <JobResultSkeleton />}
+
+      {!searching && split.hidden.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {split.hidden.length} hidden by "What I don't want".{" "}
+          <button
+            onClick={() => setShowHidden((prev) => !prev)}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            {showHidden ? "Hide them" : "Show them"}
+          </button>
+        </p>
+      )}
 
       {!searching && !loadingMore && timing && <SearchTimingSummary timing={timing} />}
 
-      {!searching && provider === "adzuna" && groupByTag(results).length > 1 ? (
+      {!searching && provider === "adzuna" && groupByTag(visibleResults).length > 1 ? (
         <div className="flex flex-col gap-3">
-          {groupByTag(results).map(({ tag, jobs }) => (
+          {groupByTag(visibleResults).map(({ tag, jobs }) => (
             <div key={tag} className="flex flex-col gap-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {tag} <span className="font-normal normal-case">({jobs.length})</span>
@@ -427,6 +509,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
                   key={`${job.url}-${i}`}
                   job={job}
                   visited={visitedLinks.has(job.url)}
+                  hiddenBy={hiddenTerms.get(job.url)}
                   onVisit={() => handleVisitLink(job.url)}
                 />
               ))}
@@ -436,16 +519,30 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       ) : (
         !searching && (
           <div className="flex flex-col gap-2">
-            {results.map((job, i) => (
+            {visibleResults.map((job, i) => (
               <JobResultCard
                 key={`${job.url}-${i}`}
                 job={job}
                 visited={visitedLinks.has(job.url)}
+                hiddenBy={hiddenTerms.get(job.url)}
                 onVisit={() => handleVisitLink(job.url)}
               />
             ))}
           </div>
         )
+      )}
+
+      {loadingMore && streamedVisible.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {streamedVisible.map((job, i) => (
+            <JobResultCard
+              key={`${job.url}-${i}`}
+              job={job}
+              visited={visitedLinks.has(job.url)}
+              onVisit={() => handleVisitLink(job.url)}
+            />
+          ))}
+        </div>
       )}
 
       {loadingMore && <JobResultSkeleton />}
@@ -483,10 +580,13 @@ function SearchTimingSummary({ timing }: { timing: JobSearchTiming }) {
 function JobResultCard({
   job,
   visited,
+  hiddenBy,
   onVisit,
 }: {
   job: JobSearchResult;
   visited: boolean;
+  /** The negative term this result matched — set only while hidden results are shown. */
+  hiddenBy?: string;
   onVisit: () => void;
 }) {
   return (
@@ -504,6 +604,11 @@ function JobResultCard({
               {visited && (
                 <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                   Visited
+                </span>
+              )}
+              {hiddenBy && (
+                <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                  Matches "{hiddenBy}"
                 </span>
               )}
             </div>

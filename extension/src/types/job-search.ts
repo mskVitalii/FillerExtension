@@ -44,6 +44,8 @@ export interface JobSearchQuery {
    * re-deriving a possibly different set.
    */
   tags?: string[];
+  /** The "what I don't want" text (`job-search/negative.ts`), e.g. "no crypto, no agencies"; "" / absent excludes nothing. */
+  negative?: string;
 }
 
 /** How long one step of a job search took, e.g. "Web search" or "Parse results" — shown under the results so a slow search says where the time went. */

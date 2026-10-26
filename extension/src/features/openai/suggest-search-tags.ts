@@ -83,6 +83,8 @@ export async function suggestSearchTags(): Promise<string[]> {
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     parse: (raw) => JSON.parse(raw) as { tags: string[] },
+    // A short answer read straight off the CV — not worth the wait of a long think.
+    reasoningEffort: "low",
   });
 
   return result.tags.map((t) => t.trim()).filter(Boolean);

@@ -1,6 +1,7 @@
 import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
 import { timeStage } from "./timing";
-import { gradesRefinement } from "./grades";
+import { searchRefinements } from "./refinements";
+import { negativeDomains } from "./negative";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
 import { ATS_DOMAINS } from "./freshness";
@@ -37,6 +38,44 @@ interface TavilyResponse {
  */
 const MAX_QUERY_LENGTH = 2000;
 
+/**
+ * Tavily has no keyword-exclusion parameter, so the negative prompt rides in
+ * the natural-language query (via `searchRefinements`) and in the parse pass;
+ * only terms that are domains ("linkedin.com") are dropped natively, through
+ * `exclude_domains`.
+ */
+export function buildTavilyRequest(
+  query: JobSearchQuery,
+  apiKey: string,
+  candidateBackground: string,
+  excludeResults: JobSearchResult[] = [],
+): Record<string, unknown> {
+  const searchQuery = `Find job postings from the last few weeks, still open, that fit this candidate.
+${searchRefinements(query)}
+
+Candidate background: ${candidateBackground || "(none available)"}${describeExcluded(excludeResults)}`
+    .trim()
+    .slice(0, MAX_QUERY_LENGTH);
+
+  const excludeDomains = negativeDomains(query.negative);
+  return {
+    api_key: apiKey,
+    query: searchQuery,
+    search_depth: "advanced",
+    max_results: 15,
+    include_answer: false,
+    // Recency cut at the source: pages published or updated in the last
+    // month. Anything older is the main cause of dead links.
+    time_range: "month",
+    include_published_date: true,
+    // "prefer", not "restrict": rank the employers' own ATS postings first
+    // without losing career pages and boards outside the list.
+    include_domains: ATS_DOMAINS,
+    include_domains_mode: "prefer",
+    ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
+  };
+}
+
 export async function searchTavilyJobs(
   query: JobSearchQuery,
   apiKey: string,
@@ -44,41 +83,11 @@ export async function searchTavilyJobs(
   excludeResults: JobSearchResult[] = [],
   stages?: JobSearchStageTiming[],
 ): Promise<JobSearchResult[]> {
-  const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
-  const refinements = [
-    query.what ? `Role/keywords focus: "${query.what}".` : "",
-    query.where ? `Location: "${query.where}".` : "",
-    gradesRefinement(query.grades),
-    remote,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const searchQuery = `Find job postings from the last few weeks, still open, that fit this candidate.
-${refinements}
-
-Candidate background: ${candidateBackground || "(none available)"}${describeExcluded(excludeResults)}`
-    .trim()
-    .slice(0, MAX_QUERY_LENGTH);
-
+  const body = buildTavilyRequest(query, apiKey, candidateBackground, excludeResults);
   const res = await timeStage(stages, "Tavily search", () => fetch(TAVILY_SEARCH_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: searchQuery,
-      search_depth: "advanced",
-      max_results: 15,
-      include_answer: false,
-      // Recency cut at the source: pages published or updated in the last
-      // month. Anything older is the main cause of dead links.
-      time_range: "month",
-      include_published_date: true,
-      // "prefer", not "restrict": rank the employers' own ATS postings first
-      // without losing career pages and boards outside the list.
-      include_domains: ATS_DOMAINS,
-      include_domains_mode: "prefer",
-    }),
+    body: JSON.stringify(body),
   }));
 
   if (!res.ok) {
@@ -92,5 +101,5 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
   const rawText = data.results
     .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${r.content}`)
     .join("\n\n---\n\n");
-  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground));
+  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground, query.negative));
 }

@@ -58,6 +58,16 @@ export interface LocalStorageSchema {
   jobExtractionCache: Record<string, Job>;
   /** spec_7 item 17 — job-search result URLs the user has clicked into, so a repeat search can highlight them; not a timestamped log, just membership. */
   jobSearchVisitedLinks: string[];
+  /** AI-suggested search query/tags, keyed by a hash of the CV/legend/profile they were derived from (`job-search/suggestion-cache.ts`). */
+  jobSearchSuggestionCache: JobSearchSuggestionCacheEntry[];
+}
+
+export interface JobSearchSuggestionCacheEntry {
+  key: string;
+  what: string;
+  where: string;
+  /** Absent until an Adzuna search or suggestion first asked for tags. */
+  tags?: string[];
 }
 
 export async function getLocal<K extends keyof LocalStorageSchema>(

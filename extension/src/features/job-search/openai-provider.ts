@@ -1,6 +1,6 @@
 import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
 import { timeStage } from "./timing";
-import { gradesRefinement } from "./grades";
+import { searchRefinements } from "./refinements";
 import { requestWithWebSearch } from "@/features/openai/client";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
@@ -21,23 +21,13 @@ import { todayISO } from "@/lib/date-format";
  * background can be reused across different searches ("this time, only
  * remote", "this time, a different city") without retyping it.
  */
-export async function searchOpenAiJobs(
+export function buildOpenAiSearchPrompt(
   query: JobSearchQuery,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
-  stages?: JobSearchStageTiming[],
-): Promise<JobSearchResult[]> {
-  const remote = query.remoteOnly ? " Prefer remote-friendly roles." : "";
-  const refinements = [
-    query.what ? `Role/keywords focus: "${query.what}".` : "",
-    query.where ? `Location: "${query.where}".` : "",
-    gradesRefinement(query.grades),
-    remote,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const prompt = `Search the web for current, actually open job postings that fit this
+): string {
+  const refinements = searchRefinements(query);
+  return `Search the web for current, actually open job postings that fit this
 candidate:
 
 ${candidateBackground || "(no candidate background available)"}
@@ -53,7 +43,17 @@ or career page over copies on aggregators, which often outlive the real posting.
 Find real postings with their direct listing URL, not a search results page. List up to
 15 of the best matches, each with its title, company, location, salary if stated, the date
 it was posted when shown, and a short description of why it fits.${describeExcluded(excludeResults)}`;
+}
 
+export async function searchOpenAiJobs(
+  query: JobSearchQuery,
+  candidateBackground: string,
+  excludeResults: JobSearchResult[] = [],
+  stages?: JobSearchStageTiming[],
+): Promise<JobSearchResult[]> {
+  const prompt = buildOpenAiSearchPrompt(query, candidateBackground, excludeResults);
   const rawText = await timeStage(stages, "Web search", () => requestWithWebSearch(prompt));
-  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "openai", candidateBackground));
+  return timeStage(stages, "Parse results", () =>
+    extractJobListings(rawText, "openai", candidateBackground, query.negative),
+  );
 }

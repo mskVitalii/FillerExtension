@@ -10,8 +10,7 @@ import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
 import { searchAdzunaJobs } from "@/features/job-search/adzuna-provider";
 import { adzunaCountryCode } from "@/features/job-search/adzuna-country";
 import { timeStage } from "@/features/job-search/timing";
-import { suggestSearchQuery } from "@/features/openai/suggest-search-query";
-import { suggestSearchTags } from "@/features/openai/suggest-search-tags";
+import { getSearchSuggestion } from "@/features/job-search/suggestion-cache";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { generateOutreachMessage } from "@/features/openai/outreach-message";
 import { getApplicantContext } from "@/features/profile/context";
@@ -478,23 +477,32 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
             // it as-is rather than second-guessing it with AI-derived tags.
             query = { ...query, tags: [query.what.trim()] };
           } else {
-            const [suggestion, tags] = await timeStage(stages, "Suggest tags", () =>
-              Promise.all([suggestSearchQuery(), suggestSearchTags()]),
-            );
+            const startedSuggest = performance.now();
+            const suggestion = await getSearchSuggestion(true);
+            stages.push({ label: suggestion.cached ? "Suggest tags (cached)" : "Suggest tags", ms: performance.now() - startedSuggest });
             query = {
               ...query,
               what: suggestion.what,
               where: query.where.trim() || suggestion.where,
-              tags: tags.length > 0 ? tags : [suggestion.what],
+              tags: suggestion.tags?.length ? suggestion.tags : [suggestion.what],
             };
           }
         }
+        const { searchId } = message;
         const { results, warnings } = await timeStage(stages, "Adzuna search", () =>
           searchAdzunaJobs(
             query,
             { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
             adzunaCountryCode(profile.country),
             message.page ?? 1,
+            searchId
+              ? (partial) => {
+                  // Fire-and-forget, like the cover-letter stream: the final reply still carries everything.
+                  chrome.runtime
+                    .sendMessage({ type: "JOB_SEARCH_PROGRESS", searchId, results: partial } satisfies RuntimeMessage)
+                    .catch(() => {});
+                }
+              : undefined,
           ),
         );
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings, ...timing() };
@@ -503,10 +511,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       // Personal Legend directly rather than a separately AI-generated
       // digest — one less thing to keep in sync, and the applicant already
       // controls exactly what it says.
-      const legend = await getPersonalLegend();
+      const [legend, creds] = await Promise.all([getPersonalLegend(), getJobSearchCredentials()]);
       const background = legend?.content ?? "";
       if (provider === "tavily") {
-        const creds = await getJobSearchCredentials();
         if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
         const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults, stages);
         return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
@@ -524,12 +531,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       // this same suggestion would later be treated as a deliberate manual
       // override in `SEARCH_JOBS` and searched as one ungarbled phrase
       // instead of being fanned out.
-      if (message.provider === "adzuna") {
-        const [suggestion, tags] = await Promise.all([suggestSearchQuery(), suggestSearchTags()]);
-        return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion, tags };
-      }
-      const suggestion = await suggestSearchQuery();
-      return { type: "SEARCH_QUERY_SUGGESTION", ...suggestion };
+      // Cached per CV/legend/profile (`getSearchSuggestion`), so a repeat costs no AI call.
+      const { what, where, tags } = await getSearchSuggestion(message.provider === "adzuna");
+      return { type: "SEARCH_QUERY_SUGGESTION", what, where, ...(message.provider === "adzuna" ? { tags } : {}) };
     }
 
     case "SUGGEST_CV_VALUES": {

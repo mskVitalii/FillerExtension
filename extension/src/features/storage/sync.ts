@@ -17,6 +17,11 @@ export interface Preferences {
   supportModel: string;
   /** User's chosen model for the outreach-message tier — "" defers to the built-in default (see `getOutreachModel`). */
   outreachModel: string;
+  /**
+   * Job Search tab's "what I don't want" text. Every preference shares the one `preferences`
+   * item, and sync allows 8 KB per item — so it's capped at `MAX_NEGATIVE_PROMPT_LENGTH`.
+   */
+  jobSearchNegativePrompt: string;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -28,6 +33,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   jobAnalysisModel: "",
   supportModel: "",
   outreachModel: "",
+  jobSearchNegativePrompt: "",
 };
 
 export async function getPreferences(): Promise<Preferences> {

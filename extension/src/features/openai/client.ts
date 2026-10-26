@@ -111,12 +111,16 @@ export class MissingApiKeyError extends OpenAiError {
   }
 }
 
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+
 interface JsonSchemaRequest<T> {
   systemPrompt: string;
   userPrompt: string;
   schemaName: string;
   schema: Record<string, unknown>;
   model?: string;
+  /** `reasoning.effort` — "low" for mechanical support steps (parsing, short suggestions) that don't gain from long thinking. Absent = the model's default. */
+  reasoningEffort?: ReasoningEffort;
   /** Used only to make failures easier to diagnose; never logged in production. */
   parse: (raw: string) => T;
 }
@@ -126,6 +130,28 @@ interface ResponsesApiOutput {
     type: string;
     content?: { type: string; text?: string }[];
   }[];
+}
+
+/**
+ * POSTs one Responses API body. With `reasoningEffort`, a 400 that names the
+ * `reasoning` parameter (a model picked in Settings that doesn't reason) is
+ * retried once without it, so a speed hint can never fail the request.
+ */
+async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort): Promise<Response> {
+  const send = (payload: Record<string, unknown>) =>
+    fetch(RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  if (!reasoningEffort) return send(body);
+  const res = await send({ ...body, reasoning: { effort: reasoningEffort } });
+  if (res.status !== 400) return res;
+  const error = await res.clone().text().catch(() => "");
+  return /reasoning/i.test(error) ? send(body) : res;
 }
 
 /**
@@ -140,13 +166,9 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   if (!apiKey) throw new MissingApiKeyError();
   const model = request.model ?? (await getSupportModel());
 
-  const res = await fetch(RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+  const res = await postResponses(
+    apiKey,
+    {
       model,
       input: [
         { role: "system", content: request.systemPrompt },
@@ -160,8 +182,9 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
           schema: request.schema,
         },
       },
-    }),
-  });
+    },
+    request.reasoningEffort,
+  );
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -190,17 +213,10 @@ export async function requestWithWebSearch(prompt: string, model?: string): Prom
   if (!apiKey) throw new MissingApiKeyError();
   const resolvedModel = model ?? (await getSupportModel());
 
-  const res = await fetch(RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: resolvedModel,
-      tools: [{ type: "web_search" }],
-      input: [{ role: "user", content: prompt }],
-    }),
+  const res = await postResponses(apiKey, {
+    model: resolvedModel,
+    tools: [{ type: "web_search" }],
+    input: [{ role: "user", content: prompt }],
   });
 
   if (!res.ok) {
