@@ -19,6 +19,8 @@ interface VariableSelectorProps {
   /** Forced into the free-text editor even though `value` equals an option (the user picked "Custom…"). */
   custom: boolean;
   reason?: string;
+  /** Locked while the AI is picking values, so typing isn't overwritten the moment its answer lands. */
+  disabled?: boolean;
   onChange: (value: string, custom: boolean) => void;
 }
 
@@ -27,7 +29,7 @@ interface VariableSelectorProps {
  * predefined variants (the ones found in the posting grouped first), plus
  * "Custom…" for a one-off value typed by hand.
  */
-export function VariableSelector({ variable, value, foundInPosting, custom, reason, onChange }: VariableSelectorProps) {
+export function VariableSelector({ variable, value, foundInPosting, custom, reason, disabled, onChange }: VariableSelectorProps) {
   const optionIndex = variable.options.indexOf(value);
   const isCustom = custom || optionIndex === -1;
   const selectValue = isCustom ? CUSTOM : `o:${optionIndex}`;
@@ -56,6 +58,7 @@ export function VariableSelector({ variable, value, foundInPosting, custom, reas
         <Select
           id={`cv-var-${variable.name}`}
           value={selectValue}
+          disabled={disabled}
           onChange={(e) => {
             const next = e.target.value;
             if (next === CUSTOM) onChange(value, true);
@@ -85,15 +88,17 @@ export function VariableSelector({ variable, value, foundInPosting, custom, reas
         (multiline ? (
           <textarea
             id={variable.options.length === 0 ? `cv-var-${variable.name}` : undefined}
-            className="min-h-20 rounded-md border border-border bg-background p-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            className="min-h-20 rounded-md border border-border bg-background p-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
             value={value}
+            disabled={disabled}
             onChange={(e) => onChange(e.target.value, true)}
           />
         ) : (
           <input
             id={variable.options.length === 0 ? `cv-var-${variable.name}` : undefined}
-            className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
             value={value}
+            disabled={disabled}
             placeholder="Value for this posting"
             onChange={(e) => onChange(e.target.value, true)}
           />

@@ -468,6 +468,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
               foundInPosting={foundByName[variable.name] ?? []}
               custom={customNames.has(variable.name)}
               reason={entry.reasons[variable.name]}
+              disabled={suggesting}
               onChange={(value, custom) => handleValueChange(variable.name, value, custom)}
             />
           ))}
