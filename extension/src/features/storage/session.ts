@@ -58,7 +58,38 @@ export async function setTabState(tabId: number, state: TabState): Promise<void>
 
 /** Also drops the tab's Adapt CV selections, so Reset / closing the tab clears both. */
 export async function clearTabState(tabId: number): Promise<void> {
-  await chrome.storage.session.remove([key(tabId), cvAdaptKey(tabId)]);
+  await chrome.storage.session.remove([key(tabId), cvAdaptKey(tabId), coverLetterRunKey(tabId)]);
+}
+
+/**
+ * A cover-letter generation for one tab, written by the background as it
+ * runs. The Side Panel lives only as long as Chrome keeps it, so a panel
+ * that was unloaded mid-generation (the user went to another tab) and comes
+ * back reads the progress — or the finished letter — from here instead of
+ * losing it. `jobUrl` ties it to the posting it was generated for.
+ */
+export interface CoverLetterRun {
+  jobUrl: string;
+  /** "applied" once a panel showed the finished letter — a later panel must not overwrite edits with it. */
+  status: "generating" | "done" | "error" | "applied";
+  /** The text so far while generating; the final, authoritative text once done. */
+  content: string;
+  error?: string;
+  /** Patterns the slop cleaner rewrote, for the "cleaned up" notice. */
+  cleanedPatterns?: string[];
+}
+
+export function coverLetterRunKey(tabId: number): string {
+  return `coverLetterRun:${tabId}`;
+}
+
+export async function getCoverLetterRun(tabId: number): Promise<CoverLetterRun | undefined> {
+  const result = await chrome.storage.session.get(coverLetterRunKey(tabId));
+  return result[coverLetterRunKey(tabId)] as CoverLetterRun | undefined;
+}
+
+export async function setCoverLetterRun(tabId: number, run: CoverLetterRun): Promise<void> {
+  await chrome.storage.session.set({ [coverLetterRunKey(tabId)]: run });
 }
 
 /** Placeholder values picked for one CV on one posting. */
@@ -97,10 +128,9 @@ export async function setCvAdaptState(tabId: number, state: CvAdaptState): Promi
 
 /**
  * The Job Search tab's query + results (spec_7 item 15) — deliberately
- * *not* tab-keyed, unlike `TabState` above: opening the Side Panel on a
- * different tab gets its own fresh document (see `background/index.ts`'s
- * per-tab `sidePanel.setOptions`), which would otherwise reset this tool
- * back to empty every time. It's one shared state across every tab, same
+ * *not* tab-keyed, unlike `TabState` above: the panel is window-wide, so a
+ * search belongs to no tab, and a panel opened in another window (a fresh
+ * document) would otherwise start empty. It's one shared state across every tab, same
  * tier (session storage — cleared on browser restart, not durable like
  * Drive) as `TabState`.
  */

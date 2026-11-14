@@ -13,10 +13,11 @@ const SIDE_PANEL_PATH = "src/sidepanel/index.html";
  * each event because Chrome can unload it at any time.
  *
  * The side panel is "contextual": disabled by default on every tab, and
- * only enabled + opened for the specific tab whose action icon was
- * clicked. Without this, `default_path` in the manifest makes Chrome's
- * side panel a per-window surface that stays open across tab switches,
- * showing stale content from whichever tab it was last opened on.
+ * only enabled + opened for the specific tab whose action icon was clicked,
+ * with that tab's id in the panel URL so the panel stays bound to it (see
+ * the Side Panel's `useActiveTab`). Work that must outlive the panel — a
+ * cover letter generating while the user is on another tab — runs here and
+ * records its progress per tab in session storage (`CoverLetterRun`).
  */
 chrome.runtime.onInstalled.addListener(() => {
   registerContextMenu();
@@ -38,15 +39,29 @@ chrome.action.onClicked.addListener((tab) => {
   // it in this listener. `setOptions` must be issued first for `open` to
   // find the panel enabled, but neither call is awaited here — awaiting
   // would yield control back to the event loop between them.
-  void chrome.sidePanel.setOptions({ tabId, path: SIDE_PANEL_PATH, enabled: true });
+  // Tab-specific: the panel shows on this tab only, and the `tabId` in its URL pins the panel to
+  // it — it never follows the active tab, so another tab can't take over (or reset) its work.
+  void chrome.sidePanel.setOptions({ tabId, path: `${SIDE_PANEL_PATH}?tabId=${tabId}`, enabled: true });
   void chrome.sidePanel.open({ tabId }).catch((error) => console.error("sidePanel.open failed", error));
   // Runs inside the same activeTab grant — injects now so the content
   // script (and its focus-tracker) is already listening before the user
   // does anything else on this tab, e.g. right-clicking a field. Not
   // awaited: it doesn't need to precede `open`, and blocking on it here is
   // exactly what broke the gesture chain above.
-  void ensureContentScript(tabId);
+  void injectAndAnnounce(tabId);
 });
+
+/**
+ * The click is also how a tab the panel couldn't read yet (no activeTab
+ * grant, no host permission) becomes readable — the already-open panel
+ * learns it can retry from this broadcast.
+ */
+async function injectAndAnnounce(tabId: number): Promise<void> {
+  await ensureContentScript(tabId);
+  const message: RuntimeMessage = { type: "TAB_ACCESS_GRANTED", tabId };
+  // Rejects when no panel is open to receive it — nothing to do then.
+  await chrome.runtime.sendMessage(message).catch(() => undefined);
+}
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void clearTabState(tabId);

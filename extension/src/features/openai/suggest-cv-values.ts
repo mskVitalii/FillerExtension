@@ -45,6 +45,9 @@ Each variable comes with:
 Rules:
 - Pick what makes this CV the closest honest match for this posting: its title, its
   location, its main technology, the vocabulary it uses.
+- A job title / position value is the bare role name: no bracketed asides like (m/w/d),
+  (f/m/d) or (Remote), no seniority level (Senior, Middle, Junior, Sr., Staff, Principal),
+  no team, location or contract qualifiers. "Senior Backend Engineer (m/f/d)" -> "Backend Engineer".
 - Honesty: never make the CV claim a skill, technology or experience the applicant's
   CV text / Personal Legend doesn't support, unless the variable's description
   explicitly asks for it. For list-like values, prefer terms that are both in the

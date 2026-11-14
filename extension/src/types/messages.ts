@@ -47,6 +47,9 @@ export type RuntimeMessage =
    * `tabId` because `chrome.runtime.sendMessage` broadcasts to every extension page; a Side
    * Panel open on a different tab must ignore chunks that aren't its own. */
   | { type: "COVER_LETTER_STREAM_CHUNK"; tabId: number; delta: string }
+  /** Broadcast by the background after a toolbar-icon click injected the content script into
+   * `tabId` — a Side Panel that already showed that tab as unreadable retries its extraction. */
+  | { type: "TAB_ACCESS_GRANTED"; tabId: number }
   | {
       type: "UPLOAD_FILE";
       tabId: number;

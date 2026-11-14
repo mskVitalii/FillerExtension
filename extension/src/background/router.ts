@@ -24,6 +24,7 @@ import { decidePageContent } from "@/features/openai/decide-page-content";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
 import { ensureContentScript, findBlockedFrameOrigins } from "./inject-content-script";
+import { setCoverLetterRun } from "@/features/storage/session";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 
 /** Tell every frame's element picker to dismiss its overlay. Also used when the Side Panel port disconnects. */
@@ -179,12 +180,36 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "GENERATE_COVER_LETTER": {
       const { tabId } = message;
-      const result = await runCoverLetterPipeline(message.job, message.postingLanguage, (delta) => {
-        // Fire-and-forget: a dropped chunk (e.g. the panel closed mid-generation) shouldn't
-        // fail the generation itself — COVER_LETTER_RESULT below still carries the full text.
-        chrome.runtime
-          .sendMessage({ type: "COVER_LETTER_STREAM_CHUNK", tabId, delta } satisfies RuntimeMessage)
-          .catch(() => {});
+      const jobUrl = message.job.url;
+      // Progress is also kept in session storage, so a Side Panel that Chrome unloaded while the
+      // user was on another tab picks the letter up (still streaming or finished) when they return.
+      let streamed = "";
+      let lastPersist = 0;
+      await setCoverLetterRun(tabId, { jobUrl, status: "generating", content: "" });
+      let result: Awaited<ReturnType<typeof runCoverLetterPipeline>>;
+      try {
+        result = await runCoverLetterPipeline(message.job, message.postingLanguage, (delta) => {
+          // Fire-and-forget: a dropped chunk (e.g. the panel closed mid-generation) shouldn't
+          // fail the generation itself — COVER_LETTER_RESULT below still carries the full text.
+          chrome.runtime
+            .sendMessage({ type: "COVER_LETTER_STREAM_CHUNK", tabId, delta } satisfies RuntimeMessage)
+            .catch(() => {});
+          streamed += delta;
+          if (Date.now() - lastPersist > 400) {
+            lastPersist = Date.now();
+            void setCoverLetterRun(tabId, { jobUrl, status: "generating", content: streamed }).catch(() => {});
+          }
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        await setCoverLetterRun(tabId, { jobUrl, status: "error", content: "", error: reason }).catch(() => {});
+        throw error;
+      }
+      await setCoverLetterRun(tabId, {
+        jobUrl,
+        status: "done",
+        content: result.content,
+        cleanedPatterns: result.cleaned ? Array.from(new Set(result.slopFindings.map((f) => f.pattern))) : [],
       });
       await setLocal("lastCoverLetter", result.content);
       return {

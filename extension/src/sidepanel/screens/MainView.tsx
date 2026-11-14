@@ -8,6 +8,7 @@ import { DraggableValue } from "@/components/DraggableValue";
 import { PinHint } from "@/components/PinHint";
 import { SetupBanner } from "@/components/SetupBanner";
 import { FrameAccessBanner } from "@/components/FrameAccessBanner";
+import { TabAccessBanner } from "@/components/TabAccessBanner";
 import { useToolbarPinned } from "../hooks/useToolbarPinned";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
@@ -28,7 +29,15 @@ import { fileToBase64 } from "@/lib/base64";
 import { recordUrlActivation, setCachedJob, setLocal } from "@/features/storage/local";
 import { keepUserEdits } from "@/features/job-extraction/completion";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
-import { clearTabState, getTabState, setTabState } from "@/features/storage/session";
+import {
+  clearTabState,
+  coverLetterRunKey,
+  getCoverLetterRun,
+  getTabState,
+  setCoverLetterRun,
+  setTabState,
+  type CoverLetterRun,
+} from "@/features/storage/session";
 import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
 import type { Application } from "@/types/application";
 import { getCvAttachmentFile } from "@/features/profile/repository";
@@ -78,6 +87,8 @@ function withContactHighlight(keywords: JobKeyword[], contact: string | null): J
 interface MainViewProps {
   tabId: number;
   tabUrl: string;
+  /** False while this tab's view is kept mounted in the background (another tab or screen is shown). */
+  active: boolean;
   profile: Profile;
   cvMeta: CvMeta | null;
   customFields: CustomField[];
@@ -97,14 +108,16 @@ type CoverLetterTab = "draft" | "translate";
 
 /**
  * Main workflow screen (spec section 2) — job → cover letter → autofill,
- * all in one panel. Scoped to a single tab: the parent remounts this (via
- * `key={tabId}`) on every tab switch, and job/cover-letter state is cached
- * per tab in `chrome.storage.session` so switching between two job tabs
- * shows each one's own draft instead of leaking one into the other.
+ * all in one panel. Scoped to a single tab: the parent keeps one instance per
+ * visited tab mounted (hidden while `active` is false), so work in flight on
+ * one tab keeps going while the user is on another. Job/cover-letter state is
+ * also cached per tab in `chrome.storage.session`, so a view that was dropped
+ * (tab limit, panel reopened) restores its draft.
  */
 export function MainView({
   tabId,
   tabUrl,
+  active,
   profile,
   cvMeta,
   customFields,
@@ -201,6 +214,17 @@ export function MainView({
   // re-run it after `handleReset`.
   const [highlightOnPage, setHighlightOnPage] = useState(true);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  // The page couldn't be read because Filler has no access to this tab yet: it was switched to
+  // with the panel already open, so no toolbar click granted activeTab here.
+  const [needsTabAccess, setNeedsTabAccess] = useState(false);
+  const needsTabAccessRef = useRef(needsTabAccess);
+  needsTabAccessRef.current = needsTabAccess;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  /** This panel sent the GENERATE_COVER_LETTER in flight and gets its answer directly. */
+  const ownRunRef = useRef(false);
+  /** Following a generation another (unloaded) instance of this panel started — via session storage. */
+  const resumedRunRef = useRef(false);
   const [passwordCopied, setPasswordCopied] = useState(false);
 
   const coverLetterFileRef = useRef<File | null>(null);
@@ -279,8 +303,7 @@ export function MainView({
   }, []);
 
   // Initial load for this tab: reuse a cached draft for the same URL, or
-  // fetch fresh (this only runs once per mount — the parent remounts the
-  // whole component via `key={tabId}` on tab switch).
+  // fetch fresh (this only runs once per mount — the panel is bound to one tab).
   useEffect(() => {
     void (async () => {
       const cached = await getTabState(tabId);
@@ -306,6 +329,7 @@ export function MainView({
         void checkExistingApplication(cached.job.url);
         setLoadingJob(false);
         hasLoadedRef.current = true;
+        await resumeCoverLetterRun(cached.job.url);
         // A password is always ready to drag/copy by default — no reason to
         // make the user click a button first. Only generate one here if
         // this tab genuinely never had one yet; a cached one is restored as-is.
@@ -337,6 +361,59 @@ export function MainView({
     void handleNavigation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabUrl]);
+
+  /** An http(s) page this extension has no host permission for — only an icon click (activeTab) would open it. */
+  async function lacksTabAccess(): Promise<boolean> {
+    let origin: string;
+    try {
+      const url = new URL(tabUrl);
+      if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+      origin = url.origin;
+    } catch {
+      return false;
+    }
+    return !(await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false));
+  }
+
+  /** Runs in the banner's click handler: `permissions.request` needs that user gesture. */
+  async function handleGrantTabAccess(allSites: boolean) {
+    let origins: string[];
+    if (allSites) {
+      origins = ["https://*/*", "http://*/*"];
+    } else {
+      try {
+        origins = [`${new URL(tabUrl).origin}/*`];
+      } catch {
+        return;
+      }
+    }
+    const granted = await chrome.permissions.request({ origins }).catch(() => false);
+    if (granted) await bootstrapJob(true);
+  }
+
+  // A toolbar-icon click on this tab while the panel was already open grants access: retry.
+  useEffect(() => {
+    function onAccessGranted(message: RuntimeMessage) {
+      if (message.type !== "TAB_ACCESS_GRANTED" || message.tabId !== tabId) return;
+      if (needsTabAccessRef.current || !jobRef.current.position) void bootstrapJob();
+    }
+    chrome.runtime.onMessage.addListener(onAccessGranted);
+    return () => chrome.runtime.onMessage.removeListener(onAccessGranted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
+  // Coming back to a tab that couldn't be read: access may have been granted meanwhile (all sites
+  // allowed from another tab's banner), so try again instead of showing the stale prompt.
+  useEffect(() => {
+    if (active && needsTabAccessRef.current) void bootstrapJob();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // Moving to another tab ends picker mode here — the overlay would otherwise keep waiting on a
+  // page the user is no longer looking at.
+  useEffect(() => {
+    if (!active && pickingRef.current) handleStopPicker();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   async function handleNavigation() {
     let newJob: Job | undefined;
@@ -575,6 +652,7 @@ export function MainView({
         tabId,
         force,
       });
+      setNeedsTabAccess(false);
       if (response?.job) {
         detectedJob = response.job;
         extractedJobRef.current = { position: response.job.position, company: response.job.company };
@@ -585,9 +663,12 @@ export function MainView({
         void checkExistingApplication(response.job.url);
         const prefs = await getPreferences();
         if (prefs.autofillOnOpen) await runAutofill();
+      } else if (await lacksTabAccess()) {
+        setNeedsTabAccess(true);
       }
     } catch {
-      setError("Could not read this page. Open a job posting tab, or paste the job text below.");
+      if (await lacksTabAccess()) setNeedsTabAccess(true);
+      else setError("Could not read this page. Open a job posting tab, or paste the job text below.");
     } finally {
       setLoadingJob(false);
       hasLoadedRef.current = true;
@@ -993,6 +1074,7 @@ export function MainView({
   // focus, which is where the button lives anyway.
   useEffect(() => {
     const onHotkey = (e: KeyboardEvent) => {
+      if (!activeRef.current) return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey !== true) return;
       if (e.code !== "KeyP") return;
       e.preventDefault();
@@ -1142,7 +1224,8 @@ export function MainView({
   // final, authoritative text (possibly AI-slop-cleaned, which the stream can't reflect).
   useEffect(() => {
     function handleStreamChunk(message: RuntimeMessage) {
-      if (message.type === "COVER_LETTER_STREAM_CHUNK" && message.tabId === tabId) {
+      // Only the panel awaiting the request appends chunks; a resumed one follows session storage.
+      if (message.type === "COVER_LETTER_STREAM_CHUNK" && message.tabId === tabId && ownRunRef.current) {
         setCoverLetter((prev) => prev + message.delta);
       }
     }
@@ -1155,9 +1238,12 @@ export function MainView({
     setError(null);
     setCleanedNotice(null);
     setCoverLetter("");
+    ownRunRef.current = true;
+    resumedRunRef.current = false;
     try {
       const response = await sendMessage<MessageOf<"COVER_LETTER_RESULT">>({ type: "GENERATE_COVER_LETTER", tabId, job, postingLanguage: jobLanguage?.postingLanguages[0] });
       setCoverLetter(response.content);
+      void markRunApplied();
       if (job.url) void recordUrlActivation(job.url);
       if (response.cleaned) {
         const patterns = Array.from(new Set(response.slopFindings.map((f) => f.pattern))).join(", ");
@@ -1166,9 +1252,62 @@ export function MainView({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cover letter generation failed.");
     } finally {
+      ownRunRef.current = false;
       setGenerating(false);
     }
   }
+
+  async function markRunApplied() {
+    const run = await getCoverLetterRun(tabId);
+    if (run?.status === "done") await setCoverLetterRun(tabId, { ...run, status: "applied" });
+  }
+
+  /** Shows a run's state when this panel isn't the one awaiting it — see `resumeCoverLetterRun`. */
+  function applyCoverLetterRun(run: CoverLetterRun) {
+    if (run.status === "generating") {
+      setGenerating(true);
+      setCoverLetter(run.content);
+      return;
+    }
+    resumedRunRef.current = false;
+    setGenerating(false);
+    if (run.status === "done") {
+      setCoverLetter(run.content);
+      if (run.cleanedPatterns?.length) {
+        setCleanedNotice(`Cleaned up AI-sounding phrasing before showing you this draft (${run.cleanedPatterns.join(", ")}).`);
+      }
+      if (run.jobUrl) void recordUrlActivation(run.jobUrl);
+      void markRunApplied();
+    } else if (run.status === "error") {
+      setError(run.error ?? "Cover letter generation failed.");
+    }
+  }
+
+  /**
+   * Chrome may unload this panel while the user is on another tab, dropping the request it was
+   * awaiting — the background keeps generating and records progress per tab. On return, pick
+   * that up: a letter still streaming is followed through storage, a finished one not shown yet
+   * is shown now. An "applied" run is already in the draft (and maybe edited since), so it's left alone.
+   */
+  async function resumeCoverLetterRun(jobUrl: string) {
+    const run = await getCoverLetterRun(tabId);
+    if (!run || run.jobUrl !== jobUrl || run.status === "applied") return;
+    if (run.status === "generating") resumedRunRef.current = true;
+    applyCoverLetterRun(run);
+  }
+
+  useEffect(() => {
+    const runKey = coverLetterRunKey(tabId);
+    function onSessionChanged(changes: Record<string, chrome.storage.StorageChange>) {
+      const run = changes[runKey]?.newValue as CoverLetterRun | undefined;
+      if (!run || !resumedRunRef.current || ownRunRef.current) return;
+      if (run.jobUrl !== jobRef.current.url) return;
+      applyCoverLetterRun(run);
+    }
+    chrome.storage.session.onChanged.addListener(onSessionChanged);
+    return () => chrome.storage.session.onChanged.removeListener(onSessionChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
 
   async function handleCoverLetterChange(text: string) {
     setCoverLetter(text);
@@ -1516,6 +1655,13 @@ export function MainView({
         onAddApiKey={onRequestApiKey}
       />
 
+      {needsTabAccess && (
+        <TabAccessBanner
+          url={tabUrl}
+          onAllowSite={() => void handleGrantTabAccess(false)}
+          onAllowAll={() => void handleGrantTabAccess(true)}
+        />
+      )}
       <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
       {toolbarPinned === false && <PinHint />}
 
@@ -1711,8 +1857,23 @@ export function MainView({
       {/* flex-wrap + flex-auto: a third button that doesn't fit drops to its own full-width row. */}
       <div className="flex flex-wrap gap-2">
         {setupComplete && (
-          <Button className="flex-auto" onClick={handleGenerate} disabled={generating || !job.position}>
-            {generating ? "Generating…" : "Generate Cover Letter"}
+          // Once clicked for this posting it turns white and stays disabled: "Regenerate" under the
+          // draft is the way to get another one. A different posting clears `coverLetter`, which re-arms it.
+          <Button
+            className="flex-auto"
+            variant={generating || coverLetter ? "outline" : "default"}
+            onClick={handleGenerate}
+            disabled={generating || Boolean(coverLetter) || !job.position}
+          >
+            {generating ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Generating…
+              </>
+            ) : coverLetter ? (
+              "Cover Letter Generated"
+            ) : (
+              "Generate Cover Letter"
+            )}
           </Button>
         )}
         <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)}>
@@ -1868,11 +2029,13 @@ export function MainView({
                 <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
                   Regenerate
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void handleExportPdf(coverLetter)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleExportPdf(coverLetter)}
+                  disabled={generating || improving || !coverLetter}
+                >
                   Export PDF
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => void handleUploadCoverLetterToPage()}>
-                  Upload to page
                 </Button>
               </div>
               <div className="flex flex-col gap-1.5 rounded-md border border-border p-2">
@@ -1944,6 +2107,7 @@ export function MainView({
                     onClick={() =>
                       void handleExportPdf(translations[effectiveActiveLanguage], effectiveActiveLanguage)
                     }
+                    disabled={generating || translatingLanguages.has(effectiveActiveLanguage)}
                   >
                     Export PDF
                   </Button>

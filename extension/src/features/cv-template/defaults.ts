@@ -1,4 +1,5 @@
 import type { Job } from "@/types/job";
+import { cleanJobTitle } from "@/features/job-extraction/clean-title";
 import type { CvVariable } from "@/types/cv-template";
 
 /**
@@ -29,15 +30,6 @@ function locationParts(location: string): string[] {
     .filter(Boolean);
 }
 
-/** A title without the "(m/w/d)"-style gender marker German postings append. */
-function cleanTitle(position: string): string {
-  return position
-    .replace(/\s*\((?:[mwfdx]\s*\/\s*)+[mwfdx]\)\s*/gi, " ")
-    .replace(/\s*[-–|]\s*(?:[mwfdx]\/)+[mwfdx]\s*$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export const KNOWN_VARIABLES: KnownVariable[] = [
   {
     names: ["city", "town"],
@@ -62,9 +54,9 @@ export const KNOWN_VARIABLES: KnownVariable[] = [
   },
   {
     names: ["job_position", "position", "job_title", "title", "role"],
-    description: "The job title exactly as the posting names it, without gender markers like (m/w/d).",
+    description: "The job title as a bare role name: no brackets like (m/w/d) or (Remote), no seniority (Senior, Middle, Junior…), no team or location qualifiers.",
     mode: "free",
-    fromJob: (job) => cleanTitle(job.position),
+    fromJob: (job) => cleanJobTitle(job.position),
   },
   {
     names: ["company", "company_name", "employer"],

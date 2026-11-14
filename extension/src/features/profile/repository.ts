@@ -12,8 +12,15 @@ import {
   type PersonalLegend,
   type Profile,
 } from "@/types/profile";
-import { getLocal, setLocal } from "@/features/storage/local";
-import { readCachedJson, readCachedText, writeCachedJson, writeCachedText } from "@/features/storage/drive-cache";
+import { getLocal, setLocal, type LocalStorageSchema } from "@/features/storage/local";
+import {
+  isDrivePending,
+  readCachedJson,
+  readCachedText,
+  tryReadDriveJson,
+  writeCachedJson,
+  writeCachedText,
+} from "@/features/storage/drive-cache";
 import * as drive from "@/features/google-drive/client";
 import { extractPdfText } from "@/lib/pdf-text";
 import { isLatexFile } from "@/features/cv-template/latex";
@@ -26,24 +33,48 @@ import { isLatexFile } from "@/features/cv-template/latex";
 export async function getProfile(): Promise<Profile> {
   // Merge over EMPTY_PROFILE so a profile saved before a new field existed
   // (e.g. `pronouns`) still comes back with every key defined.
-  const cached = await getLocal("profileCache");
-  if (cached) return { ...EMPTY_PROFILE, ...cached };
-  try {
-    const remote = await drive.readJsonFile<Profile>("profile.json");
-    if (remote) {
-      const merged = { ...EMPTY_PROFILE, ...remote };
-      await setLocal("profileCache", merged);
-      return merged;
-    }
-  } catch {
-    // Google not connected yet — fall through to empty profile.
-  }
-  return EMPTY_PROFILE;
+  const stored = await readCachedJson("profileCache", "profile.json");
+  return stored ? { ...EMPTY_PROFILE, ...stored } : EMPTY_PROFILE;
 }
 
 export async function saveProfile(profile: Profile): Promise<void> {
-  await setLocal("profileCache", profile);
-  await drive.writeJsonFile("profile.json", profile);
+  await writeCachedJson("profileCache", "profile.json", profile);
+}
+
+type LibraryCacheKey = "legendLibraryCache" | "cvLibraryCache";
+
+/**
+ * Reads a CV/legend library. `latest` (used before every change to it)
+ * re-reads Drive even over a cached copy, so a change made here doesn't
+ * write back a stale list and drop entries added from another browser.
+ *
+ * Two rules keep a new browser from losing the library:
+ * - an *empty* cached library is not trusted — earlier builds cached one
+ *   when the panel opened before Google was connected, which then hid the
+ *   Drive library for good;
+ * - when Drive can't be reached nothing is cached, only returned.
+ * The exception is a library edited here whose Drive write failed: that
+ * local copy is the newer one until it's pushed.
+ */
+async function readLibrary<K extends LibraryCacheKey>(
+  cacheKey: K,
+  fileName: string,
+  migrate: () => Promise<LocalStorageSchema[K]>,
+  latest = false,
+): Promise<LocalStorageSchema[K]> {
+  const cached = await getLocal(cacheKey);
+  if (cached && (await isDrivePending(cacheKey))) return cached;
+  if (!latest && cached && cached.items.length > 0) return cached;
+  const remote = await tryReadDriveJson<LocalStorageSchema[K]>(fileName);
+  if (!remote.reachable) return cached ?? ({ items: [], activeId: null } as LocalStorageSchema[K]);
+  if (remote.value) {
+    if (JSON.stringify(remote.value) !== JSON.stringify(cached)) await setLocal(cacheKey, remote.value);
+    return remote.value;
+  }
+  // Drive is reachable and has no library yet: start one from this device's entries or the legacy single-file format.
+  const initial = cached && cached.items.length > 0 ? cached : await migrate();
+  await writeCachedJson(cacheKey, fileName, initial);
+  return initial;
 }
 
 /** `${legendFileName(id)}` names each library entry's Drive text file uniquely — the legacy single-legend extension only ever wrote "legend.md". */
@@ -80,13 +111,8 @@ async function migrateLegacyLegend(): Promise<LegendLibrary> {
   return { items: [meta], activeId: id };
 }
 
-export async function getLegendLibrary(): Promise<LegendLibrary> {
-  const stored = await readCachedJson("legendLibraryCache", "legendLibrary.json");
-  if (stored) return stored;
-  // Not stored yet (or Google not connected) — fall through to the legacy migration/empty library.
-  const migrated = await migrateLegacyLegend();
-  await saveLegendLibrary(migrated);
-  return migrated;
+export async function getLegendLibrary(latest = false): Promise<LegendLibrary> {
+  return readLibrary("legendLibraryCache", "legendLibrary.json", migrateLegacyLegend, latest);
 }
 
 /** The legend generation currently treats as "the" Personal Legend — kept as the same `PersonalLegend` shape every existing caller already expects. */
@@ -101,7 +127,7 @@ export async function createLegend(name: string, content: string): Promise<Legen
   const id = crypto.randomUUID();
   const meta: LegendMeta = { id, name, content, uploadedAt: new Date().toISOString() };
   await drive.writeTextFile(legendFileName(id), content);
-  const library = await getLegendLibrary();
+  const library = await getLegendLibrary(true);
   const next: LegendLibrary = { items: [...library.items, meta], activeId: id };
   await saveLegendLibrary(next);
   return meta;
@@ -118,7 +144,7 @@ export async function uploadLegendFile(file: File): Promise<LegendMeta> {
 
 /** Switches which legend generation uses — returns the newly active entry, or null if `id` isn't in the library. */
 export async function setActiveLegend(id: string): Promise<LegendMeta | null> {
-  const library = await getLegendLibrary();
+  const library = await getLegendLibrary(true);
   const meta = library.items.find((legend) => legend.id === id);
   if (!meta) return null;
   await saveLegendLibrary({ ...library, activeId: id });
@@ -126,7 +152,7 @@ export async function setActiveLegend(id: string): Promise<LegendMeta | null> {
 }
 
 export async function updateLegendContent(id: string, content: string): Promise<void> {
-  const library = await getLegendLibrary();
+  const library = await getLegendLibrary(true);
   const meta = library.items.find((legend) => legend.id === id);
   if (!meta) return;
   await drive.writeTextFile(legendFileName(id), content);
@@ -136,7 +162,7 @@ export async function updateLegendContent(id: string, content: string): Promise<
 
 /** Removes one legend from the library. If it was active, the next remaining entry (if any) becomes active. */
 export async function deleteLegend(id: string): Promise<void> {
-  const library = await getLegendLibrary();
+  const library = await getLegendLibrary(true);
   const meta = library.items.find((legend) => legend.id === id);
   if (!meta) return;
   await drive.deleteFile(legendFileName(id));
@@ -186,13 +212,9 @@ async function migrateLegacyCv(): Promise<CvLibrary> {
   return { items: [meta], activeId: id };
 }
 
-export async function getCvLibrary(): Promise<CvLibrary> {
-  const stored = await readCachedJson("cvLibraryCache", "cvLibrary.json");
-  if (stored) return stored;
-  // Not stored yet (or Google not connected) — fall through to the legacy migration/empty library.
-  const migrated = await migrateLegacyCv();
-  await saveCvLibrary(migrated);
-  return migrated;
+/** `latest` — re-read Drive over the cache; pass it before changing the library (see `readLibrary`). */
+export async function getCvLibrary(latest = false): Promise<CvLibrary> {
+  return readLibrary("cvLibraryCache", "cvLibrary.json", migrateLegacyCv, latest);
 }
 
 /** The CV autofill/AI/context-menu treat as "the" CV — the library's active entry. */
@@ -214,7 +236,7 @@ export async function uploadCv(file: File, extractedText: string, compiledPdf?: 
     text: extractedText,
     uploadedAt: new Date().toISOString(),
   };
-  const library = await getCvLibrary();
+  const library = await getCvLibrary(true);
   const next: CvLibrary = { items: [...library.items, meta], activeId: id };
   await saveCvLibrary(next);
   return meta;
@@ -222,7 +244,7 @@ export async function uploadCv(file: File, extractedText: string, compiledPdf?: 
 
 /** Switches which uploaded CV autofill/AI use — returns the newly active entry, or null if `id` isn't in the library. */
 export async function setActiveCv(id: string): Promise<CvMeta | null> {
-  const library = await getCvLibrary();
+  const library = await getCvLibrary(true);
   const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return null;
   await saveCvLibrary({ ...library, activeId: id });
@@ -261,7 +283,7 @@ export async function getCvAttachmentFile(id?: string): Promise<File | null> {
  * typed in) so its placeholder definitions, keyed by that id, stay attached.
  */
 export async function replaceCvFile(id: string, file: File, extractedText: string, compiledPdf?: File | null): Promise<CvMeta | null> {
-  const library = await getCvLibrary();
+  const library = await getCvLibrary(true);
   const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return null;
   const driveFileId = await drive.writeBinaryFile(cvFileName(id), file);
@@ -280,7 +302,7 @@ export async function replaceCvFile(id: string, file: File, extractedText: strin
 
 /** Removes one CV from the library. If it was active, the next remaining entry (if any) becomes active. */
 export async function deleteCv(id: string): Promise<void> {
-  const library = await getCvLibrary();
+  const library = await getCvLibrary(true);
   const meta = library.items.find((cv) => cv.id === id);
   if (!meta) return;
   await drive.deleteFile(cvFileName(meta.id));

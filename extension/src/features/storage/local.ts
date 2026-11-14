@@ -60,6 +60,13 @@ export interface LocalStorageSchema {
   jobSearchVisitedLinks: string[];
   /** AI-suggested search query/tags, keyed by a hash of the CV/legend/profile they were derived from (`job-search/suggestion-cache.ts`). */
   jobSearchSuggestionCache: JobSearchSuggestionCacheEntry[];
+  /**
+   * Cache keys of Drive-backed documents edited on this device whose Drive
+   * write failed (offline, Google not connected). Until they're pushed, the
+   * local copy is the newer one: `refreshDriveCaches` uploads it instead of
+   * pulling Drive's older copy over it (`storage/drive-cache.ts`).
+   */
+  driveSyncPending: string[];
 }
 
 export interface JobSearchSuggestionCacheEntry {

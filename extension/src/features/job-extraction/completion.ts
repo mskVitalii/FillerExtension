@@ -1,4 +1,5 @@
 import type { Job } from "@/types/job";
+import { cleanJobTitle } from "./clean-title";
 
 /**
  * Pure helpers for completing a DOM-insufficient extraction with AI: the DOM result is shown
@@ -49,7 +50,7 @@ export function mergeCompletion(dom: Job, ai: JobCompletion, fields: Completable
   const pageDescription = pageText.replace(/\s+/g, " ").trim().slice(0, MAX_DESCRIPTION);
   return {
     ...dom,
-    position: take("position", blank).trim(),
+    position: cleanJobTitle(take("position", blank)),
     company: take("company", blank).trim(),
     location: take("location", blank).trim(),
     requirements: take("requirements", none),

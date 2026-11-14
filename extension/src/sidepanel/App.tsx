@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiKeyStep } from "./screens/ApiKeyStep";
 import { ApplicationsList } from "./screens/ApplicationsList";
 import { ConnectGoogleStep } from "./screens/ConnectGoogleStep";
@@ -7,8 +7,10 @@ import { JobSearchPanel } from "./screens/JobSearchPanel";
 import { MainView } from "./screens/MainView";
 import { SettingsPanel } from "./screens/SettingsPanel";
 import { useActiveTab } from "./hooks/useActiveTab";
+import { useVisitedTabs } from "./hooks/useVisitedTabs";
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { isGoogleConnected } from "@/features/google-drive/auth";
+import { refreshDriveCaches } from "@/features/storage/drive-cache";
 import {
   getCustomFields,
   getCvMeta,
@@ -44,6 +46,7 @@ export function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
+  const visitedTabs = useVisitedTabs(activeTab);
 
   useEffect(() => {
     void bootstrap();
@@ -62,6 +65,13 @@ export function App() {
     setGoogleConnected(connected);
     await loadUserData();
     setStep("main");
+    // The panel opens on the local caches; then pull what another browser
+    // saved to Drive since, and reload only if something actually changed.
+    if (connected) void syncFromDrive();
+  }
+
+  async function syncFromDrive() {
+    if (await refreshDriveCaches()) await loadUserData();
   }
 
   async function loadUserData() {
@@ -96,8 +106,10 @@ export function App() {
 
   if (step === "loading") return null;
 
+  let screen: ReactNode = null;
+
   if (step === "api-key") {
-    return (
+    screen = (
       <ApiKeyStep
         onSaved={() => {
           setHasApiKey(true);
@@ -109,11 +121,12 @@ export function App() {
   }
 
   if (step === "connect-google") {
-    return (
+    screen = (
       <ConnectGoogleStep
         onConnected={() => {
           setGoogleConnected(true);
-          void loadUserData();
+          // Caches written before connecting may predate this Drive's data (e.g. a new browser).
+          void refreshDriveCaches().then(loadUserData);
           setStep("main");
         }}
         onSkip={() => setStep("main")}
@@ -122,11 +135,11 @@ export function App() {
   }
 
   if (step === "applications") {
-    return <ApplicationsList onBack={() => setStep("main")} />;
+    screen = <ApplicationsList onBack={() => setStep("main")} />;
   }
 
   if (step === "job-search") {
-    return (
+    screen = (
       <JobSearchPanel
         hasApiKey={hasApiKey}
         personalLegend={personalLegend}
@@ -136,9 +149,8 @@ export function App() {
     );
   }
 
-  if (step === "cv-adapt") {
-    if (activeTab.tabId === null) return null;
-    return (
+  if (step === "cv-adapt" && activeTab.tabId !== null) {
+    screen = (
       <CvAdaptPanel
         key={activeTab.tabId}
         tabId={activeTab.tabId}
@@ -153,7 +165,7 @@ export function App() {
   }
 
   if (step === "settings") {
-    return (
+    screen = (
       <SettingsPanel
         profile={profile}
         cvMeta={cvMeta}
@@ -183,25 +195,35 @@ export function App() {
     );
   }
 
-  if (activeTab.tabId === null) return null;
-
+  // One MainView per visited tab, all kept mounted — only the active tab's is shown, and none
+  // while another screen is open — so leaving a tab (or opening Settings) never aborts its work.
   return (
-    <MainView
-      key={activeTab.tabId}
-      tabId={activeTab.tabId}
-      tabUrl={activeTab.url ?? ""}
-      profile={profile}
-      cvMeta={cvMeta}
-      customFields={customFields}
-      languageLevels={languageLevels}
-      hasApiKey={hasApiKey}
-      googleConnected={googleConnected}
-      onOpenSettings={() => setStep("settings")}
-      onOpenApplications={() => setStep("applications")}
-      onOpenJobSearch={() => setStep("job-search")}
-      onOpenCvAdapt={() => setStep("cv-adapt")}
-      onRequestApiKey={() => setStep("api-key")}
-      onRequestGoogleConnect={() => setStep("connect-google")}
-    />
+    <>
+      {visitedTabs.map((tab) => {
+        const shown = step === "main" && tab.tabId === activeTab.tabId;
+        return (
+          <div key={tab.tabId} hidden={!shown}>
+            <MainView
+              tabId={tab.tabId}
+              tabUrl={tab.url}
+              active={shown}
+              profile={profile}
+              cvMeta={cvMeta}
+              customFields={customFields}
+              languageLevels={languageLevels}
+              hasApiKey={hasApiKey}
+              googleConnected={googleConnected}
+              onOpenSettings={() => setStep("settings")}
+              onOpenApplications={() => setStep("applications")}
+              onOpenJobSearch={() => setStep("job-search")}
+              onOpenCvAdapt={() => setStep("cv-adapt")}
+              onRequestApiKey={() => setStep("api-key")}
+              onRequestGoogleConnect={() => setStep("connect-google")}
+            />
+          </div>
+        );
+      })}
+      {screen}
+    </>
   );
 }

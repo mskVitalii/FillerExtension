@@ -2,6 +2,7 @@ import { EMPTY_JOB, type Job } from "@/types/job";
 import { extractFromJsonLd } from "./json-ld";
 import { extractFromDom } from "./dom-heuristics";
 import { extractSiteSpecific } from "./sites";
+import { cleanJobTitle } from "./clean-title";
 
 /** True when DOM/JSON-LD extraction produced enough signal to skip the AI fallback. */
 export function isExtractionSufficient(job: Job): boolean {
@@ -42,7 +43,7 @@ export function extractJob(doc: Document, url: string): Job {
   const ld = extractFromJsonLd(doc);
   if (ld) job = applyOverlay(job, ld);
 
-  return job;
+  return job.position ? { ...job, position: cleanJobTitle(job.position) } : job;
 }
 
 export { EMPTY_JOB };

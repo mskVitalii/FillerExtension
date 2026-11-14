@@ -5,33 +5,44 @@ export interface ActiveTab {
   url: string | null;
 }
 
+/** The tab this panel was opened for — `background/index.ts` puts it in the panel URL. */
+function boundTabId(): number | null {
+  const raw = new URLSearchParams(location.search).get("tabId");
+  const id = raw ? Number(raw) : NaN;
+  return Number.isInteger(id) ? id : null;
+}
+
 /**
- * Tracks which tab this side panel instance should represent right now.
- * The panel is one shared document that stays mounted while the user
- * switches tabs/windows, so without this it would keep showing whatever
- * tab it last fetched for. Re-run on both tab switches (`onActivated`) and
- * in-tab navigation (`onUpdated`, e.g. clicking a new job link) so the
- * `url` changes too, letting callers tell "same page" apart from
- * "same tab, different job".
+ * The tab this side panel instance represents. A panel opened from the
+ * toolbar is tab-specific and bound to its tab for life: it follows that
+ * tab's own navigation (`onUpdated`, e.g. clicking through to the
+ * application form) but never another tab, so switching away and back finds
+ * the same work instead of a reset. Without a bound tab (the options page
+ * opened in a tab of its own), it falls back to tracking the active tab.
  */
 export function useActiveTab(): ActiveTab {
   const [state, setState] = useState<ActiveTab>({ tabId: null, url: null });
 
   useEffect(() => {
     let cancelled = false;
+    const bound = boundTabId();
 
     async function sync() {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!cancelled) setState({ tabId: tab?.id ?? null, url: tab?.url ?? null });
+      const tab =
+        bound !== null
+          ? await chrome.tabs.get(bound).catch(() => undefined)
+          : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+      if (!cancelled) setState({ tabId: tab?.id ?? bound, url: tab?.url ?? null });
     }
 
     void sync();
 
     function onActivated() {
-      void sync();
+      if (bound === null) void sync();
     }
-    function onUpdated(_tabId: number, info: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) {
-      if (tab.active && info.url) void sync();
+    function onUpdated(tabId: number, info: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) {
+      if (!info.url) return;
+      if (bound !== null ? tabId === bound : tab.active) void sync();
     }
 
     chrome.tabs.onActivated.addListener(onActivated);

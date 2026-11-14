@@ -1,4 +1,5 @@
 import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "@/types/job";
+import { cleanJobTitle } from "./clean-title";
 import { CEFR_LEVELS } from "@/lib/language-level";
 import { getApplicantContext } from "@/features/profile/context";
 import { getExtractionModel, requestStructured } from "@/features/openai/client";
@@ -70,6 +71,10 @@ keywords — against the applicant profile/CV/Personal Legend given below.
 
 EXTRACTION
 - Only use information present in "pageText"; leave a field empty/null if unknown.
+- position: the bare role name only — no company, job board or "| LinkedIn"-style suffix, no
+  bracketed asides like (m/w/d), (f/m/d) or (Remote), no seniority level (Senior, Junior, Middle,
+  Lead-level prefixes like Staff/Principal) and no team/location/contract qualifiers.
+  "Senior Backend Engineer (m/f/d) – Remote" -> "Backend Engineer".
 - For "contact", prefer a named recruiter/hiring manager's email address or LinkedIn
   profile/company URL if one is mentioned, copied VERBATIM (exact characters); otherwise null.
 
@@ -133,7 +138,7 @@ export async function extractJobWithAiAndBrief(
 
   const job: Job = {
     company: result.company,
-    position: result.position,
+    position: cleanJobTitle(result.position),
     location: result.location,
     description: result.description,
     requirements: result.requirements,
@@ -188,7 +193,10 @@ for language and keywords — against the applicant profile/CV/Personal Legend g
 FIELDS
 - Fill only the fields named in "fieldsToFill". For every other posting field return "" / [] /
   null — those are kept from the page as they are. Never re-type the posting's description.
-- position: the job title alone — no company, job board or "| LinkedIn"-style suffix.
+- position: the bare role name only — no company, job board or "| LinkedIn"-style suffix, no
+  bracketed asides like (m/w/d), (f/m/d) or (Remote), no seniority level (Senior, Junior, Middle,
+  Lead-level prefixes like Staff/Principal) and no team/location/contract qualifiers.
+  "Senior Backend Engineer (m/f/d) – Remote" -> "Backend Engineer".
 - company: the hiring company, not the job board or recruiting platform hosting the page.
 - location: as written in the posting; "" if none.
 - requirements, responsibilities: at most 8 items each, each a short phrase (12 words or fewer),

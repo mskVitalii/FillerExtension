@@ -146,10 +146,17 @@ settle/timeout/navigation or a trusted user edit. On-page visuals (picker box, t
 picked/detected fields) go through `autofill/overlay-host.ts`: a custom-element host with
 `!important` inline styles in the top layer (`popover`), re-attached if the page removes it.
 
-The Side Panel is *contextual*, not the manifest's default per-window behavior: it's disabled
-for every tab by default and only enabled for the specific tab whose action icon was clicked
-(`chrome.sidePanel.setOptions({ tabId, ... })` in `background/index.ts`), so it doesn't keep
-showing stale content from a previous tab after the user switches tabs.
+The Side Panel is *contextual*: disabled for every tab by default and only enabled for the
+tab whose action icon was clicked (`chrome.sidePanel.setOptions({ tabId, path: ...?tabId=<id> })`
+in `background/index.ts`). The `tabId` in the panel URL binds the panel to that tab for life
+(`useActiveTab`): it follows that tab's own navigation but never the active tab, so switching
+away and back finds the same work. Chrome may still unload a hidden panel, so work that must
+outlive it runs in the background: `GENERATE_COVER_LETTER` records its progress per tab in
+session storage (`CoverLetterRun`), and a panel that comes back resumes a letter still streaming
+or shows one that finished meanwhile (`resumeCoverLetterRun` in MainView). If the tab navigated to
+an origin the activeTab grant doesn't cover, `MainView` shows `TabAccessBanner` (click the icon
+again — the background broadcasts `TAB_ACCESS_GRANTED` and the panel retries — or grant that site /
+all sites through `optional_host_permissions`).
 
 ### Job extraction: three-stage, DOM-first
 
@@ -180,6 +187,13 @@ The panel merges the answer without overwriting fields the user edited meanwhile
   functions in `features/profile/repository.ts` and `features/applications/repository.ts`
   follow a consistent cache-then-Drive pattern: read local cache first, fall back to Drive,
   populate the cache on hit, fall through to an empty value when Google isn't connected yet.
+  Cache-first never sees another browser's edits, so `refreshDriveCaches`
+  (`storage/drive-cache.ts`, run on panel open and right after "Connect Google") re-pulls every
+  cached document; a write whose Drive half failed is recorded in `driveSyncPending` and pushed
+  on that refresh instead of being overwritten. The CV/legend libraries never cache a result
+  read while Drive is unreachable, don't trust an empty cached library, and re-read Drive
+  (`getLegendLibrary(true)`/`getCvLibrary(true)`) before every change so a stale list can't
+  overwrite entries saved from another browser. Add a new cached document to `DRIVE_DOCS`.
 
 Applications are keyed by `applicationIdForUrl(job.url)` (`features/applications/id.ts`) so
 re-generating or editing a cover letter for the same job URL updates the existing Drive record
