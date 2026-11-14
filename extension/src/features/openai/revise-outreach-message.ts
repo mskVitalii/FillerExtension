@@ -2,7 +2,7 @@ import type { Job } from "@/types/job";
 import { getOutreachModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import { OUTREACH_SCHEMA } from "./schemas";
-import type { OutreachMessageResult } from "./outreach-message";
+import { emailSubject, type OutreachMessageResult } from "./outreach-message";
 
 const SYSTEM_PROMPT = `You are editing an existing outreach message (an email or LinkedIn note
 to a recruiter/hiring contact) on the applicant's instructions.
@@ -37,5 +37,9 @@ export async function reviseOutreachMessage(
     parse: (raw) => JSON.parse(raw) as OutreachMessageResult,
   });
 
-  return { subject: draft.subject === null ? null : result.subject, body: stripEmDashes(result.body) };
+  return {
+    // An email keeps a subject: the revised one, else the draft's own.
+    subject: draft.subject === null ? null : emailSubject(result.subject || draft.subject, job),
+    body: stripEmDashes(result.body),
+  };
 }

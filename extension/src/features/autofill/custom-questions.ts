@@ -40,9 +40,24 @@ export interface CustomQuestion {
   dateKind?: DateInputKind;
 }
 
+/**
+ * A site's own search box, never an application question: LinkedIn's job
+ * search ("Describe the job you want") sits in `<header> … [role="search"]`
+ * above every posting, and its placeholder reads like a question. Matched by
+ * the search landmark (ARIA role or `<search>`), `type="search"` or site
+ * navigation, so a real form field is never caught by it.
+ */
+const SEARCH_CONTAINER_SELECTOR = '[role="search"], search, nav, [role="navigation"]';
+
+function isSiteSearchField(el: HTMLElement): boolean {
+  if (el instanceof HTMLInputElement && el.type === "search") return true;
+  return el.closest(SEARCH_CONTAINER_SELECTOR) !== null;
+}
+
 function isFillable(el: Element): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
+  if (isSiteSearchField(el)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;

@@ -164,7 +164,9 @@ all sites through `optional_host_permissions`).
 confidence: a generic DOM heuristics pass (`dom-heuristics.ts`) → a site-specific extractor
 from `job-extraction/sites/` when one recognises the page (`sites/index.ts` dispatches;
 `sites/workatastartup.ts` handles Y Combinator's Work at a Startup, which ships no JSON-LD and
-fuses role+company into `og:title`) → a JSON-LD structured-data pass (`json-ld.ts`). Each
+fuses role+company into `og:title`; `sites/linkedin.ts` reads the selected job's details pane on
+LinkedIn search results and `/jobs/view/`, with lists/salary/contact taken from "About the job"
+only) → a JSON-LD structured-data pass (`json-ld.ts`). Each
 overlay fills only its non-empty fields via `applyOverlay()`. Add a site by dropping a module
 in `sites/` and appending it to `SITE_EXTRACTORS`. `isExtractionSufficient()` gates whether
 the DOM result needs AI help (missing position/company, or a short description). If it does,

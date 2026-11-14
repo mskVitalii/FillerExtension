@@ -1,4 +1,5 @@
 import type { Job } from "@/types/job";
+import { extractLinkedIn } from "./linkedin";
 import { extractWorkAtAStartup } from "./workatastartup";
 
 /**
@@ -10,7 +11,7 @@ import { extractWorkAtAStartup } from "./workatastartup";
  */
 type SiteExtractor = (doc: Document, url: string) => Partial<Job> | null;
 
-const SITE_EXTRACTORS: SiteExtractor[] = [extractWorkAtAStartup];
+const SITE_EXTRACTORS: SiteExtractor[] = [extractWorkAtAStartup, extractLinkedIn];
 
 /** First matching site extractor's fields, or `null` when none recognise the page. */
 export function extractSiteSpecific(doc: Document, url: string): Partial<Job> | null {

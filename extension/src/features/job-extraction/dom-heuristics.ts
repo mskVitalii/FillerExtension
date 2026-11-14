@@ -54,9 +54,14 @@ function listItemsNearHeading(root: HTMLElement, keywords: RegExp): string[] {
   return [];
 }
 
-const REQUIREMENTS_RE = /require|qualif|what you.?ll need|must have|anforderungen/i;
+const REQUIREMENTS_RE = /require|qualif|what you.?ll need|what you bring|must have|anforderungen/i;
 const RESPONSIBILITIES_RE = /responsibilit|what you.?ll do|the role|aufgaben/i;
-const SALARY_RE = /\$\s?\d[\d,.]*\s?[-–—]\s?\$?\s?\d[\d,.]*|€\s?\d[\d,.]*|salary|gehalt/i;
+/**
+ * An actual amount ("$120,000 – $150,000", "€65k", "70.000 EUR"), never the bare word: "send your
+ * salary expectations" used to come back as the salary "salary".
+ */
+const SALARY_RE =
+  /[$€£]\s?\d[\d,.]*\s?k?(?:\s?[-–—]\s?[$€£]?\s?\d[\d,.]*\s?k?)?|\d[\d,.]*\s?k?\s?(?:€|EUR|USD|GBP)\b/i;
 
 const TECH_KEYWORDS = [
   "JavaScript",
@@ -135,18 +140,25 @@ export function extractFromDom(doc: Document, url: string): Job {
   const company = meta(doc, "og:site_name") || "";
   const description = bodyText.replace(/\s+/g, " ").trim().slice(0, 6000);
 
-  const salaryMatch = bodyText.match(SALARY_RE);
+  return { position, company, location: "", description, ...detailsFromElement(root), url };
+}
 
+export type JobDetails = Pick<Job, "requirements" | "responsibilities" | "salary" | "techStack" | "contact">;
+
+/**
+ * The list/salary/stack/contact heuristics run on just `root`. A site
+ * extractor that knows where the posting's own text is (LinkedIn's "About the
+ * job" box) uses this so ads and sidebars around it ("Activate Premium for
+ * €0", the company's page link) aren't read as the job's salary or contact.
+ */
+export function detailsFromElement(root: HTMLElement): JobDetails {
+  const text = root.innerText || root.textContent || "";
+  const salaryMatch = text.match(SALARY_RE);
   return {
-    position,
-    company,
-    location: "",
-    description,
     requirements: listItemsNearHeading(root, REQUIREMENTS_RE),
     responsibilities: listItemsNearHeading(root, RESPONSIBILITIES_RE),
     salary: salaryMatch ? salaryMatch[0] : null,
-    techStack: detectTechStack(bodyText),
-    contact: detectContact(root, bodyText),
-    url,
+    techStack: detectTechStack(text),
+    contact: detectContact(root, text),
   };
 }

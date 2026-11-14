@@ -11,8 +11,16 @@ export function isExtractionSufficient(job: Job): boolean {
 
 const nonEmpty = (s: string | undefined): string | undefined => (s && s.trim() ? s : undefined);
 
-/** Overlays a site-specific extractor's fields onto the generic pass, ignoring empty/absent ones. */
-function applyOverlay(base: Job, o: Partial<Job>): Job {
+/**
+ * Overlays a pass's fields onto the job so far, ignoring empty/absent ones.
+ * `salary`/`contact` are nullable: a `null` from JSON-LD means "not stated
+ * there" and keeps the DOM's guess, while a site extractor that sets the key
+ * at all (`trustNulls`) read the posting's own text and found none, so its
+ * `null` replaces a guess the generic pass took from ads around it.
+ */
+function applyOverlay(base: Job, o: Partial<Job>, trustNulls = false): Job {
+  const nullable = <K extends "salary" | "contact">(key: K): Job[K] =>
+    trustNulls && key in o ? (o[key] ?? null) : (o[key] ?? base[key]);
   return {
     ...base,
     position: nonEmpty(o.position) ?? base.position,
@@ -21,9 +29,9 @@ function applyOverlay(base: Job, o: Partial<Job>): Job {
     description: nonEmpty(o.description) ?? base.description,
     requirements: o.requirements?.length ? o.requirements : base.requirements,
     responsibilities: o.responsibilities?.length ? o.responsibilities : base.responsibilities,
-    salary: o.salary ?? base.salary,
+    salary: nullable("salary"),
     techStack: o.techStack?.length ? o.techStack : base.techStack,
-    contact: o.contact ?? base.contact,
+    contact: nullable("contact"),
     url: nonEmpty(o.url) ?? base.url,
   };
 }
@@ -38,7 +46,7 @@ export function extractJob(doc: Document, url: string): Job {
   let job = extractFromDom(doc, url);
 
   const site = extractSiteSpecific(doc, url);
-  if (site) job = applyOverlay(job, site);
+  if (site) job = applyOverlay(job, site, true);
 
   const ld = extractFromJsonLd(doc);
   if (ld) job = applyOverlay(job, ld);

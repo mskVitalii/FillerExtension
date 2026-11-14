@@ -116,7 +116,9 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       const tab = await chrome.tabs.get(message.tabId).catch(() => undefined);
       if (!message.force && tab?.url) {
         const cached = await getCachedJob(tab.url);
-        if (cached) return { type: "JOB_DATA", job: cached, sufficient: true };
+        // An entry missing the company was cached from a partial result (an older extractor, or
+        // an AI completion that found none); re-extract rather than show it forever.
+        if (cached?.position && cached.company) return { type: "JOB_DATA", job: cached, sufficient: true };
       }
 
       const frameIds = await ensureContentScript(message.tabId);

@@ -61,6 +61,7 @@ import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
 import { LANGUAGES } from "@/lib/languages";
 import { generatePassword } from "@/lib/generate-password";
 import { cn } from "@/lib/utils";
+import { isEmailAddress } from "@/lib/email";
 
 /**
  * Toggles "Pick fields on page" from the keyboard while the Side Panel is
@@ -74,7 +75,6 @@ const PICKER_HOTKEY_LABEL =
 const PICKER_GRADIENT = "linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #ec4899)";
 
 /** Matches a bare email address (not a full RFC grammar) — just enough to tell `job.contact` apart from a LinkedIn URL for the outreach-message "open" action. */
-const EMAIL_ADDRESS_RE = /^[\w.+-]+@[\w-]+\.[\w.-]+$/;
 
 /** Appends `contact` to the keyword-highlight list sent to the page, reusing the same green
  * "match" styling (`features/highlight/keyword-highlight.ts`) — it's not a skill match, but it's
@@ -697,7 +697,7 @@ export function MainView({
       const merged = keepUserEdits(jobRef.current, dom, response.job);
       setJob(merged);
       if (response.brief) void applyJobBrief(merged, response.brief);
-      if (partial.pageUrl && merged.position) void setCachedJob(partial.pageUrl, merged).catch(() => undefined);
+      if (partial.pageUrl && merged.position && merged.company) void setCachedJob(partial.pageUrl, merged).catch(() => undefined);
       return merged;
     } catch {
       // No API key yet, or the request failed — keep the DOM result as it is.
@@ -1371,7 +1371,7 @@ export function MainView({
 
   /** `job.contact`'s own shape decides the channel: an email address opens a Gmail compose draft, anything else (a LinkedIn URL) just opens that link so the user pastes the message in themselves. */
   function outreachContactHref(contact: string, message: { subject: string | null; body: string }): string {
-    if (EMAIL_ADDRESS_RE.test(contact)) {
+    if (isEmailAddress(contact)) {
       // Gmail's web composer rather than `mailto:`: a Side Panel link to `mailto:` silently does nothing when no desktop mail client is registered.
       const params = new URLSearchParams({ view: "cm", fs: "1", to: contact, body: message.body });
       if (message.subject) params.set("su", message.subject);
@@ -1916,7 +1916,7 @@ export function MainView({
                   rel="noreferrer"
                   className="inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium hover:bg-muted"
                 >
-                  {EMAIL_ADDRESS_RE.test(job.contact) ? "Open in Gmail" : "Open LinkedIn"}
+                  {isEmailAddress(job.contact) ? "Open in Gmail" : "Open LinkedIn"}
                 </a>
               )}
             </div>

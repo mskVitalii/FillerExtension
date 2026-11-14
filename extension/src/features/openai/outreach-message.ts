@@ -3,6 +3,7 @@ import type { Profile } from "@/types/profile";
 import { getOutreachModel, requestStructured } from "./client";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import { OUTREACH_SCHEMA } from "./schemas";
+import { isEmailAddress } from "@/lib/email";
 
 export interface OutreachMessageInput {
   profile: Profile;
@@ -27,8 +28,8 @@ recruiter/hiring contact BEFORE or alongside applying, to start a conversation a
 job posting — not a cover letter, and not addressed to "the hiring team".
 
 The user message holds the applicant's data as JSON ("contact" is the email address or LinkedIn
-URL found on the posting), and may end with an "Applicant's rules" section written by the
-applicant themselves.
+URL found on the posting, "channel" is "email" or "linkedin"), and may end with an "Applicant's
+rules" section written by the applicant themselves.
 
 Priority, highest first. When two of these conflict, the higher one wins:
 1. Facts. Use ONLY facts present in the provided profile, CV text, and Personal Legend. Never
@@ -37,11 +38,13 @@ Priority, highest first. When two of these conflict, the higher one wins:
    and what to include or avoid, including where it departs from the defaults below.
 3. Language. If "postingLanguage" is given, write the entire message in that language, using
    the salutation and register native speakers of it would expect.
-4. Channel. If "contact" looks like an email address, write a short email: "subject" is a
-   specific, non-generic subject line (name the role and company), "body" opens with a greeting
-   and closes with a signature using the applicant's name. If "contact" is a LinkedIn URL,
-   write a LinkedIn connection/message note instead: "subject" is null, "body" has no email
-   greeting/signature and stays under LinkedIn's informal register.
+4. Channel. If "channel" is "email", write a short email: "subject" is REQUIRED, never null or
+   empty: a specific, non-generic subject line under 80 characters that names the role and the
+   company (and, if it fits, the applicant's strongest match), in the message's language. "body"
+   opens with a greeting and closes with a signature using the applicant's name; it does not
+   repeat the subject. If "channel" is "linkedin", write a LinkedIn connection/message note
+   instead: "subject" is null, "body" has no email greeting/signature and stays under LinkedIn's
+   informal register.
 5. The house style below. Its "no exceptions" means no exceptions of your own; an explicit
    applicant rule still overrides it.
 
@@ -68,6 +71,7 @@ export async function generateOutreachMessage(input: OutreachMessageInput): Prom
       personalLegend: input.personalLegend,
       job: input.job,
       contact: input.contact,
+      channel: isEmailAddress(input.contact) ? "email" : "linkedin",
       postingLanguage: input.postingLanguage || undefined,
     },
     null,
@@ -84,7 +88,23 @@ export async function generateOutreachMessage(input: OutreachMessageInput): Prom
     parse: (raw) => JSON.parse(raw) as OutreachMessageResult,
   });
 
-  return { subject: result.subject, body: stripEmDashes(result.body) };
+  return {
+    subject: isEmailAddress(input.contact) ? emailSubject(result.subject, input.job) : null,
+    body: stripEmDashes(result.body),
+  };
+}
+
+/**
+ * An email always gets a subject line: the model's, or one built from the
+ * posting when it left it out, so "Open in Gmail" never opens a draft without one.
+ */
+export function emailSubject(subject: string | null | undefined, job: Pick<Job, "position" | "company">): string {
+  const cleaned = stripEmDashes((subject ?? "").replace(/^\s*subject\s*:\s*/i, "").replace(/\s+/g, " ").trim());
+  if (cleaned) return cleaned;
+  const position = job.position.trim();
+  const company = job.company.trim();
+  if (position && company) return `${position} at ${company}`;
+  return position || company || "Job application";
 }
 
 /** The applicant's outreach rules as the closing section of a user prompt, or "" when they wrote none. */
