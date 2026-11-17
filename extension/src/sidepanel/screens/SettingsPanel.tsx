@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CvLibraryItem } from "@/components/CvLibraryItem";
+import { RulesEditor } from "@/components/RulesEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
@@ -24,7 +25,9 @@ import {
   deleteCv,
   deleteLegend,
   getCvLibrary,
+  getGenerationRules,
   getLegendLibrary,
+  getOutreachRules,
   saveCustomFields,
   saveFaqAnswers,
   saveGenerationRules,
@@ -157,10 +160,6 @@ export function SettingsPanel({
     adzunaAppKey: "",
   });
   const [savingJobSearchCredentials, setSavingJobSearchCredentials] = useState(false);
-  const [rulesDraft, setRulesDraft] = useState(generationRules);
-  const [savingRules, setSavingRules] = useState(false);
-  const [outreachRulesDraft, setOutreachRulesDraft] = useState(outreachRules);
-  const [savingOutreachRules, setSavingOutreachRules] = useState(false);
   const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -495,26 +494,6 @@ export function SettingsPanel({
     }
   }
 
-  async function handleSaveGenerationRules() {
-    setSavingRules(true);
-    try {
-      await saveGenerationRules(rulesDraft);
-      onGenerationRulesChange(rulesDraft);
-    } finally {
-      setSavingRules(false);
-    }
-  }
-
-  async function handleSaveOutreachRules() {
-    setSavingOutreachRules(true);
-    try {
-      await saveOutreachRules(outreachRulesDraft);
-      onOutreachRulesChange(outreachRulesDraft);
-    } finally {
-      setSavingOutreachRules(false);
-    }
-  }
-
   return (
     <div className="flex flex-col gap-4 p-4">
       <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
@@ -725,15 +704,14 @@ export function SettingsPanel({
             answers) should be written — tone, length, structure, things to include or avoid. Kept
             separate from the Personal Legend, which is about what's true, not how it's phrased.
           </p>
-          <textarea
-            className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
+          <RulesEditor
+            initial={generationRules}
             placeholder="e.g. Keep cover letters under 250 words. Never mention relocation. Write in first person, direct and confident, no corporate buzzwords…"
-            value={rulesDraft}
-            onChange={(e) => setRulesDraft(e.target.value)}
+            defaultFileName="cover-letter-rules.md"
+            load={getGenerationRules}
+            save={saveGenerationRules}
+            onSaved={onGenerationRulesChange}
           />
-          <Button size="sm" onClick={handleSaveGenerationRules} disabled={savingRules} className="w-fit">
-            {savingRules ? "Saving…" : "Save"}
-          </Button>
         </CardContent>
       </Card>
 
@@ -747,15 +725,14 @@ export function SettingsPanel({
             posting's recruiter/hiring contact — tone, length, what to ask for. Kept separate from
             Generation Rules, which is about the cover letter.
           </p>
-          <textarea
-            className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
+          <RulesEditor
+            initial={outreachRules}
             placeholder="e.g. Keep it under 80 words. Always ask for a quick call. Sign off with my first name only…"
-            value={outreachRulesDraft}
-            onChange={(e) => setOutreachRulesDraft(e.target.value)}
+            defaultFileName="outreach-rules.md"
+            load={getOutreachRules}
+            save={saveOutreachRules}
+            onSaved={onOutreachRulesChange}
           />
-          <Button size="sm" onClick={handleSaveOutreachRules} disabled={savingOutreachRules} className="w-fit">
-            {savingOutreachRules ? "Saving…" : "Save"}
-          </Button>
         </CardContent>
       </Card>
 

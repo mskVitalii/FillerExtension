@@ -103,6 +103,8 @@ export interface LegendLibrary {
 export interface GenerationRules {
   content: string;
   updatedAt: string;
+  /** Name of the .md/.txt file the rules were uploaded from — what the download icon saves them as. */
+  sourceFileName?: string;
 }
 
 /**
@@ -114,6 +116,8 @@ export interface GenerationRules {
 export interface OutreachRules {
   content: string;
   updatedAt: string;
+  /** Same as `GenerationRules.sourceFileName`. */
+  sourceFileName?: string;
 }
 
 /**

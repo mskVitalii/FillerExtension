@@ -116,8 +116,14 @@ export async function readCachedText(cacheKey: TextCacheKey, fileName: string): 
   return null;
 }
 
-export async function writeCachedText(cacheKey: TextCacheKey, fileName: string, content: string): Promise<void> {
-  await setLocal(cacheKey, { content, updatedAt: new Date().toISOString() });
+/** `sourceFileName` — the uploaded file the text came from, kept on this device for downloading it back. */
+export async function writeCachedText(
+  cacheKey: TextCacheKey,
+  fileName: string,
+  content: string,
+  sourceFileName?: string,
+): Promise<void> {
+  await setLocal(cacheKey, { content, updatedAt: new Date().toISOString(), ...(sourceFileName ? { sourceFileName } : {}) });
   await pushToDrive(cacheKey, () => drive.writeTextFile(fileName, content));
 }
 
@@ -136,8 +142,9 @@ async function refreshDoc(doc: DriveDoc): Promise<boolean> {
   }
   if (doc.kind === "text") {
     const content = await drive.readTextFile(doc.fileName);
-    if (content === null || (local as LocalStorageSchema[TextCacheKey] | undefined)?.content === content) return false;
-    await setLocal(doc.cacheKey, { content, updatedAt: new Date().toISOString() });
+    const localText = local as LocalStorageSchema[TextCacheKey] | undefined;
+    if (content === null || localText?.content === content) return false;
+    await setLocal(doc.cacheKey, { ...localText, content, updatedAt: new Date().toISOString() });
     return true;
   }
   const remote = await drive.readJsonFile<unknown>(doc.fileName);

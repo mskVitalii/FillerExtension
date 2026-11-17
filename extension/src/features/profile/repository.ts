@@ -382,8 +382,8 @@ export async function getGenerationRules(): Promise<GenerationRules | null> {
   return readCachedText("generationRulesCache", "generationRules.md");
 }
 
-export async function saveGenerationRules(content: string): Promise<void> {
-  await writeCachedText("generationRulesCache", "generationRules.md", content);
+export async function saveGenerationRules(content: string, sourceFileName?: string): Promise<void> {
+  await writeCachedText("generationRulesCache", "generationRules.md", content, sourceFileName);
 }
 
 /**
@@ -395,6 +395,6 @@ export async function getOutreachRules(): Promise<OutreachRules | null> {
   return readCachedText("outreachRulesCache", "outreachRules.md");
 }
 
-export async function saveOutreachRules(content: string): Promise<void> {
-  await writeCachedText("outreachRulesCache", "outreachRules.md", content);
+export async function saveOutreachRules(content: string, sourceFileName?: string): Promise<void> {
+  await writeCachedText("outreachRulesCache", "outreachRules.md", content, sourceFileName);
 }
