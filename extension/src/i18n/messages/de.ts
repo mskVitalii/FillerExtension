@@ -96,6 +96,7 @@ export const de: Record<MessageKey, string> = {
   "common.saving": "Wird gespeichert…",
   "common.select": "Auswählen…",
   "cvChoice.ai": "KI: {reason}",
+  "cvChoice.aiConfidence": "KI-Auswahl, {percent} % sicher",
   "cvChoice.choosing": "wird gewählt…",
   "cvChoice.fallback": "kein {language}-Lebenslauf, stattdessen Englisch",
   "cvChoice.label": "Lebenslauf für diese Stelle",

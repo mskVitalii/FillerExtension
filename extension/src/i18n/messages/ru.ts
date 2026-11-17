@@ -96,6 +96,7 @@ export const ru: Record<MessageKey, string> = {
   "common.saving": "Сохранение…",
   "common.select": "Выберите…",
   "cvChoice.ai": "ИИ: {reason}",
+  "cvChoice.aiConfidence": "выбор ИИ, уверенность {percent}%",
   "cvChoice.choosing": "выбираем…",
   "cvChoice.fallback": "нет CV на языке {language}, взято английское",
   "cvChoice.label": "CV для этой вакансии",

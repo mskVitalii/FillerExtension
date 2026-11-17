@@ -2,7 +2,8 @@ import type { Job } from "@/types/job";
 import type { CvMeta } from "@/types/profile";
 import { languageName } from "@/lib/language-codes";
 import { cvDisplayName, type CvChoice } from "@/features/cv-selection/select";
-import { getSupportModel, requestStructured } from "./client";
+import { MissingApiKeyError, getSupportModel, requestStructured } from "./client";
+import { DECISION_THRESHOLDS, choiceAnswer, requestDecisions } from "./decisions";
 
 const SCHEMA = {
   type: "object",
@@ -23,12 +24,69 @@ postings it's for, and the start of its text.
 Return the chosen CV's exact "id" and a reason of at most 10 words. Plain text, no em dashes.`;
 
 /**
- * Lets the support-model tier choose the CV (Settings → CVs → "Let AI choose"):
- * one small structured call with the posting and every CV's description.
- * An id that isn't in the library is rejected, so the caller keeps the
- * offline pick.
+ * Settings → CVs → "Let AI choose": one Decisions `choice` over the library. Choices are
+ * labelled `cv1`, `cv2`, … (the API works better with readable labels than with UUIDs), each
+ * described by its name, language, default flag, rules and the start of its text. Below
+ * `DECISION_THRESHOLDS.cvChoice` the caller keeps its offline pick. If the Decisions call
+ * fails, the older structured Responses call decides instead.
  */
 export async function chooseCvWithAi(job: Job, cvs: CvMeta[], postingLanguage?: string): Promise<CvChoice | null> {
+  if (cvs.length < 2) return null;
+  const labels = cvs.map((_, i) => `cv${i + 1}`);
+  try {
+    const answers = await requestDecisions({
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "A job posting the applicant is applying to:" },
+            {
+              type: "input_json",
+              data: {
+                position: job.position,
+                company: job.company,
+                location: job.location,
+                language: postingLanguage ?? null,
+                techStack: job.techStack,
+                description: job.description.slice(0, 4_000),
+              },
+            },
+          ],
+        },
+      ],
+      questions: [
+        {
+          type: "choice",
+          name: "cv",
+          instructions:
+            "Which of the applicant's CVs should be sent to this posting? Prefer a CV written in the posting's language (else an English one), then the one whose rules fit the posting best, then the one marked default for that language.",
+          choices: cvs.map((cv, i) => ({ value: labels[i], description: describeCv(cv) })),
+        },
+      ],
+    });
+    const answer = choiceAnswer(answers, "cv");
+    const index = answer ? labels.indexOf(answer.choice) : -1;
+    if (!answer || index < 0 || answer.confidence < DECISION_THRESHOLDS.cvChoice) return null;
+    return { cvId: cvs[index].id, reason: "", source: "ai", confidence: answer.confidence };
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) throw err;
+    console.warn("[Filler] Decisions API failed, choosing the CV via Responses:", err);
+    return chooseCvWithResponses(job, cvs, postingLanguage);
+  }
+}
+
+function describeCv(cv: CvMeta): string {
+  return [
+    `Name: ${cvDisplayName(cv)}.`,
+    `Language: ${cv.language ? languageName(cv.language) : "not set"}${cv.isDefaultForLanguage ? " (default CV for that language)" : ""}.`,
+    cv.rules?.trim() ? `Applicant's rules for it: ${cv.rules.trim()}` : "",
+    `Starts: ${cv.text.slice(0, 600).replace(/\s+/g, " ")}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function chooseCvWithResponses(job: Job, cvs: CvMeta[], postingLanguage?: string): Promise<CvChoice | null> {
   if (cvs.length < 2) return null;
   const payload = {
     posting: {

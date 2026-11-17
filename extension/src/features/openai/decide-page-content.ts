@@ -4,7 +4,18 @@ import { isNewsletterLike, type PageCheckbox } from "@/features/autofill/checkbo
 import { getLocal } from "@/features/storage/local";
 import { getApplicantContext } from "@/features/profile/context";
 import { DATE_FORMAT_EXAMPLE, todayISO } from "@/lib/date-format";
-import { requestStructured } from "./client";
+import { MissingApiKeyError, requestStructured } from "./client";
+import { requestDecisions, type DecisionAnswers } from "./decisions";
+import {
+  applicantDecisionInput,
+  checkboxDecisionQuestions,
+  factsGateQuestion,
+  hasChoiceOptions,
+  optionDecisionQuestions,
+  readCheckboxDecision,
+  readFactsGate,
+  readOptionAnswer,
+} from "./question-decisions";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import { isNonAnswer } from "./answer-question";
 import type { CheckboxCategory, CheckboxDecision } from "./decide-checkboxes";
@@ -15,6 +26,8 @@ export interface PageContentQuestionAnswer {
   id: string;
   answer: string;
   sufficientInfo: boolean;
+  /** 0..1 for an option question decided by the Decisions API. */
+  confidence?: number;
 }
 
 const SCHEMA = {
@@ -199,16 +212,11 @@ function applyQuestionAnswers(questions: CustomQuestion[], raw: RawQuestionAnswe
 }
 
 /**
- * Replaces what used to be a standalone checkbox-decision call plus one parallel
- * `answerCustomQuestion` call per detected question — both fire automatically the moment the
- * Side Panel opens on a posting. They already ran concurrently, so this doesn't shorten the critical path much when only one
- * question is pending — the real win is fewer simultaneous requests against the user's own
- * OpenAI rate limit when a form has several questions, and sending the shared applicant
- * context/job/cover-letter once instead of once per question. A later single question (manual
- * add, picker) still goes through `answerCustomQuestion` on its own rather than round-tripping
- * through this batch machinery for one item.
+ * The Responses-API path: one structured call that decides checkboxes and writes answers. Since
+ * the Decisions API took over checkboxes and option questions, it writes only the free-text
+ * answers — and decides everything when the Decisions call fails.
  */
-export async function decidePageContent(
+async function decideWithResponses(
   checkboxes: PageCheckbox[],
   questions: CustomQuestion[],
   job: Job,
@@ -261,5 +269,83 @@ export async function decidePageContent(
   return {
     checkboxDecisions: applyCheckboxDecisions(checkboxes, result.checkboxDecisions),
     questionAnswers: applyQuestionAnswers(questions, result.questionAnswers),
+  };
+}
+
+type PageContentResult = { checkboxDecisions: CheckboxDecision[]; questionAnswers: PageContentQuestionAnswer[] };
+
+/**
+ * Decides a form's consent checkboxes and answers its custom questions. Classification goes to
+ * the Decisions API (one request, about 10x faster than generating): each checkbox's "tick it?"
+ * and category, each option question's pick, and for each free-text question whether the
+ * applicant's data covers it. Only the free-text questions that pass that gate are then written
+ * by the Responses API; the rest come back as non-answers for the user. The Side Panel sends
+ * checkboxes + option questions and free-text questions as two parallel requests, so the first
+ * fill doesn't wait for text generation. If the Decisions call fails (e.g. the endpoint isn't
+ * available to this key), everything falls back to the one Responses call.
+ *
+ * Replaces what used to be a standalone checkbox-decision call plus one parallel
+ * `answerCustomQuestion` call per detected question; a later single question (manual add,
+ * picker) still goes through `answerCustomQuestion` on its own.
+ */
+export async function decidePageContent(
+  checkboxes: PageCheckbox[],
+  questions: CustomQuestion[],
+  job: Job,
+  postingLanguage?: string,
+): Promise<PageContentResult> {
+  if (checkboxes.length === 0 && questions.length === 0) return { checkboxDecisions: [], questionAnswers: [] };
+
+  const [context, coverLetter] = await Promise.all([getApplicantContext(), getLocal("lastCoverLetter")]);
+  const { input, promptCacheKey } = applicantDecisionInput(context, coverLetter ?? "", job, postingLanguage);
+
+  const indexed = questions.map((q, i) => ({ q, i }));
+  const optionQuestions = indexed.filter(({ q }) => hasChoiceOptions(q));
+  const textQuestions = indexed.filter(({ q }) => !hasChoiceOptions(q));
+
+  let answers: DecisionAnswers;
+  try {
+    answers = await requestDecisions({
+      input,
+      promptCacheKey,
+      questions: [
+        ...checkboxDecisionQuestions(checkboxes),
+        ...optionQuestions.flatMap(({ q, i }) => optionDecisionQuestions(q, i)),
+        ...textQuestions.map(({ q, i }) => factsGateQuestion(q, i)),
+      ],
+    });
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) throw err;
+    console.warn("[Filler] Decisions API failed, falling back to Responses:", err);
+    return decideWithResponses(checkboxes, questions, job, postingLanguage);
+  }
+
+  // Anything the Decisions API left unanswered goes through the Responses call with the rest.
+  const checkboxDecisions: (CheckboxDecision | null)[] = checkboxes.map((checkbox, i) => readCheckboxDecision(checkbox, i, answers));
+  const leftoverCheckboxes = checkboxes.filter((_, i) => !checkboxDecisions[i]);
+  const byId = new Map<string, PageContentQuestionAnswer>();
+  const toWrite: CustomQuestion[] = [];
+  for (const { q, i } of optionQuestions) {
+    const decided = readOptionAnswer(q, i, answers);
+    if (decided) byId.set(q.id, { id: q.id, ...decided });
+    else toWrite.push(q);
+  }
+  for (const { q, i } of textQuestions) {
+    if (readFactsGate(i, answers) === false) byId.set(q.id, { id: q.id, answer: "", sufficientInfo: false });
+    else toWrite.push(q);
+  }
+
+  if (leftoverCheckboxes.length > 0 || toWrite.length > 0) {
+    const written = await decideWithResponses(leftoverCheckboxes, toWrite, job, postingLanguage);
+    for (const answer of written.questionAnswers) byId.set(answer.id, answer);
+    const leftover = new Map(written.checkboxDecisions.map((d) => [d.name + "\u0000" + d.label, d]));
+    checkboxes.forEach((checkbox, i) => {
+      if (!checkboxDecisions[i]) checkboxDecisions[i] = leftover.get(checkbox.name + "\u0000" + checkbox.label) ?? null;
+    });
+  }
+
+  return {
+    checkboxDecisions: checkboxDecisions.filter((d): d is CheckboxDecision => d !== null),
+    questionAnswers: questions.map((q) => byId.get(q.id) ?? { id: q.id, answer: "", sufficientInfo: true }),
   };
 }

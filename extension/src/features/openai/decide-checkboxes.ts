@@ -6,4 +6,6 @@ export interface CheckboxDecision {
   check: boolean;
   category: CheckboxCategory;
   reason: string;
+  /** 0..1, from the Decisions API; absent when the decision came from the Responses fallback. */
+  confidence?: number;
 }

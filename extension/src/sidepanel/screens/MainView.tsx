@@ -60,6 +60,7 @@ import type { PickedField } from "@/features/autofill/pick-questions";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
+import { hasChoiceOptions } from "@/features/openai/question-decisions";
 import { LANGUAGES } from "@/lib/languages";
 import { generatePassword } from "@/lib/generate-password";
 import { cn } from "@/lib/utils";
@@ -903,7 +904,8 @@ export function MainView({
    * `handleAnalyzePageContent`'s batched question-answering — both end up with the same
    * `questionAnswerKey -> answer` map to write onto the page.
    */
-  async function fillQuestionAnswers(questions: CustomQuestion[], answersByQuestion: Record<string, string>) {
+  /** `mergeUnfillable`: add to the "couldn't fill" list instead of replacing it (a second batch filling alongside the first). */
+  async function fillQuestionAnswers(questions: CustomQuestion[], answersByQuestion: Record<string, string>, mergeUnfillable = false) {
     const textAnswers: Record<string, string> = {};
     const locatorItems: { locator: ElementLocator; answer: string; question?: string }[] = [];
     for (const q of questions) {
@@ -921,7 +923,8 @@ export function MainView({
       fills.push(sendMessage<FillResult>({ type: "FILL_QUESTION_ANSWERS_BY_LOCATOR", tabId, items: locatorItems }));
     }
     const fillResults = await Promise.all(fills);
-    setUnfillableQuestions(fillResults.flatMap((r) => r.unfilled));
+    const unfilled = fillResults.flatMap((r) => r.unfilled);
+    setUnfillableQuestions((prev) => (mergeUnfillable ? [...new Set([...prev, ...unfilled])] : unfilled));
   }
 
   /**
@@ -1146,44 +1149,53 @@ export function MainView({
     if (checkboxes.length === 0 && pending.length === 0) return;
 
     setDecidingPageContent(true);
-    try {
-      const postingLanguage = jobLanguage?.postingLanguages[0];
-      const response = await sendMessage<{
-        type: "PAGE_CONTENT_DECISIONS";
-        checkboxDecisions: CheckboxDecision[];
-        questionAnswers: { id: string; answer: string; sufficientInfo: boolean }[];
-      }>({ type: "DECIDE_PAGE_CONTENT", checkboxes, questions: pending, job: currentJob, postingLanguage });
-
-      if (checkboxes.length > 0) {
-        const decisions = response?.checkboxDecisions ?? [];
-        setCheckboxDecisions(decisions);
-        if (decisions.length > 0) {
-          await sendMessage<{ type: "CHECKBOX_APPLY_RESULT"; changed: number }>({
-            type: "APPLY_CHECKBOX_DECISIONS",
-            tabId,
-            decisions: decisions.map((d) => ({ name: d.name, label: d.label, check: d.check })),
-          });
-        }
-      }
-
-      if (pending.length > 0) {
-        await applyPageContentQuestionAnswers(questions, pending, response?.questionAnswers ?? []);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("main.analyzeFormFailed"));
-    } finally {
-      setDecidingPageContent(false);
+    const postingLanguage = jobLanguage?.postingLanguages[0];
+    type Decided = {
+      type: "PAGE_CONTENT_DECISIONS";
+      checkboxDecisions: CheckboxDecision[];
+      questionAnswers: { id: string; answer: string; sufficientInfo: boolean }[];
+    };
+    const decide = (boxes: PageCheckbox[], qs: CustomQuestion[]) =>
+      sendMessage<Decided>({ type: "DECIDE_PAGE_CONTENT", checkboxes: boxes, questions: qs, job: currentJob, postingLanguage });
+    // Two requests in parallel: checkboxes + option questions are classified (fast), free-text
+    // questions are written — so the first fill doesn't wait for text generation.
+    const choicePending = pending.filter((q) => hasChoiceOptions(q));
+    const textPending = pending.filter((q) => !hasChoiceOptions(q));
+    const batches: Promise<void>[] = [];
+    setUnfillableQuestions([]);
+    if (checkboxes.length > 0 || choicePending.length > 0) {
+      batches.push(
+        decide(checkboxes, choicePending).then(async (response) => {
+          if (checkboxes.length > 0) {
+            const decisions = response?.checkboxDecisions ?? [];
+            setCheckboxDecisions(decisions);
+            if (decisions.length > 0) {
+              await sendMessage<{ type: "CHECKBOX_APPLY_RESULT"; changed: number }>({
+                type: "APPLY_CHECKBOX_DECISIONS",
+                tabId,
+                decisions: decisions.map((d) => ({ name: d.name, label: d.label, check: d.check })),
+              });
+            }
+          }
+          if (choicePending.length > 0) await applyPageContentQuestionAnswers(choicePending, response?.questionAnswers ?? []);
+        }),
+      );
     }
+    if (textPending.length > 0) {
+      batches.push(decide([], textPending).then((response) => applyPageContentQuestionAnswers(textPending, response?.questionAnswers ?? [])));
+    }
+    const failed = (await Promise.allSettled(batches)).find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) setError(failed.reason instanceof Error ? failed.reason.message : t("main.analyzeFormFailed"));
+    setDecidingPageContent(false);
   }
 
   /** Merges the batched DECIDE_PAGE_CONTENT question answers (keyed by id) into state and fills them, same as `answerAndFillQuestions`'s tail. */
   async function applyPageContentQuestionAnswers(
-    allQuestions: CustomQuestion[],
     pending: CustomQuestion[],
     raw: { id: string; answer: string; sufficientInfo: boolean }[],
   ) {
     const byId = new Map(raw.map((r) => [r.id, r]));
-    const answersByQuestion = { ...questionAnswers };
+    const answersByQuestion: Record<string, string> = {};
     const insufficient = new Set<string>();
     for (const q of pending) {
       const found = byId.get(q.id);
@@ -1192,7 +1204,7 @@ export function MainView({
     }
     if (insufficient.size > 0) setInsufficientInfoQuestions((prev) => new Set([...prev, ...insufficient]));
     setQuestionAnswers((prev) => ({ ...prev, ...answersByQuestion }));
-    await fillQuestionAnswers(allQuestions, answersByQuestion);
+    await fillQuestionAnswers(pending, answersByQuestion, true);
   }
 
   async function handleImprove() {

@@ -94,6 +94,7 @@ export const en = {
   "common.saving": "Saving…",
   "common.select": "Select…",
   "cvChoice.ai": "AI: {reason}",
+  "cvChoice.aiConfidence": "AI pick, {percent}% sure",
   "cvChoice.choosing": "choosing…",
   "cvChoice.fallback": "no {language} CV, English instead",
   "cvChoice.label": "CV for this posting",

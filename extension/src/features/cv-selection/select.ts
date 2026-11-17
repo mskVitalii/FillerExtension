@@ -21,6 +21,8 @@ export interface CvChoice {
   language?: string;
   /** No CV in the posting's language — the English one stands in. */
   fallback?: boolean;
+  /** 0..1, for an AI pick made by the Decisions API. */
+  confidence?: number;
 }
 
 const STOPWORDS: Record<string, string[]> = {

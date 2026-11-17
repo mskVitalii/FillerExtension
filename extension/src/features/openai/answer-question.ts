@@ -2,7 +2,9 @@ import type { Job } from "@/types/job";
 import { getLocal } from "@/features/storage/local";
 import { getApplicantContext } from "@/features/profile/context";
 import { DATE_FORMAT_EXAMPLE, todayISO, type DateInputKind } from "@/lib/date-format";
-import { requestStructured } from "./client";
+import { MissingApiKeyError, requestStructured } from "./client";
+import { requestDecisions } from "./decisions";
+import { applicantDecisionInput, factsGateQuestion, hasChoiceOptions, optionDecisionQuestions, readFactsGate, readOptionAnswer } from "./question-decisions";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
@@ -153,9 +155,49 @@ export interface CustomQuestionAnswer {
   answer: string;
   /** False when the model reports the profile/CV/etc genuinely lack what this question asks for — the caller should show that as a distinct "not enough info" state rather than a plain empty answer (spec_8 item 6). */
   sufficientInfo: boolean;
+  /** 0..1 when an option question was decided by the Decisions API. */
+  confidence?: number;
 }
 
+/**
+ * Answers one question. An option question is picked by the Decisions API; a free-text one is
+ * first gated by it ("does the applicant's data cover this?") and only then written by the
+ * Responses API, so a factual question the data can't answer comes back as a non-answer for the
+ * user instead of costing a generation. If the Decisions call fails, it's answered the old way.
+ */
 export async function answerCustomQuestion(
+  question: string,
+  job: Job,
+  options?: string[],
+  numeric?: boolean,
+  dateKind?: DateInputKind,
+  multi?: boolean,
+  postingLanguage?: string,
+): Promise<CustomQuestionAnswer> {
+  const [context, coverLetter] = await Promise.all([getApplicantContext(), getLocal("lastCoverLetter")]);
+  const { input, promptCacheKey } = applicantDecisionInput(context, coverLetter ?? "", job, postingLanguage);
+  const q = { question, options, multi, numeric, dateKind };
+  const byOptions = hasChoiceOptions(q);
+  try {
+    const answers = await requestDecisions({
+      input,
+      promptCacheKey,
+      questions: byOptions ? optionDecisionQuestions(q, 0) : [factsGateQuestion(q, 0)],
+    });
+    if (byOptions) {
+      const decided = readOptionAnswer(q, 0, answers);
+      if (decided) return decided;
+    } else if (readFactsGate(0, answers) === false) {
+      return { answer: "", sufficientInfo: false };
+    }
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) throw err;
+    console.warn("[Filler] Decisions API failed, answering via Responses:", err);
+  }
+  return answerWithResponses(question, job, options, numeric, dateKind, multi, postingLanguage);
+}
+
+async function answerWithResponses(
   question: string,
   job: Job,
   options?: string[],

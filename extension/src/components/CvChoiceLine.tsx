@@ -28,7 +28,9 @@ export function CvChoiceLine({
       : choice.source === "manual"
         ? t("cvChoice.manual")
         : choice.source === "ai"
-          ? t("cvChoice.ai", { reason: choice.reason })
+          ? choice.confidence !== undefined
+            ? t("cvChoice.aiConfidence", { percent: Math.round(choice.confidence * 100) })
+            : t("cvChoice.ai", { reason: choice.reason })
           : choice.fallback
             ? t("cvChoice.fallback", { language })
             : choice.source === "rules"
