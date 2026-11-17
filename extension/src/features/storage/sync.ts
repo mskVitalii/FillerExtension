@@ -1,3 +1,5 @@
+import type { UiLanguagePreference } from "@/i18n/core";
+
 /**
  * chrome.storage.sync — small cross-device preferences only
  * (spec section 20). Never store documents or secrets here.
@@ -26,6 +28,8 @@ export interface Preferences {
   autoSelectCv: boolean;
   /** Settings → CVs: ask the support model to choose the CV instead of the offline language/rules match. */
   aiChooseCv: boolean;
+  /** Side Panel language: "auto" follows the browser, else "en" | "de" | "ru" (`i18n/core.ts`). */
+  uiLanguage: UiLanguagePreference;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -40,6 +44,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   jobSearchNegativePrompt: "",
   autoSelectCv: true,
   aiChooseCv: false,
+  uiLanguage: "auto",
 };
 
 export async function getPreferences(): Promise<Preferences> {

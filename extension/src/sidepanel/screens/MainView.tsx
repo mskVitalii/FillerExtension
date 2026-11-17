@@ -11,15 +11,14 @@ import { FrameAccessBanner } from "@/components/FrameAccessBanner";
 import { TabAccessBanner } from "@/components/TabAccessBanner";
 import { useToolbarPinned } from "../hooks/useToolbarPinned";
 import { useCvChoice } from "../hooks/useCvChoice";
+import { useI18n, useT } from "@/i18n/react";
 import { CvChoiceLine } from "@/components/CvChoiceLine";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
 const CoverLetterEditor = lazy(() =>
   import("@/components/cover-letter/Editor").then((m) => ({ default: m.CoverLetterEditor })),
 );
-const EditorFallback = () => (
-  <p className="text-xs text-muted-foreground">Loading editor…</p>
-);
+const EditorFallback = () => <p className="text-xs text-muted-foreground">{useT()("main.loadingEditor")}</p>;
 import { EMPTY_JOB, type Job, type JobBrief, type JobKeyword, type JobLanguageInfo } from "@/types/job";
 import type { CustomField, CvMeta, LanguageLevel, Profile } from "@/types/profile";
 import { meetsLevel } from "@/lib/language-level";
@@ -143,6 +142,7 @@ export function MainView({
   // them silently error keeps the panel down to what actually works —
   // extraction + Autofill Application, neither of which needs either.
   const setupComplete = hasApiKey && googleConnected;
+  const { t, locale } = useI18n();
   const toolbarPinned = useToolbarPinned();
   const [job, setJob] = useState<Job>(EMPTY_JOB);
   const [loadingJob, setLoadingJob] = useState(true);
@@ -541,7 +541,7 @@ export function MainView({
       if (saved) setExistingApplication(saved);
       void recordUrlActivation(job.url);
     } catch (err) {
-      setError(err instanceof Error ? `Couldn't mark as applied: ${err.message}` : "Couldn't mark as applied.");
+      setError(t("main.markAppliedFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setMarkingApplied(false);
     }
@@ -696,7 +696,7 @@ export function MainView({
       }
     } catch {
       if (await lacksTabAccess()) setNeedsTabAccess(true);
-      else setError("Could not read this page. Open a job posting tab, or paste the job text below.");
+      else setError(t("main.cantReadPage"));
     } finally {
       setLoadingJob(false);
       hasLoadedRef.current = true;
@@ -883,13 +883,13 @@ export function MainView({
         // verified for the model, network) — surface that instead of
         // leaving the cards on a misleading "add your key" hint.
         if (failures.length > 0 && failures.length === pending.length) {
-          setError(`Couldn't answer the application questions: ${failures[0]}`);
+          setError(t("main.answerQuestionsFailed", { error: failures[0] }));
         }
       }
 
       await fillQuestionAnswers(questions, answersByQuestion);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not answer the application questions.");
+      setError(err instanceof Error ? err.message : t("main.answerQuestionsFailed", { error: "" }));
     } finally {
       setAnsweringAllQuestions(false);
     }
@@ -953,7 +953,7 @@ export function MainView({
       // The picker loop calls this un-awaited, pick after pick — a throw here
       // must not become an unhandled rejection that leaves the loop or the
       // on-page overlay in a bad state.
-      setError(err instanceof Error ? err.message : "Couldn't process that selection.");
+      setError(err instanceof Error ? err.message : t("main.selectionFailed"));
     }
   }
 
@@ -968,7 +968,7 @@ export function MainView({
 
     if (pickedFields.length === 0) {
       if (semanticCount === 0) {
-        setError("No form fields in that selection — pick the block that contains the inputs (↑ widens it).");
+        setError(t("main.noFieldsInSelection"));
       }
       return;
     }
@@ -999,7 +999,7 @@ export function MainView({
         dateKind: p.dateKind,
       }));
     if (additions.length === 0) {
-      setError("Nothing question-shaped in that block — try a wider selection with ↑.");
+      setError(t("main.noQuestionsInBlock"));
       return;
     }
 
@@ -1059,7 +1059,7 @@ export function MainView({
         void ingestPickedFields(res.picked, res.blockText, res.semanticCount);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't start the picker on this page.");
+      setError(err instanceof Error ? err.message : t("main.pickerFailed"));
     } finally {
       pickingRef.current = false;
       setPicking(false);
@@ -1170,7 +1170,7 @@ export function MainView({
         await applyPageContentQuestionAnswers(questions, pending, response?.questionAnswers ?? []);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not analyze the form's checkboxes/questions.");
+      setError(err instanceof Error ? err.message : t("main.analyzeFormFailed"));
     } finally {
       setDecidingPageContent(false);
     }
@@ -1209,7 +1209,7 @@ export function MainView({
       await handleCoverLetterChange(response.content);
       setImproveInstructions("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not improve the cover letter.");
+      setError(err instanceof Error ? err.message : t("main.improveFailed"));
     } finally {
       setImproving(false);
     }
@@ -1240,7 +1240,7 @@ export function MainView({
       setPasteMode(false);
       setPasteText("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read that job text.");
+      setError(err instanceof Error ? err.message : t("main.pasteFailed"));
     } finally {
       setPasting(false);
     }
@@ -1275,10 +1275,10 @@ export function MainView({
       if (job.url) void recordUrlActivation(job.url);
       if (response.cleaned) {
         const patterns = Array.from(new Set(response.slopFindings.map((f) => f.pattern))).join(", ");
-        setCleanedNotice(`Cleaned up AI-sounding phrasing before showing you this draft (${patterns}).`);
+        setCleanedNotice(t("main.cleanedNotice", { patterns }));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cover letter generation failed.");
+      setError(err instanceof Error ? err.message : t("main.generateFailed"));
     } finally {
       ownRunRef.current = false;
       setGenerating(false);
@@ -1302,12 +1302,12 @@ export function MainView({
     if (run.status === "done") {
       setCoverLetter(run.content);
       if (run.cleanedPatterns?.length) {
-        setCleanedNotice(`Cleaned up AI-sounding phrasing before showing you this draft (${run.cleanedPatterns.join(", ")}).`);
+        setCleanedNotice(t("main.cleanedNotice", { patterns: run.cleanedPatterns.join(", ") }));
       }
       if (run.jobUrl) void recordUrlActivation(run.jobUrl);
       void markRunApplied();
     } else if (run.status === "error") {
-      setError(run.error ?? "Cover letter generation failed.");
+      setError(run.error ?? t("main.generateFailed"));
     }
   }
 
@@ -1356,7 +1356,7 @@ export function MainView({
       });
       setOutreachMessage({ subject: response.subject, body: response.body });
     } catch (err) {
-      setOutreachError(err instanceof Error ? err.message : "Outreach message generation failed.");
+      setOutreachError(err instanceof Error ? err.message : t("main.outreachFailed"));
     } finally {
       setGeneratingOutreach(false);
     }
@@ -1377,7 +1377,7 @@ export function MainView({
       setOutreachMessage({ subject: response.subject, body: response.body });
       setOutreachImproveInstructions("");
     } catch (err) {
-      setOutreachError(err instanceof Error ? err.message : "Could not improve the outreach message.");
+      setOutreachError(err instanceof Error ? err.message : t("main.outreachImproveFailed"));
     } finally {
       setImprovingOutreach(false);
     }
@@ -1415,7 +1415,7 @@ export function MainView({
       const file = await renderCoverLetterPdf(content, `Cover Letter - ${job.company || "application"}${suffix}.pdf`);
       await downloadFile(file);
     } catch (err) {
-      setError(err instanceof Error ? `PDF export failed: ${err.message}` : "PDF export failed.");
+      setError(t("main.pdfExportFailed", { error: err instanceof Error ? err.message : "" }));
     }
   }
 
@@ -1459,10 +1459,10 @@ export function MainView({
         targetLocator,
       });
       setAutofillStatus(
-        `Cover letter placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`,
+        t("main.coverLetterPlaced", { inputs: response.nativeInputs, zones: response.dropZones }),
       );
     } catch (err) {
-      setAutofillStatus(err instanceof Error ? `PDF export failed: ${err.message}` : "PDF export failed.");
+      setAutofillStatus(t("main.pdfExportFailed", { error: err instanceof Error ? err.message : "" }));
     }
   }
 
@@ -1479,12 +1479,12 @@ export function MainView({
     try {
       let entry = await loadAdaptEntry(tabId, tabUrl, cvMeta.id);
       if (!entry.aiSuggested && hasApiKey && (job.position || job.description)) {
-        setAdaptStatus("Picking values for this posting…");
+        setAdaptStatus(t("main.pickingValues"));
         entry = await suggestEntry(job, adaptTemplate, entry);
         await saveAdaptEntry(tabId, tabUrl, cvMeta.id, entry);
       }
-      if (adaptTemplate.format === "docx") setAdaptStatus("Converting to PDF via Google Docs…");
-      if (adaptTemplate.format === "latex") setAdaptStatus(`Compiling LaTeX via ${LATEX_COMPILE_HOST}…`);
+      if (adaptTemplate.format === "docx") setAdaptStatus(t("main.convertingDocx"));
+      if (adaptTemplate.format === "latex") setAdaptStatus(t("main.compilingLatex", { host: LATEX_COMPILE_HOST }));
       const values = resolveValues(adaptTemplate, job, entry.values);
       const { file, notes } = await renderAdaptedCv(cvMeta, adaptTemplate, values, profile, { company: job.company });
       // Background: kept with this posting in Applications; a Drive hiccup mustn't block the preview/attach itself.
@@ -1509,12 +1509,12 @@ export function MainView({
         base64Data: await fileToBase64(file),
       });
       setAdaptStatus(
-        [`Adapted CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`, note]
+        [t("main.adaptedCvPlaced", { inputs: response.nativeInputs, zones: response.dropZones }), note]
           .filter(Boolean)
           .join(" "),
       );
     } catch (err) {
-      setAdaptStatus(err instanceof Error ? `Adapted CV failed: ${err.message}` : "Adapted CV failed.");
+      setAdaptStatus(t("main.adaptedCvFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setAdaptingCv(false);
     }
@@ -1527,7 +1527,7 @@ export function MainView({
     setAutofillStatus(null);
     const file = await getCvAttachmentFile();
     if (!file) {
-      setAutofillStatus("Could not load CV from Google Drive.");
+      setAutofillStatus(t("main.cvLoadFailed"));
       return;
     }
     const base64Data = await fileToBase64(file);
@@ -1540,7 +1540,7 @@ export function MainView({
       base64Data,
       targetLocator,
     });
-    setAutofillStatus(`CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`);
+    setAutofillStatus(t("main.cvPlaced", { inputs: response.nativeInputs, zones: response.dropZones }));
   }
 
   // The content-script drop-catcher fires this when the user drops the CV /
@@ -1590,13 +1590,13 @@ export function MainView({
         tabId,
         profile,
       });
-      setAutofillStatus(`Filled ${response.filled} of ${response.total} detected fields.`);
+      setAutofillStatus(t("main.filledFields", { filled: response.filled, total: response.total }));
       if (response.generatedPassword) await handleGeneratedPassword(response.generatedPassword);
       // spec_6 — only an actual fill counts as "worked this posting", not
       // every panel open (see recordUrlActivation's own doc comment).
       if (response.filled > 0 && job.url) void recordUrlActivation(job.url);
     } catch {
-      setAutofillStatus("Autofill failed on this page.");
+      setAutofillStatus(t("main.autofillFailed"));
     } finally {
       setAutofilling(false);
     }
@@ -1641,18 +1641,18 @@ export function MainView({
   // Work the user started that writes the draft or the page: while one runs, every button that would
   // start another (or the same one again) is locked, so repeated clicks can't stack conflicting work.
   const busyTask = generating
-    ? "Generating the cover letter…"
+    ? t("busy.generating")
     : improving
-      ? "Improving the cover letter…"
+      ? t("busy.improving")
       : adaptingCv
-        ? (adaptStatus ?? "Preparing the adapted CV…")
+        ? (adaptStatus ?? t("busy.adaptingCv"))
         : autofilling
-          ? "Filling in the form…"
+          ? t("busy.autofilling")
           : answeringAllQuestions
-            ? "Answering application questions…"
+            ? t("busy.answering")
             : null;
   const locked = busyTask !== null;
-  const lockedTitle = locked ? `Wait: ${busyTask}` : undefined;
+  const lockedTitle = locked ? t("busy.wait", { task: busyTask }) : undefined;
   const cvChoice = useCvChoice({
     tabId,
     tabUrl,
@@ -1670,23 +1670,23 @@ export function MainView({
       <div className="flex items-center justify-between">
         <h1 className="text-base font-semibold">Filler</h1>
         <div className="-mr-1.5 flex items-center gap-0.5">
-          <IconButton onClick={() => void handleReset()} label="Reset">
+          <IconButton onClick={() => void handleReset()} label={t("nav.reset")}>
             <RotateCcw />
           </IconButton>
           {setupComplete && (
             <>
-              <IconButton onClick={onOpenJobSearch} label="Job search">
+              <IconButton onClick={onOpenJobSearch} label={t("nav.jobSearch")}>
                 <Search />
               </IconButton>
-              <IconButton onClick={onOpenCvAdapt} label="Adapt CV">
+              <IconButton onClick={onOpenCvAdapt} label={t("nav.adaptCv")}>
                 <FileUser />
               </IconButton>
-              <IconButton onClick={onOpenApplications} label="Applications">
+              <IconButton onClick={onOpenApplications} label={t("nav.applications")}>
                 <ListChecks />
               </IconButton>
             </>
           )}
-          <IconButton onClick={onOpenSettings} label="Settings">
+          <IconButton onClick={onOpenSettings} label={t("nav.settings")}>
             <Settings />
           </IconButton>
         </div>
@@ -1706,12 +1706,12 @@ export function MainView({
         <p className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           <Loader2 className="size-3 shrink-0 animate-spin" />
           {loadingJob
-            ? "Reading job posting…"
+            ? t("main.readingPosting")
             : completingJob
-              ? "Filling in missing job details…"
+              ? t("main.completingJob")
               : decidingPageContent
-              ? "Deciding checkboxes and answering questions…"
-              : "Analyzing language, keywords and contact…"}
+              ? t("main.decidingPage")
+              : t("main.analyzingBrief")}
         </p>
       )}
 
@@ -1737,45 +1737,46 @@ export function MainView({
       {existingApplication && (
         <p className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
           <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-            Already applied
+            {t("main.alreadyApplied")}
           </span>
-          You prepared{" "}
-          {[existingApplication.coverLetter && "a cover letter", existingApplication.adaptedCv && "an adapted CV"]
-            .filter(Boolean)
-            .join(" and ") || "an application"}{" "}
-          for this posting on{" "}
-          {new Date(existingApplication.createdAt).toLocaleDateString()} (status: {existingApplication.status}) —{" "}
+          {t("main.preparedOn", {
+            what:
+              [existingApplication.coverLetter && t("main.aCoverLetter"), existingApplication.adaptedCv && t("main.anAdaptedCv")]
+                .filter(Boolean)
+                .join(t("main.and")) || t("main.anApplication"),
+            date: new Date(existingApplication.createdAt).toLocaleDateString(locale),
+            status: t(`status.${existingApplication.status}`),
+          })}{" "}
           <button onClick={onOpenApplications} className="underline underline-offset-2">
-            view it
+            {t("main.viewIt")}
           </button>
-          .
         </p>
       )}
 
       <div className="grid grid-cols-1 gap-2 text-sm">
         <EditableField
-          label="Company"
+          label={t("job.company")}
           value={job.company}
           loading={loadingJob}
           onChange={(company) => setJob((j) => ({ ...j, company }))}
           onCommit={() => void handleJobFieldCommit("company")}
         />
         <EditableField
-          label="Position"
+          label={t("job.position")}
           value={job.position}
           loading={loadingJob}
           onChange={(position) => setJob((j) => ({ ...j, position }))}
           onCommit={() => void handleJobFieldCommit("position")}
         />
         <EditableField
-          label="Location"
+          label={t("job.location")}
           value={job.location}
           loading={loadingJob}
           onChange={(location) => setJob((j) => ({ ...j, location }))}
           onCommit={() => void handleJobFieldCommit("location")}
         />
         <EditableField
-          label="Contact"
+          label={t("job.contact")}
           value={job.contact ?? ""}
           loading={loadingJob}
           onChange={(contact) => setJob((j) => ({ ...j, contact: contact || null }))}
@@ -1799,7 +1800,7 @@ export function MainView({
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               {jobLanguage.postingLanguages.length > 0 && (
                 <span className="text-muted-foreground">
-                  Posting language: {jobLanguage.postingLanguages.join(", ")}
+                  {t("main.postingLanguage", { languages: jobLanguage.postingLanguages.join(", ") })}
                 </span>
               )}
               {jobLanguage.requirements.map((req) => {
@@ -1817,7 +1818,7 @@ export function MainView({
                       match === null && "bg-muted text-muted-foreground",
                     )}
                   >
-                    {req.language} {req.level ?? "level required"}
+                    {req.language} {req.level ?? t("main.levelRequired")}
                   </span>
                 );
               })}
@@ -1827,12 +1828,12 @@ export function MainView({
           {jobKeywords.length > 0 && (
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">Keywords</p>
+                <p className="text-xs text-muted-foreground">{t("main.keywords")}</p>
                 <button
                   onClick={handleToggleHighlightOnPage}
                   className="text-xs text-muted-foreground underline underline-offset-2"
                 >
-                  {highlightOnPage ? "Stop highlighting on page" : "Highlight on page"}
+                  {highlightOnPage ? t("main.stopHighlighting") : t("main.highlightOnPage")}
                 </button>
               </div>
               <ul className="flex flex-wrap gap-1">
@@ -1841,8 +1842,8 @@ export function MainView({
                   .map((kw) => (
                     <li
                       key={kw.text}
-                      title={`${kw.kind === "soft" ? "Soft skill" : "Hard skill"} · ${
-                        kw.matchesProfile ? "Matches your profile" : "Not found in your profile"
+                      title={`${kw.kind === "soft" ? t("main.softSkill") : t("main.hardSkill")} · ${
+                        kw.matchesProfile ? t("main.matchesProfile") : t("main.notInProfile")
                       }`}
                       className={cn(
                         "rounded-full border px-2 py-0.5 text-xs font-medium",
@@ -1862,17 +1863,16 @@ export function MainView({
             onClick={() => setShowJobText((v) => !v)}
             className="w-fit text-xs text-muted-foreground underline underline-offset-2"
           >
-            {showJobText ? "Hide job text" : "Show job text"}
+            {showJobText ? t("main.hideJobText") : t("main.showJobText")}
           </button>
 
           {showJobText && (
             <div className="flex flex-col gap-2 rounded-md border border-border p-2">
               <p className="text-xs text-muted-foreground">
-                This is the text that's sent to the AI — edit or paste over it if the extraction got
-                something wrong before generating.
+                {t("main.jobTextHint")}
               </p>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Description</label>
+                <label className="text-xs text-muted-foreground">{t("job.description")}</label>
                 <textarea
                   className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
                   value={job.description}
@@ -1880,7 +1880,7 @@ export function MainView({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Requirements (one per line)</label>
+                <label className="text-xs text-muted-foreground">{t("job.requirements")}</label>
                 <textarea
                   className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
                   value={job.requirements.join("\n")}
@@ -1893,7 +1893,7 @@ export function MainView({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Responsibilities (one per line)</label>
+                <label className="text-xs text-muted-foreground">{t("job.responsibilities")}</label>
                 <textarea
                   className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
                   value={job.responsibilities.join("\n")}
@@ -1912,19 +1912,19 @@ export function MainView({
             onClick={() => setPasteMode((v) => !v)}
             className="w-fit text-xs text-muted-foreground underline underline-offset-2"
           >
-            {pasteMode ? "Cancel" : "Paste job text instead"}
+            {pasteMode ? t("common.cancel") : t("main.pasteInstead")}
           </button>
 
           {pasteMode && (
             <div className="flex flex-col gap-2">
               <textarea
                 className="min-h-24 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                placeholder="Paste the job posting text here…"
+                placeholder={t("main.pastePlaceholder")}
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
               />
               <Button size="sm" onClick={handleExtractFromPastedText} disabled={pasting || !pasteText.trim()}>
-                {pasting ? "Reading…" : "Use this text"}
+                {pasting ? t("main.reading") : t("main.useThisText")}
               </Button>
             </div>
           )}
@@ -1945,22 +1945,22 @@ export function MainView({
           >
             {generating ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Generating…
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("common.generating")}
               </>
             ) : coverLetter ? (
-              "Cover Letter Generated"
+              t("main.coverLetterGenerated")
             ) : (
-              "Generate Cover Letter"
+              t("main.generateCoverLetter")
             )}
           </Button>
         )}
         <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)} disabled={locked} title={lockedTitle}>
           {autofilling && <Loader2 className="h-4 w-4 animate-spin" />}
-          Autofill Application
+          {t("main.autofill")}
         </Button>
         {setupComplete && cvMeta && (
           <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt} disabled={locked} title={lockedTitle}>
-            <FileUser className="h-4 w-4" /> Adapt CV
+            <FileUser className="h-4 w-4" /> {t("nav.adaptCv")}
           </Button>
         )}
       </div>
@@ -1980,7 +1980,7 @@ export function MainView({
           disabled={generatingOutreach}
         >
           <Mail className="h-4 w-4" />
-          {generatingOutreach ? "Drafting…" : "Generate outreach message"}
+          {generatingOutreach ? t("main.drafting") : t("main.generateOutreach")}
         </Button>
       )}
       {outreachError && <p className="text-xs text-destructive">{outreachError}</p>}
@@ -1988,13 +1988,13 @@ export function MainView({
       {outreachMessage && (
         <div className="flex flex-col overflow-hidden rounded-md border border-border">
           <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Outreach message</p>
+            <p className="text-xs font-medium text-muted-foreground">{t("main.outreachMessage")}</p>
             <div className="flex gap-1">
               <Button size="sm" variant="ghost" onClick={() => void handleCopyOutreachMessage()}>
-                {outreachCopied ? "Copied" : "Copy"}
+                {outreachCopied ? t("common.copied") : t("common.copy")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => void handleGenerateOutreach()} disabled={generatingOutreach}>
-                {generatingOutreach ? "Drafting…" : "Regenerate"}
+                {generatingOutreach ? t("main.drafting") : t("common.regenerate")}
               </Button>
               {job.contact && (
                 <a
@@ -2003,7 +2003,7 @@ export function MainView({
                   rel="noreferrer"
                   className="inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium hover:bg-muted"
                 >
-                  {isEmailAddress(job.contact) ? "Open in Gmail" : "Open LinkedIn"}
+                  {isEmailAddress(job.contact) ? t("main.openGmail") : t("main.openLinkedIn")}
                 </a>
               )}
             </div>
@@ -2012,15 +2012,15 @@ export function MainView({
             {outreachMessage.subject !== null && (
               <input
                 className="w-full border-b border-border bg-transparent pb-2 font-semibold outline-none"
-                aria-label="Subject"
-                placeholder="Subject"
+                aria-label={t("main.subject")}
+                placeholder={t("main.subject")}
                 value={outreachMessage.subject}
                 onChange={(e) => setOutreachMessage({ ...outreachMessage, subject: e.target.value })}
               />
             )}
             <textarea
               className="w-full resize-none bg-transparent outline-none"
-              aria-label="Message"
+              aria-label={t("main.message")}
               value={outreachMessage.body}
               ref={(el) => {
                 if (el) {
@@ -2035,7 +2035,7 @@ export function MainView({
             <textarea
               rows={1}
               className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none"
-              placeholder="Ask for changes: 'make it shorter', 'mention my Go experience'…"
+              placeholder={t("main.outreachImprovePlaceholder")}
               value={outreachImproveInstructions}
               onChange={(e) => setOutreachImproveInstructions(e.target.value)}
               onKeyDown={(e) => {
@@ -2050,18 +2050,17 @@ export function MainView({
               onClick={() => void handleImproveOutreach()}
               disabled={improvingOutreach || !outreachImproveInstructions.trim()}
             >
-              {improvingOutreach ? "Improving…" : "Apply"}
+              {improvingOutreach ? t("main.improving") : t("common.apply")}
             </Button>
           </div>
         </div>
       )}
       {!cvMeta && (
         <p className="text-xs text-muted-foreground">
-          No CV on file yet —{" "}
+          {t("main.noCv")}{" "}
           <button onClick={onOpenSettings} className="underline underline-offset-2">
-            add one in Settings
-          </button>{" "}
-          so it can be attached to applications.
+            {t("main.addCvInSettings")}
+          </button>
         </p>
       )}
       {autofillStatus && <p className="text-xs text-muted-foreground">{autofillStatus}</p>}
@@ -2070,12 +2069,12 @@ export function MainView({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <DraggableValue value={coverLetter} onDragStart={handleCoverLetterDragStart}>
-              <p className="text-sm font-medium">Cover Letter</p>
+              <p className="text-sm font-medium">{t("main.coverLetter")}</p>
             </DraggableValue>
             <span className="text-xs text-muted-foreground">
-              {driveSaveStatus === "saving" && "Saving to Drive…"}
-              {driveSaveStatus === "saved" && "Saved to Drive"}
-              {driveSaveStatus === "error" && "Drive save failed"}
+              {driveSaveStatus === "saving" && t("main.savingToDrive")}
+              {driveSaveStatus === "saved" && t("main.savedToDrive")}
+              {driveSaveStatus === "error" && t("main.driveSaveFailed")}
             </span>
           </div>
 
@@ -2087,7 +2086,7 @@ export function MainView({
                 coverLetterTab === "draft" ? "border-primary font-medium" : "border-transparent text-muted-foreground",
               )}
             >
-              Draft
+              {t("main.draft")}
             </button>
             <button
               onClick={() => setCoverLetterTab("translate")}
@@ -2098,15 +2097,14 @@ export function MainView({
                   : "border-transparent text-muted-foreground",
               )}
             >
-              Translate{translatingLanguages.size > 0 && "…"}
+              {t("main.translate")}{translatingLanguages.size > 0 && "…"}
             </button>
           </div>
 
           {coverLetterTab === "draft" ? (
             <>
               <p className="text-xs text-muted-foreground">
-                <GripVertical className="mb-0.5 inline h-3 w-3" /> Drag onto the page to insert as text, or onto a
-                file upload zone to attach the PDF.
+                <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragCoverLetter")}
               </p>
               {cleanedNotice && <p className="text-xs text-muted-foreground">{cleanedNotice}</p>}
               <Suspense fallback={<EditorFallback />}>
@@ -2115,7 +2113,7 @@ export function MainView({
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={handleGenerate} disabled={locked} title={lockedTitle}>
                   {generating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Regenerate
+                  {t("common.regenerate")}
                 </Button>
                 <Button
                   size="sm"
@@ -2123,14 +2121,14 @@ export function MainView({
                   onClick={() => void handleExportPdf(coverLetter)}
                   disabled={generating || improving || !coverLetter}
                 >
-                  Export PDF
+                  {t("main.exportPdf")}
                 </Button>
               </div>
               <div className="flex flex-col gap-1.5 rounded-md border border-border p-2">
-                <p className="text-xs font-medium">Improve</p>
+                <p className="text-xs font-medium">{t("main.improve")}</p>
                 <textarea
                   className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                  placeholder="What should change? e.g. 'make it shorter', 'emphasize the Kubernetes work'…"
+                  placeholder={t("main.improvePlaceholder")}
                   value={improveInstructions}
                   onChange={(e) => setImproveInstructions(e.target.value)}
                 />
@@ -2142,7 +2140,7 @@ export function MainView({
                   title={improving ? undefined : lockedTitle}
                 >
                   {improving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {improving ? "Improving…" : "Apply"}
+                  {improving ? t("main.improving") : t("common.apply")}
                 </Button>
               </div>
             </>
@@ -2168,8 +2166,7 @@ export function MainView({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Auto-translated into every language from{" "}
-                <span className="font-medium">Settings → My Languages</span>. Pick another one here for a one-off:
+                {t("main.translateHint")}
               </p>
               <Select value={translateLanguage} onChange={(e) => void handleTranslateLanguageChange(e.target.value)}>
                 {LANGUAGES.map((language) => (
@@ -2181,7 +2178,7 @@ export function MainView({
               {translations[effectiveActiveLanguage] ? (
                 <>
                   <DraggableValue value={translations[effectiveActiveLanguage]}>
-                    <p className="text-xs text-muted-foreground">Drag onto the page to insert as text.</p>
+                    <p className="text-xs text-muted-foreground">{t("main.dragAsText")}</p>
                   </DraggableValue>
                   <Suspense fallback={<EditorFallback />}>
                     <CoverLetterEditor
@@ -2199,14 +2196,14 @@ export function MainView({
                     }
                     disabled={generating || translatingLanguages.has(effectiveActiveLanguage)}
                   >
-                    Export PDF
+                    {t("main.exportPdf")}
                   </Button>
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">
                   {translatingLanguages.has(effectiveActiveLanguage)
-                    ? "Translating…"
-                    : "Translation will appear here shortly."}
+                    ? t("main.translating")
+                    : t("main.translationSoon")}
                 </p>
               )}
             </div>
@@ -2216,7 +2213,7 @@ export function MainView({
 
       {setupComplete && (
         <div>
-          <p className="text-sm font-medium">Application Questions</p>
+          <p className="text-sm font-medium">{t("main.applicationQuestions")}</p>
           {/* Same gradient the on-page picker overlay draws around a picked block
               (element-picker.ts) — so the button itself visually promises what
               clicking it does to the page, instead of blending in as one more
@@ -2229,7 +2226,7 @@ export function MainView({
                 className="w-full rounded-[5px] border-0"
                 onClick={handleStopPicker}
               >
-                Stop picking
+                {t("main.stopPicking")}
                 <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
                   {PICKER_HOTKEY_LABEL}
                 </kbd>
@@ -2243,7 +2240,7 @@ export function MainView({
                 disabled={locked}
                 title={lockedTitle}
               >
-                Pick fields on page
+                {t("main.pickFields")}
                 <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
                   {PICKER_HOTKEY_LABEL}
                 </kbd>
@@ -2252,16 +2249,15 @@ export function MainView({
           </div>
           {picking && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Click blocks on the page one after another — <kbd>↑</kbd>/<kbd>↓</kbd> resize the selection.
-              Stays on until <kbd>Esc</kbd>, <kbd>{PICKER_HOTKEY_LABEL}</kbd>, or “Stop picking”.
+              {t("main.pickerHint", { hotkey: PICKER_HOTKEY_LABEL })}
             </p>
           )}
           {customQuestions.length > 0 && (
             <>
               <p className="mt-1 text-xs text-muted-foreground">
                 {answeringAllQuestions
-                  ? "Answering and filling these into the form…"
-                  : "Answered automatically and filled into the form — edit and re-drag to change one."}
+                  ? t("main.answeringQuestions")
+                  : t("main.answeredQuestions")}
               </p>
               <ul className="mt-1 flex flex-col gap-2">
                 {customQuestions.map((q) => {
@@ -2272,7 +2268,7 @@ export function MainView({
                     <li key={id} className="flex flex-col gap-1 rounded-md border border-border p-2">
                       <p className="text-sm">{question}</p>
                       {options && options.length > 0 && (
-                        <p className="text-xs text-muted-foreground">Choose one: {options.join(" · ")}</p>
+                        <p className="text-xs text-muted-foreground">{t("main.chooseOne", { options: options.join(" · ") })}</p>
                       )}
                       {answer ? (
                         <DraggableValue value={answer} className="text-sm text-muted-foreground">
@@ -2280,15 +2276,15 @@ export function MainView({
                         </DraggableValue>
                       ) : insufficientInfo ? (
                         <p className="text-xs text-amber-600 dark:text-amber-500">
-                          ⚠ Not enough info in your profile/CV to answer this — fill it in yourself.
+                          {t("main.notEnoughInfo")}
                         </p>
                       ) : (
                         <p className="text-xs text-muted-foreground">
                           {answeringAllQuestions
-                            ? "Generating…"
+                            ? t("common.generating")
                             : hasApiKey
-                              ? "No answer yet — see the error above, or check the OpenAI request in this panel's devtools Network tab."
-                              : "No answer yet — add your OpenAI key in Settings, then pick again."}
+                              ? t("main.noAnswerYet")
+                              : t("main.noAnswerNoKey")}
                         </p>
                       )}
                     </li>
@@ -2299,8 +2295,7 @@ export function MainView({
           )}
           {unfillableQuestions.length > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Couldn't fill these fields automatically — please answer them yourself:{" "}
-              {unfillableQuestions.join(", ")}
+              {t("main.unfillable", { questions: unfillableQuestions.join(", ") })}
             </p>
           )}
           <div className="mt-2 flex items-center gap-2">
@@ -2310,7 +2305,7 @@ export function MainView({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleAddManualQuestion();
               }}
-              placeholder="Type a question the picker/automation missed…"
+              placeholder={t("main.manualQuestionPlaceholder")}
               className="h-8 flex-1 text-xs"
             />
             <Button
@@ -2319,13 +2314,13 @@ export function MainView({
               onClick={() => void handleAddManualQuestion()}
               disabled={addingManualQuestion || !manualQuestionText.trim()}
             >
-              Add
+              {t("common.add")}
             </Button>
           </div>
         </div>
       )}
       {setupComplete && detectingQuestions && (
-        <p className="text-xs text-muted-foreground">Scanning page for questions…</p>
+        <p className="text-xs text-muted-foreground">{t("main.scanningQuestions")}</p>
       )}
 
       {/* Consent checkboxes are decided and ticked on the page automatically
@@ -2333,15 +2328,15 @@ export function MainView({
           reviews/changes them directly on the form like any other field. */}
 
       <div>
-        <p className="text-sm font-medium">Profile</p>
+        <p className="text-sm font-medium">{t("main.profile")}</p>
         <p className="text-xs text-muted-foreground">
-          <GripVertical className="mb-0.5 inline h-3 w-3" /> Drag a card onto the page to fill a single field.
+          <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragProfile")}
         </p>
         <div className="mt-1.5 grid grid-cols-2 gap-2">
           {PROFILE_FIELDS.map((key) => (
             <DraggableValue key={key} value={profile[key]} variant="card">
               <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {PROFILE_FIELD_LABELS[key]}
+                {t(`profile.${key}`)}
               </span>
               <span
                 className={cn("mt-0.5 block truncate text-sm", !profile[key] && "text-muted-foreground")}
@@ -2356,10 +2351,9 @@ export function MainView({
 
       {setupComplete && customFields.length > 0 && (
         <div>
-          <p className="text-sm font-medium">Custom Fields</p>
+          <p className="text-sm font-medium">{t("main.customFields")}</p>
           <p className="text-xs text-muted-foreground">
-            <GripVertical className="mb-0.5 inline h-3 w-3" /> Drag onto the page — not filled by Autofill
-            Application.
+            <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragCustomFields")}
           </p>
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             {customFields.map((field) => (
@@ -2381,9 +2375,9 @@ export function MainView({
 
       <div className="flex flex-col gap-1.5 rounded-md border border-border p-2">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Password</p>
+          <p className="text-sm font-medium">{t("main.password")}</p>
           <Button size="sm" variant="outline" onClick={() => void handleGeneratedPassword(generatePassword())}>
-            Regenerate
+            {t("common.regenerate")}
           </Button>
         </div>
         {generatedPassword ? (
@@ -2392,27 +2386,26 @@ export function MainView({
               type="button"
               onClick={() => void handleCopyGeneratedPassword()}
               className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left font-mono hover:bg-muted"
-              title="Click to copy"
+              title={t("main.clickToCopy")}
             >
-              {passwordCopied ? "Copied!" : generatedPassword}
+              {passwordCopied ? t("common.copied") : generatedPassword}
             </button>
           </DraggableValue>
         ) : (
-          <p className="text-xs text-muted-foreground">Generating…</p>
+          <p className="text-xs text-muted-foreground">{t("common.generating")}</p>
         )}
       </div>
 
       {(cvMeta || coverLetter) && (
         <div>
-          <p className="text-sm font-medium">Attachments</p>
+          <p className="text-sm font-medium">{t("main.attachments")}</p>
           <p className="text-xs text-muted-foreground">
-            <GripVertical className="mb-0.5 inline h-3 w-3" /> Drag onto a file drop zone on the page, or click to
-            attach to a plain file input.
+            <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragAttachments")}
           </p>
           <div className="mt-1.5 flex gap-2">
             {cvMeta && (
               <AttachmentIcon
-                label="CV"
+                label={t("main.cv")}
                 ready={cvFileReady && !locked}
                 onDragStart={handleCvDragStart}
                 onActivate={() => {
@@ -2422,7 +2415,7 @@ export function MainView({
             )}
             {coverLetter && (
               <AttachmentIcon
-                label="Cover Letter"
+                label={t("main.coverLetter")}
                 ready={coverLetterFileReady && !locked}
                 onDragStart={handleCoverLetterDragStart}
                 onActivate={() => {
@@ -2435,16 +2428,16 @@ export function MainView({
             <div className="mt-2 flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("preview")}>
-                  <Eye className="h-3.5 w-3.5" /> Preview adapted CV
+                  <Eye className="h-3.5 w-3.5" /> {t("main.previewAdaptedCv")}
                 </Button>
                 <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("attach")}>
-                  <Paperclip className="h-3.5 w-3.5" /> Attach adapted CV
+                  <Paperclip className="h-3.5 w-3.5" /> {t("main.attachAdaptedCv")}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("download")}>
-                  <Download className="h-3.5 w-3.5" /> Export adapted CV
+                  <Download className="h-3.5 w-3.5" /> {t("main.exportAdaptedCv")}
                 </Button>
                 <button onClick={onOpenCvAdapt} className="text-xs text-muted-foreground underline underline-offset-2">
-                  Adjust
+                  {t("main.adjust")}
                 </button>
               </div>
               {adaptStatus && <p className="text-xs text-muted-foreground">{adaptStatus}</p>}
@@ -2484,6 +2477,7 @@ function AttachmentIcon({
   onDragStart: (e: DragEvent<HTMLElement>) => void;
   onActivate: () => void;
 }) {
+  const t = useT();
   return (
     <div
       role="button"
@@ -2497,11 +2491,7 @@ function AttachmentIcon({
           onActivate();
         }
       }}
-      title={
-        ready
-          ? `${label} — drag onto a drop zone, or click to attach`
-          : `${label} — still loading, click to attach (drag will be ready shortly)`
-      }
+      title={ready ? t("main.attachmentReady", { label }) : t("main.attachmentLoading", { label })}
       className={cn(
         "flex flex-1 flex-col items-center gap-1 rounded-md border border-border p-2 text-xs text-muted-foreground hover:bg-muted",
         ready ? "cursor-grab active:cursor-grabbing" : "cursor-wait opacity-60",
@@ -2532,6 +2522,7 @@ function EditableField({
   onChange: (value: string) => void;
   onCommit: () => void;
 }) {
+  const t = useT();
   const id = `job-field-${label.toLowerCase()}`;
   return (
     <div>
@@ -2539,14 +2530,14 @@ function EditableField({
         {label}
       </label>
       {loading ? (
-        <p className="text-sm">Loading…</p>
+        <p className="text-sm">{t("common.loading")}</p>
       ) : (
         <div className="group relative -mx-1.5">
           <input
             id={id}
             value={value}
             placeholder="—"
-            title="Click to correct"
+            title={t("main.clickToCorrect")}
             onChange={(e) => onChange(e.target.value)}
             onBlur={onCommit}
             onKeyDown={(e) => {
@@ -2566,18 +2557,19 @@ function EditableField({
 
 /** "Mark as applied" — once done, shows how long the application took instead. */
 function MarkAppliedButton({ application, busy, onMark }: { application: Application | null; busy: boolean; onMark: () => void }) {
+  const t = useT();
   if (application?.status === "applied" && application.timing) {
     return (
       <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
         <CheckCircle2 className="h-3.5 w-3.5" />
-        Applied in {formatDuration(application.timing.durationMs)}
+        {t("main.appliedIn", { duration: formatDuration(application.timing.durationMs) })}
       </p>
     );
   }
   return (
     <Button variant="outline" size="sm" className="w-fit" onClick={onMark} disabled={busy}>
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-      Mark as applied
+      {t("main.markApplied")}
     </Button>
   );
 }

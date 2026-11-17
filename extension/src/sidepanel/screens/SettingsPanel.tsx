@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CvLibraryItem } from "@/components/CvLibraryItem";
 import { RulesEditor } from "@/components/RulesEditor";
+import { useI18n } from "@/i18n/react";
+import { LOCALES, LOCALE_NAMES, detectLocale, type UiLanguagePreference } from "@/i18n/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
@@ -42,7 +44,6 @@ import {
   uploadCv,
   uploadLegendFile,
 } from "@/features/profile/repository";
-import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { disconnectGoogle } from "@/features/google-drive/auth";
 import {
   AVAILABLE_MODELS,
@@ -115,6 +116,8 @@ export function SettingsPanel({
   onApiKeyDeleted,
   onGoogleDisconnected,
 }: SettingsPanelProps) {
+  const { t, setPreference: applyUiLanguage } = useI18n();
+  const [uiLanguage, setUiLanguage] = useState<UiLanguagePreference>("auto");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [cvUploadError, setCvUploadError] = useState<string | null>(null);
@@ -185,6 +188,7 @@ export function SettingsPanel({
   useEffect(() => {
     void getPreferences().then((prefs) => {
       setAutofillOnOpen(prefs.autofillOnOpen);
+      setUiLanguage(prefs.uiLanguage);
       setAutoSelectCv(prefs.autoSelectCv);
       setAiChooseCv(prefs.aiChooseCv);
       setCoverLetterModel(resolveModel(prefs.coverLetterModel, MODEL_TERRA));
@@ -206,9 +210,15 @@ export function SettingsPanel({
     const models = modelOptions.includes(selected) ? modelOptions : [selected, ...modelOptions];
     return models.map((model) => (
       <option key={model} value={model}>
-        {model === tierDefault ? `${model} (default)` : model}
+        {model === tierDefault ? t("settings.modelDefault", { model }) : model}
       </option>
     ));
+  }
+
+  async function handleUiLanguageChange(preference: UiLanguagePreference) {
+    setUiLanguage(preference);
+    applyUiLanguage(preference);
+    await setPreferences({ uiLanguage: preference });
   }
 
   async function handleToggleAutofillOnOpen(checked: boolean) {
@@ -252,7 +262,7 @@ export function SettingsPanel({
       setCvList((list) => [...list, meta]);
       onCvChange(meta);
     } catch (err) {
-      setCvUploadError(err instanceof Error ? err.message : "Could not upload the CV.");
+      setCvUploadError(err instanceof Error ? err.message : t("settings.cvUploadFailed"));
     } finally {
       setUploading(false);
     }
@@ -277,11 +287,13 @@ export function SettingsPanel({
       await downloadFile(new File([result.zip as Uint8Array<ArrayBuffer>], result.fileName, { type: "application/zip" }));
       const { counts, warnings } = result.manifest;
       setExportNotice(
-        `Exported ${counts.cvs} CV(s), ${counts.legends} legend(s), ${counts.applications} application(s).` +
-          (warnings.length > 0 ? ` ${warnings.length} item(s) couldn't be read: ${warnings.slice(0, 3).join("; ")}${warnings.length > 3 ? "…" : ""}` : ""),
+        t("settings.exported", { cvs: counts.cvs, legends: counts.legends, applications: counts.applications }) +
+          (warnings.length > 0
+            ? " " + t("settings.exportWarnings", { count: warnings.length, list: warnings.slice(0, 3).join("; ") + (warnings.length > 3 ? "…" : "") })
+            : ""),
       );
     } catch (err) {
-      setExportNotice(err instanceof Error ? `Export failed: ${err.message}` : "Export failed.");
+      setExportNotice(t("settings.exportFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setExporting(false);
     }
@@ -386,8 +398,8 @@ export function SettingsPanel({
   }
 
   const FIELD_HINTS: Partial<Record<keyof Profile, string>> = {
-    phone: "Any format — it's stored as +49… and reshaped per form (0170…, separate country code, …).",
-    expectedSalary: "A number or a range (e.g. 65000 - 75000). Number-only fields get the range midpoint, rounded.",
+    phone: t("settings.phoneHint"),
+    expectedSalary: t("settings.salaryHint"),
   };
 
   async function handleSaveProfile() {
@@ -401,8 +413,8 @@ export function SettingsPanel({
       const message = err instanceof Error ? err.message : "";
       setProfileSaveNotice(
         message.includes("not connected")
-          ? "Saved locally — connect Google Drive in Settings to back this up."
-          : "Saved locally, but couldn't reach Google Drive.",
+          ? t("settings.savedLocallyConnect")
+          : t("settings.savedLocallyNoDrive"),
       );
     }
   }
@@ -510,7 +522,7 @@ export function SettingsPanel({
       });
       onFaqAnswersChange([...result.entries, ...customFaqDraft.filter((e) => e.question.trim())]);
     } catch (err) {
-      setFaqError(err instanceof Error ? err.message : "Couldn't generate FAQ answers.");
+      setFaqError(err instanceof Error ? err.message : t("settings.faqFailed"));
     } finally {
       setGeneratingFaq(false);
     }
@@ -519,35 +531,48 @@ export function SettingsPanel({
   return (
     <div className="flex flex-col gap-4 p-4">
       <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back
+        <ArrowLeft className="h-4 w-4" /> {t("common.back")}
       </button>
 
       <Card>
         <CardHeader>
-          <CardTitle>Preferences</CardTitle>
+          <CardTitle>{t("settings.preferences")}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground" htmlFor="ui-language">
+              {t("settings.uiLanguage")}
+            </label>
+            <Select id="ui-language" value={uiLanguage} onChange={(e) => void handleUiLanguageChange(e.target.value as UiLanguagePreference)}>
+              <option value="auto">{t("settings.uiLanguageAuto", { language: LOCALE_NAMES[detectLocale(navigator.languages ?? [])] })}</option>
+              {LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LOCALE_NAMES[code]}
+                </option>
+              ))}
+            </Select>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={autofillOnOpen}
               onChange={(e) => void handleToggleAutofillOnOpen(e.target.checked)}
             />
-            Autofill the page automatically when I open a job application
+            {t("settings.autofillOnOpen")}
           </label>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>CVs</CardTitle>
+          <CardTitle>{t("settings.cvs")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {cvList.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No CV uploaded yet.</p>
+            <p className="text-sm text-muted-foreground">{t("settings.noCv")}</p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Autofill and cover-letter generation use whichever one is active.
+              {t("settings.cvsHint")}
             </p>
           )}
           <div className="flex flex-col gap-1.5">
@@ -571,7 +596,7 @@ export function SettingsPanel({
                   checked={autoSelectCv}
                   onChange={(e) => void handleCvSelectionPreference({ autoSelectCv: e.target.checked })}
                 />
-                Pick the CV for each posting by its language and rules
+                {t("settings.autoSelectCv")}
               </label>
               <label className={cn("flex items-center gap-2 text-xs", !autoSelectCv && "opacity-50")}>
                 <input
@@ -580,7 +605,7 @@ export function SettingsPanel({
                   disabled={!autoSelectCv}
                   onChange={(e) => void handleCvSelectionPreference({ aiChooseCv: e.target.checked })}
                 />
-                Let AI choose the CV (one cheap request per posting)
+                {t("settings.aiChooseCv")}
               </label>
             </div>
           )}
@@ -602,23 +627,21 @@ export function SettingsPanel({
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
-            {uploading ? "Processing…" : "Upload another CV"}
+            {uploading ? t("common.processing") : t("settings.uploadCv")}
           </Button>
-          <p className="text-xs text-muted-foreground">PDF, Word (.docx) or a LaTeX project (Overleaf .zip / .tex).</p>
+          <p className="text-xs text-muted-foreground">{t("settings.cvFormats")}</p>
           {cvUploadError && <p className="text-xs text-destructive">{cvUploadError}</p>}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Personal Legend</CardTitle>
+          <CardTitle>{t("settings.legend")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {legendList.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Cover-letter and answer generation use whichever one is active — the Job Search
-              tab's OpenAI/Tavily providers also search grounded in it, so it doubles as your
-              candidate background there.
+              {t("settings.legendHint")}
             </p>
           )}
           <div className="flex flex-col gap-1.5">
@@ -641,11 +664,11 @@ export function SettingsPanel({
                       onChange={() => void handleSetActiveLegend(legend.id)}
                     />
                     <span className="min-w-0 flex-1 truncate" title={legend.name}>
-                      {legend.name || "Untitled legend"}
+                      {legend.name || t("settings.untitledLegend")}
                     </span>
                     {isActive && (
                       <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                        Active
+                        {t("common.active")}
                       </span>
                     )}
                   </label>
@@ -659,15 +682,15 @@ export function SettingsPanel({
 
           {activeLegendId && (
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">Content of the active legend</label>
+              <label className="text-xs text-muted-foreground">{t("settings.legendContent")}</label>
               <textarea
                 className="min-h-32 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                placeholder="Experience, projects, achievements, technologies, education, motivation, career goals…"
+                placeholder={t("settings.legendPlaceholder")}
                 value={legendContentDraft}
                 onChange={(e) => setLegendContentDraft(e.target.value)}
               />
               <Button size="sm" onClick={handleSaveLegendContent} disabled={savingLegendContent} className="w-fit">
-                {savingLegendContent ? "Saving…" : "Save"}
+                {savingLegendContent ? t("common.saving") : t("common.save")}
               </Button>
             </div>
           )}
@@ -690,26 +713,26 @@ export function SettingsPanel({
               onClick={() => legendFileInputRef.current?.click()}
               disabled={uploadingLegend}
             >
-              {uploadingLegend ? "Processing…" : "Upload a legend file"}
+              {uploadingLegend ? t("common.processing") : t("settings.uploadLegend")}
             </Button>
             {addingLegend ? (
               <div className="flex items-center gap-2">
                 <Input
                   value={newLegendName}
                   onChange={(e) => setNewLegendName(e.target.value)}
-                  placeholder="Legend name"
+                  placeholder={t("settings.legendName")}
                   className="h-8 w-40 text-xs"
                 />
                 <Button size="sm" onClick={() => void handleCreateLegendManually()} disabled={!newLegendName.trim()}>
-                  Create
+                  {t("common.create")}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setAddingLegend(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             ) : (
               <Button size="sm" variant="outline" onClick={() => setAddingLegend(true)}>
-                Add manually
+                {t("settings.addManually")}
               </Button>
             )}
           </div>
@@ -718,17 +741,15 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Generation Rules</CardTitle>
+          <CardTitle>{t("settings.generationRules")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
-            Instructions for how AI-generated text (cover letter, FAQ answers, application-question
-            answers) should be written — tone, length, structure, things to include or avoid. Kept
-            separate from the Personal Legend, which is about what's true, not how it's phrased.
+            {t("settings.generationRulesHint")}
           </p>
           <RulesEditor
             initial={generationRules}
-            placeholder="e.g. Keep cover letters under 250 words. Never mention relocation. Write in first person, direct and confident, no corporate buzzwords…"
+            placeholder={t("settings.generationRulesPlaceholder")}
             defaultFileName="cover-letter-rules.md"
             load={getGenerationRules}
             save={saveGenerationRules}
@@ -739,17 +760,15 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Outreach Message</CardTitle>
+          <CardTitle>{t("settings.outreach")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
-            Instructions for the "Generate outreach message" email/LinkedIn note sent to a
-            posting's recruiter/hiring contact — tone, length, what to ask for. Kept separate from
-            Generation Rules, which is about the cover letter.
+            {t("settings.outreachHint")}
           </p>
           <RulesEditor
             initial={outreachRules}
-            placeholder="e.g. Keep it under 80 words. Always ask for a quick call. Sign off with my first name only…"
+            placeholder={t("settings.outreachPlaceholder")}
             defaultFileName="outreach-rules.md"
             load={getOutreachRules}
             save={saveOutreachRules}
@@ -760,15 +779,15 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Profile</CardTitle>
+          <CardTitle>{t("main.profile")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {(Object.keys(EMPTY_PROFILE) as (keyof Profile)[]).map((field) => (
             <div key={field} className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">{PROFILE_FIELD_LABELS[field]}</label>
+              <label className="text-xs text-muted-foreground">{t(`profile.${field}`)}</label>
               {field === "salutation" ? (
                 <Select value={profile.salutation} onChange={(e) => updateField(field, e.target.value)}>
-                  <option value="">Select…</option>
+                  <option value="">{t("common.select")}</option>
                   {SALUTATION_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
@@ -777,7 +796,7 @@ export function SettingsPanel({
                 </Select>
               ) : field === "pronouns" ? (
                 <Select value={profile.pronouns} onChange={(e) => updateField(field, e.target.value)}>
-                  <option value="">Select…</option>
+                  <option value="">{t("common.select")}</option>
                   {PRONOUN_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
@@ -786,7 +805,7 @@ export function SettingsPanel({
                 </Select>
               ) : field === "country" ? (
                 <Select value={profile.country} onChange={(e) => updateField(field, e.target.value)}>
-                  <option value="">Select…</option>
+                  <option value="">{t("common.select")}</option>
                   {COUNTRIES.map((country) => (
                     <option key={country} value={country}>
                       {country}
@@ -806,7 +825,7 @@ export function SettingsPanel({
             </div>
           ))}
           <Button size="sm" onClick={handleSaveProfile}>
-            Save Profile
+            {t("settings.saveProfile")}
           </Button>
           {profileSaveNotice && <p className="text-xs text-muted-foreground">{profileSaveNotice}</p>}
         </CardContent>
@@ -814,24 +833,23 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Custom Fields</CardTitle>
+          <CardTitle>{t("main.customFields")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
-            Extra values you can drag onto a page — kept separate from Profile so they're never
-            picked up by Autofill Application.
+            {t("settings.customFieldsHint")}
           </p>
           {fieldsDraft.map((field) => (
             <div key={field.id} className="flex items-end gap-2">
               <div className="flex flex-1 flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Label</label>
+                <label className="text-xs text-muted-foreground">{t("settings.label")}</label>
                 <Input
                   value={field.label}
                   onChange={(e) => handleCustomFieldChange(field.id, { label: e.target.value })}
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Value</label>
+                <label className="text-xs text-muted-foreground">{t("settings.value")}</label>
                 <Input
                   value={field.value}
                   onChange={(e) => handleCustomFieldChange(field.id, { value: e.target.value })}
@@ -844,10 +862,10 @@ export function SettingsPanel({
           ))}
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={handleAddCustomField}>
-              Add field
+              {t("settings.addField")}
             </Button>
             <Button size="sm" onClick={handleSaveCustomFields} disabled={savingFields}>
-              {savingFields ? "Saving…" : "Save Custom Fields"}
+              {savingFields ? t("common.saving") : t("settings.saveCustomFields")}
             </Button>
           </div>
         </CardContent>
@@ -855,22 +873,21 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>My Languages</CardTitle>
+          <CardTitle>{t("settings.myLanguages")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
-            Your own proficiency, compared against a posting's language requirements so you can
-            tell at a glance whether it's worth your time.
+            {t("settings.myLanguagesHint")}
           </p>
           {languagesDraft.map((entry, index) => (
             <div key={index} className="flex items-end gap-2">
               <div className="flex flex-1 flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Language</label>
+                <label className="text-xs text-muted-foreground">{t("settings.language")}</label>
                 <Select
                   value={entry.language}
                   onChange={(e) => handleLanguageLevelChange(index, { language: e.target.value })}
                 >
-                  <option value="">Select…</option>
+                  <option value="">{t("common.select")}</option>
                   {LANGUAGES.map((language) => (
                     <option key={language} value={language}>
                       {language}
@@ -879,7 +896,7 @@ export function SettingsPanel({
                 </Select>
               </div>
               <div className="flex w-24 flex-col gap-1">
-                <label className="text-xs text-muted-foreground">Level</label>
+                <label className="text-xs text-muted-foreground">{t("settings.level")}</label>
                 <Select
                   value={entry.level}
                   onChange={(e) => handleLanguageLevelChange(index, { level: e.target.value as LanguageLevel["level"] })}
@@ -898,10 +915,10 @@ export function SettingsPanel({
           ))}
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={handleAddLanguageLevel}>
-              Add language
+              {t("settings.addLanguage")}
             </Button>
             <Button size="sm" onClick={handleSaveLanguageLevels} disabled={savingLanguages}>
-              {savingLanguages ? "Saving…" : "Save Languages"}
+              {savingLanguages ? t("common.saving") : t("settings.saveLanguages")}
             </Button>
           </div>
         </CardContent>
@@ -909,13 +926,11 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Frequently Asked Questions</CardTitle>
+          <CardTitle>{t("settings.faq")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-xs text-muted-foreground">
-            Standard interview questions almost every application asks in some form. Pre-written
-            answers here get reused when a real form asks a close variant, instead of being
-            guessed fresh every time.
+            {t("settings.faqHint")}
           </p>
           {FAQ_GROUPS.map(([category, items]) => (
             <div key={category} className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
@@ -926,7 +941,7 @@ export function SettingsPanel({
                   <textarea
                     className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
                     value={faqDraft[question] ?? ""}
-                    placeholder="Not generated yet."
+                    placeholder={t("settings.notGenerated")}
                     onChange={(e) => setFaqDraft((prev) => ({ ...prev, [question]: e.target.value }))}
                   />
                 </div>
@@ -936,10 +951,10 @@ export function SettingsPanel({
 
           <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Custom Questions
+              {t("settings.customQuestions")}
             </h4>
             <p className="text-[11px] text-muted-foreground">
-              Your own recurring questions and answers, reused the same way as the standard ones above.
+              {t("settings.customQuestionsHint")}
             </p>
             {customFaqDraft.map((entry) => (
               <div key={entry.id} className="flex flex-col gap-1 rounded-md border border-border bg-background p-2">
@@ -947,7 +962,7 @@ export function SettingsPanel({
                   <Input
                     value={entry.question}
                     onChange={(e) => handleCustomFaqChange(entry.id!, { question: e.target.value })}
-                    placeholder="Question"
+                    placeholder={t("settings.question")}
                     className="h-8 flex-1 text-xs"
                   />
                   <Button size="sm" variant="ghost" onClick={() => handleRemoveCustomFaq(entry.id!)}>
@@ -957,23 +972,23 @@ export function SettingsPanel({
                 <textarea
                   className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
                   value={entry.answer}
-                  placeholder="Answer"
+                  placeholder={t("settings.answer")}
                   onChange={(e) => handleCustomFaqChange(entry.id!, { answer: e.target.value })}
                 />
               </div>
             ))}
             <Button size="sm" variant="outline" className="w-fit" onClick={handleAddCustomFaq}>
-              Add question
+              {t("settings.addQuestion")}
             </Button>
           </div>
 
           {faqError && <p className="text-xs text-destructive">{faqError}</p>}
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={handleGenerateMissingFaq} disabled={generatingFaq}>
-              {generatingFaq ? "Generating…" : "Generate missing answers"}
+              {generatingFaq ? t("common.generating") : t("settings.generateMissing")}
             </Button>
             <Button size="sm" onClick={() => void handleSaveFaqDraft(faqDraft)} disabled={savingFaq}>
-              {savingFaq ? "Saving…" : "Save FAQ Answers"}
+              {savingFaq ? t("common.saving") : t("settings.saveFaq")}
             </Button>
           </div>
         </CardContent>
@@ -981,12 +996,11 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Job Search Providers</CardTitle>
+          <CardTitle>{t("settings.jobSearchProviders")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Optional — the Job Search tab always offers OpenAI web search (uses your OpenAI key
-            above); add either of these to also search Tavily or Adzuna.
+            {t("settings.jobSearchProvidersHint")}
           </p>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">Tavily API key</label>
@@ -1012,32 +1026,31 @@ export function SettingsPanel({
             />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Get Adzuna credentials at developer.adzuna.com — search location defaults to your
-            Profile country.
+            {t("settings.adzunaHint")}
           </p>
           <Button size="sm" variant="outline" onClick={handleSaveJobSearchCredentials} disabled={savingJobSearchCredentials}>
-            {savingJobSearchCredentials ? "Saving…" : "Save"}
+            {savingJobSearchCredentials ? t("common.saving") : t("common.save")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>AI Models</CardTitle>
+          <CardTitle>{t("settings.aiModels")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Five model tiers, chosen per task by cost/latency vs. quality — all billed to your own OpenAI key. The list shows the OpenAI models your key can use.
+            {t("settings.aiModelsHint")}
           </p>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Cover letters</label>
+            <label className="text-xs text-muted-foreground">{t("settings.modelCoverLetters")}</label>
             <Select value={coverLetterModel} onChange={(e) => void handleCoverLetterModelChange(e.target.value)}>
               {renderModelOptions(coverLetterModel, MODEL_TERRA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">
-              Job posting extraction (from page text or pasted text)
+              {t("settings.modelExtraction")}
             </label>
             <Select value={extractionModel} onChange={(e) => void handleExtractionModelChange(e.target.value)}>
               {renderModelOptions(extractionModel, MODEL_LUNA)}
@@ -1045,7 +1058,7 @@ export function SettingsPanel({
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">
-              Job analysis (requirements, tone, language, keywords)
+              {t("settings.modelAnalysis")}
             </label>
             <Select value={jobAnalysisModel} onChange={(e) => void handleJobAnalysisModelChange(e.target.value)}>
               {renderModelOptions(jobAnalysisModel, MODEL_LUNA)}
@@ -1053,14 +1066,14 @@ export function SettingsPanel({
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground">
-              Everything else (questions, checkboxes, search, translation)
+              {t("settings.modelSupport")}
             </label>
             <Select value={supportModel} onChange={(e) => void handleSupportModelChange(e.target.value)}>
               {renderModelOptions(supportModel, MODEL_LUNA)}
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Outreach messages</label>
+            <label className="text-xs text-muted-foreground">{t("settings.modelOutreach")}</label>
             <Select value={outreachModel} onChange={(e) => void handleOutreachModelChange(e.target.value)}>
               {renderModelOptions(outreachModel, MODEL_TERRA)}
             </Select>
@@ -1070,22 +1083,20 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>Your Data</CardTitle>
+          <CardTitle>{t("settings.yourData")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
-            One .zip with everything Filler knows: profile, CVs (files and settings), Personal Legends, rules, FAQ,
-            placeholder templates and every saved application with its posting, cover letter and adapted CV. Your API
-            keys are never included.
+            {t("settings.yourDataHint")}
           </p>
           <Button size="sm" variant="outline" className="w-fit" onClick={() => void handleExportData()} disabled={exporting}>
             {exporting ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Collecting from Google Drive…
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("settings.collecting")}
               </>
             ) : (
               <>
-                <Download className="h-4 w-4" /> Export all data (.zip)
+                <Download className="h-4 w-4" /> {t("settings.exportAll")}
               </>
             )}
           </Button>
@@ -1095,7 +1106,7 @@ export function SettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>OpenAI API Key</CardTitle>
+          <CardTitle>{t("settings.openAiKey")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Button
@@ -1106,14 +1117,14 @@ export function SettingsPanel({
               onApiKeyDeleted();
             }}
           >
-            Delete API Key
+            {t("settings.deleteKey")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Google Account</CardTitle>
+          <CardTitle>{t("settings.googleAccount")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Button
@@ -1124,21 +1135,21 @@ export function SettingsPanel({
               onGoogleDisconnected();
             }}
           >
-            Disconnect Google
+            {t("settings.disconnectGoogle")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Feedback</CardTitle>
+          <CardTitle>{t("settings.feedback")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">
-            Leave your wishes and bug reports — I use this extension every day and keep improving it.
+            {t("settings.feedbackHint1")}
           </p>
           <p className="text-sm text-muted-foreground">
-            And if you land a job with Filler's help, I'd be really happy to hear about it!
+            {t("settings.feedbackHint2")}
           </p>
           <div className="flex flex-wrap gap-2">
             <a

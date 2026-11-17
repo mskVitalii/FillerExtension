@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/i18n/react";
 import { Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloadFile } from "@/features/pdf/export";
@@ -25,6 +26,7 @@ interface RulesEditorProps {
  * (with any edits made here since).
  */
 export function RulesEditor({ initial, placeholder, defaultFileName, load, save, onSaved }: RulesEditorProps) {
+  const t = useT();
   const [draft, setDraft] = useState(initial);
   const [sourceFileName, setSourceFileName] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
@@ -47,7 +49,7 @@ export function RulesEditor({ initial, placeholder, defaultFileName, load, save,
       onSaved(content);
     } catch (err) {
       // The local cache write already landed — only the Drive backup failed.
-      setError(err instanceof Error ? `Saved on this device only: ${err.message}` : "Saved on this device only.");
+      setError(t("rules.savedLocally", { error: err instanceof Error ? err.message : "" }));
       onSaved(content);
     } finally {
       setSaving(false);
@@ -85,8 +87,8 @@ export function RulesEditor({ initial, placeholder, defaultFileName, load, save,
             className={iconClass}
             onClick={() => fileInputRef.current?.click()}
             disabled={saving}
-            aria-label="Upload rules from a .md or .txt file"
-            title="Upload from a .md / .txt file"
+            aria-label={t("rules.upload")}
+            title={t("rules.upload")}
           >
             <Upload className="h-3.5 w-3.5" />
           </button>
@@ -95,8 +97,8 @@ export function RulesEditor({ initial, placeholder, defaultFileName, load, save,
             className={iconClass}
             onClick={handleDownload}
             disabled={!draft.trim()}
-            aria-label={`Download as ${sourceFileName ?? defaultFileName}`}
-            title={`Download as ${sourceFileName ?? defaultFileName}`}
+            aria-label={t("rules.download", { file: sourceFileName ?? defaultFileName })}
+            title={t("rules.download", { file: sourceFileName ?? defaultFileName })}
           >
             <Download className="h-3.5 w-3.5" />
           </button>
@@ -113,10 +115,10 @@ export function RulesEditor({ initial, placeholder, defaultFileName, load, save,
           }}
         />
       </div>
-      {sourceFileName && <p className="text-[11px] text-muted-foreground">From file: {sourceFileName}</p>}
+      {sourceFileName && <p className="text-[11px] text-muted-foreground">{t("rules.fromFile", { file: sourceFileName })}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
       <Button size="sm" onClick={() => void persist(draft)} disabled={saving || draft === initial} className="w-fit">
-        {saving ? "Saving…" : "Save"}
+        {saving ? t("common.saving") : t("common.save")}
       </Button>
     </div>
   );

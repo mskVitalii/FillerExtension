@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/i18n/react";
+import type { Translate } from "@/i18n/core";
 import { ArrowLeft, Download, Eye, FilePlus, FileUp, Loader2, Paperclip, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -71,8 +73,8 @@ function sameTemplate(a: TemplateDraft, b: TemplateDraft) {
 const FORMAT_LABEL: Record<CvTemplateFormat, string> = { docx: "Word", pdf: "PDF", latex: "LaTeX" };
 
 /** A LaTeX CV is compiled on upload — say where, since that's a network call to a third party. */
-function preparingLabel(file: File): string {
-  return isLatexFile(file) ? `Compiling LaTeX via ${LATEX_COMPILE_HOST}…` : "Uploading CV…";
+function preparingLabel(file: File, t: Translate): string {
+  return isLatexFile(file) ? t("main.compilingLatex", { host: LATEX_COMPILE_HOST }) : t("adapt.uploading");
 }
 
 /**
@@ -86,6 +88,7 @@ function preparingLabel(file: File): string {
  * into the page's upload field. A CV without placeholders has nothing to adapt.
  */
 export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequestApiKey, onCvChange }: CvAdaptPanelProps) {
+  const t = useT();
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState<View>("adapt");
   const [cvs, setCvs] = useState<CvMeta[]>([]);
@@ -204,7 +207,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       updateEntry(await suggestEntry(job, draftTemplate, entry));
       setCustomNames(new Set());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not suggest values.");
+      setError(err instanceof Error ? err.message : t("adapt.suggestFailed"));
     } finally {
       setSuggesting(false);
     }
@@ -222,7 +225,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   }, [loaded, selectedCv?.id, entry.aiSuggested, hasApiKey, hasJob, usedVariables.length, dirty]);
 
   function confirmDiscard(): boolean {
-    return !dirty || window.confirm("Discard unsaved placeholder changes?");
+    return !dirty || window.confirm(t("adapt.discard"));
   }
 
   async function handleSelectCv(id: string) {
@@ -239,7 +242,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
 
   async function handleAddCv(rawFile: File) {
     if (!confirmDiscard()) return;
-    setBusy(preparingLabel(rawFile));
+    setBusy(preparingLabel(rawFile, t));
     setError(null);
     try {
       const prepared = await prepareCvFile(rawFile);
@@ -248,7 +251,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       setSelectedId(meta.id);
       onCvChange(meta);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not upload the CV.");
+      setError(err instanceof Error ? err.message : t("settings.cvUploadFailed"));
     } finally {
       setBusy(null);
     }
@@ -261,7 +264,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
    */
   async function handleReplaceFile(rawFile: File) {
     if (!selectedCv) return;
-    setBusy(isLatexFile(rawFile) ? preparingLabel(rawFile) : "Replacing file…");
+    setBusy(isLatexFile(rawFile) ? preparingLabel(rawFile, t) : t("adapt.replacing"));
     setError(null);
     setStatus(null);
     try {
@@ -278,9 +281,9 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       setCvs((list) => list.map((cv) => (cv.id === meta.id ? meta : cv)));
       onCvChange(meta);
       const count = extractVariableNames(next.content).length;
-      setStatus(`Loaded ${meta.fileName} — ${count} placeholder${count === 1 ? "" : "s"} found.`);
+      setStatus(t("adapt.loaded", { file: meta.fileName, count }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not replace the file.");
+      setError(err instanceof Error ? err.message : t("adapt.replaceFailed"));
     } finally {
       setBusy(null);
     }
@@ -329,7 +332,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     if (file.type === "application/pdf") {
       const cv = selectedCv;
       recordAdaptedCv(job.url ? job : { ...job, url: tabUrl }, cv, resolvedValues, file)
-        .then((saved) => saved && setStatus("Saved with this posting in Applications."))
+        .then((saved) => saved && setStatus(t("adapt.savedWithPosting")))
         .catch(() => undefined);
     }
     return file;
@@ -337,8 +340,8 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
 
   /** A Word CV's PDF comes from Google Docs, a LaTeX one from a compile — both take a few seconds, so say which. */
   function exportingLabel(output: AdaptedCvFormat): string {
-    if (isDocx && output === "pdf") return "Converting to PDF via Google Docs…";
-    if (format === "latex") return `Compiling LaTeX via ${LATEX_COMPILE_HOST}…`;
+    if (isDocx && output === "pdf") return t("main.convertingDocx");
+    if (format === "latex") return t("main.compilingLatex", { host: LATEX_COMPILE_HOST });
     return "Exporting…";
   }
 
@@ -348,7 +351,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     try {
       await downloadFile(await renderOutput(output));
     } catch (err) {
-      setError(err instanceof Error ? `Export failed: ${err.message}` : "Export failed.");
+      setError(t("settings.exportFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setBusy(null);
     }
@@ -360,7 +363,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     try {
       await openPdfPreview(await renderOutput("pdf"));
     } catch (err) {
-      setError(err instanceof Error ? `Preview failed: ${err.message}` : "Preview failed.");
+      setError(t("adapt.previewFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setBusy(null);
     }
@@ -380,9 +383,9 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
         mimeType: file.type,
         base64Data: await fileToBase64(file),
       });
-      setStatus(`Adapted CV placed into ${response.nativeInputs} file input(s), ${response.dropZones} drop zone(s).`);
+      setStatus(t("main.adaptedCvPlaced", { inputs: response.nativeInputs, zones: response.dropZones }));
     } catch (err) {
-      setError(err instanceof Error ? `Attach failed: ${err.message}` : "Attach failed.");
+      setError(t("adapt.attachFailed", { error: err instanceof Error ? err.message : "" }));
     } finally {
       setBusy(null);
     }
@@ -400,23 +403,20 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     if (isDocx) {
       return (
         <p className="text-xs text-muted-foreground">
-          The PDF is made from your Word file by Google Docs — layout, photo and fonts carried over, except weights
-          Google doesn't have (Calibri Light shows as Calibri). The first time, Google asks once to let Filler create
-          temporary files in your Drive; the file is deleted right after.
+          {t("adapt.noteDocx")}
         </p>
       );
     }
     if (format === "latex") {
       return (
         <p className="text-xs text-muted-foreground">
-          Your project is compiled with the filled-in placeholders by {LATEX_COMPILE_HOST}, a free open-source LaTeX
-          service — its files are sent there for each compile.
+          {t("adapt.noteLatex", { host: LATEX_COMPILE_HOST })}
         </p>
       );
     }
     return (
       <p className="text-xs text-muted-foreground">
-        The values are written into your PDF itself — layout, photo and fonts stay as they are.
+        {t("adapt.notePdf")}
       </p>
     );
   }
@@ -426,12 +426,10 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       return (
         <>
           <p className="rounded-md border border-border bg-muted/40 p-2 text-xs">
-            Nothing to adapt yet: <span className="font-medium">{selectedCv?.fileName}</span> has no{" "}
-            <code>{"{{placeholders}}"}</code>. Add some to the CV, then{" "}
+            {t("adapt.nothingToAdapt", { file: selectedCv?.fileName ?? "" })}{" "}
             <button onClick={() => replaceFileRef.current?.click()} className="underline underline-offset-2">
-              replace the file
+              {t("adapt.replaceTheFile")}
             </button>
-            .
           </p>
           <PlaceholderExplainer />
         </>
@@ -442,14 +440,13 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
         <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-2">
           {hasJob ? (
             <p className="text-xs">
-              <span className="font-medium">{job.position || "Untitled role"}</span>
+              <span className="font-medium">{job.position || t("adapt.untitledRole")}</span>
               {job.company && <span className="text-muted-foreground"> · {job.company}</span>}
               {job.location && <span className="text-muted-foreground"> · {job.location}</span>}
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No job posting detected on this tab yet — open the main view on a posting first. Variants below are
-              your defaults.
+              {t("adapt.noPosting")}
             </p>
           )}
           <Button
@@ -460,7 +457,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             onClick={() => void handleSuggest()}
           >
             {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {suggesting ? "Picking values…" : entry.aiSuggested ? "Re-suggest from posting" : "Suggest from posting"}
+            {suggesting ? t("adapt.picking") : entry.aiSuggested ? t("adapt.resuggest") : t("adapt.suggest")}
           </Button>
         </div>
 
@@ -481,16 +478,16 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
 
         {missingValues.length > 0 && (
           <p className="text-xs text-amber-700">
-            Empty in the CV: {missingValues.map((name) => `{{${name}}}`).join(", ")}
+            {t("adapt.emptyInCv", { names: missingValues.map((name) => `{{${name}}}`).join(", ") })}
           </p>
         )}
 
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={exportDisabled} onClick={() => void handlePreview()}>
-            <Eye className="h-3.5 w-3.5" /> Preview PDF
+            <Eye className="h-3.5 w-3.5" /> {t("adapt.previewPdf")}
           </Button>
           <Button size="sm" variant="outline" disabled={exportDisabled} onClick={() => void handleAttach()}>
-            <Paperclip className="h-3.5 w-3.5" /> Attach to page
+            <Paperclip className="h-3.5 w-3.5" /> {t("adapt.attachToPage")}
           </Button>
           <Button size="sm" variant="ghost" disabled={exportDisabled} onClick={() => void handleDownload("pdf")}>
             <Download className="h-3.5 w-3.5" /> PDF
@@ -511,7 +508,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
         <Card>
           <CardContent className="max-h-[28rem] overflow-y-auto p-3">
             <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-              Text preview — use Preview PDF for the real page
+              {t("adapt.textPreview")}
             </p>
             <CvPreview blocks={blocks} />
           </CardContent>
@@ -524,19 +521,18 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     return (
       <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-2 text-xs">
         <p>
-          <span className="font-medium">{FORMAT_LABEL[format]} CV:</span> {selectedCv?.fileName} · {usedNames.length}{" "}
-          placeholder
-          {usedNames.length === 1 ? "" : "s"} found
+          <span className="font-medium">{FORMAT_LABEL[format]} CV:</span> {selectedCv?.fileName} ·{" "}
+          {t("adapt.placeholdersFound", { count: usedNames.length })}
         </p>
         {usedNames.length > 0 && (
           <div className="text-muted-foreground">
             <PlaceholderHowTo format={format} />
-            <p className="mt-1">Then replace the file — this CV keeps its placeholder settings.</p>
+            <p className="mt-1">{t("adapt.thenReplace")}</p>
           </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => replaceFileRef.current?.click()}>
-            <FileUp className="h-3.5 w-3.5" /> Replace file
+            <FileUp className="h-3.5 w-3.5" /> {t("adapt.replaceFile")}
           </Button>
           <Button
             variant="ghost"
@@ -550,11 +546,11 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
               }
             }}
           >
-            <Download className="h-3.5 w-3.5" /> Download original
+            <Download className="h-3.5 w-3.5" /> {t("adapt.downloadOriginal")}
           </Button>
         </div>
         <details>
-          <summary className="cursor-pointer text-muted-foreground">CV text</summary>
+          <summary className="cursor-pointer text-muted-foreground">{t("adapt.cvText")}</summary>
           <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
             {draft.content}
           </pre>
@@ -567,9 +563,9 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> {t("common.back")}
         </button>
-        <h1 className="text-base font-semibold">Adapt CV</h1>
+        <h1 className="text-base font-semibold">{t("nav.adaptCv")}</h1>
         <span />
       </div>
 
@@ -581,13 +577,13 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             disabled={cvs.length === 0 || Boolean(busy)}
             onChange={(e) => void handleSelectCv(e.target.value)}
           >
-            {cvs.length === 0 && <option value="">No CV uploaded yet</option>}
+            {cvs.length === 0 && <option value="">{t("settings.noCv")}</option>}
             {cvs.map((cv) => {
               const count = extractVariableNames(templateForCv(cv, templates).content).length;
               return (
                 <option key={cv.id} value={cv.id}>
                   {cv.fileName}
-                  {count > 0 ? ` · ${count} placeholder${count === 1 ? "" : "s"}` : ""}
+                  {count > 0 ? ` · ${t("adapt.placeholderCount", { count })}` : ""}
                 </option>
               );
             })}
@@ -600,7 +596,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
           disabled={Boolean(busy)}
           onClick={() => addCvRef.current?.click()}
         >
-          <FilePlus className="h-3.5 w-3.5" /> Add CV
+          <FilePlus className="h-3.5 w-3.5" /> {t("adapt.addCv")}
         </Button>
         <input
           ref={addCvRef}
@@ -631,7 +627,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       {status && <p className="text-xs text-muted-foreground">{status}</p>}
 
       {!selectedCv ? (
-        <PlaceholderExplainer title="Add a CV to adapt — PDF, Word (.docx) or LaTeX (Overleaf .zip)" />
+        <PlaceholderExplainer title={t("adapt.addCvToAdapt")} />
       ) : (
         <>
           <div className="flex gap-1 border-b border-border text-sm">
@@ -644,7 +640,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
                   view === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground",
                 )}
               >
-                {tab === "adapt" ? "For this job" : `Placeholders (${usedNames.length})`}
+                {tab === "adapt" ? t("adapt.forThisJob") : t("adapt.placeholdersTab", { count: usedNames.length })}
                 {tab === "template" && dirty && <span className="ml-1 text-amber-600">•</span>}
               </button>
             ))}
@@ -657,7 +653,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             <>
               {draft.variables.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <h2 className="text-sm font-medium">Placeholders</h2>
+                  <h2 className="text-sm font-medium">{t("adapt.placeholders")}</h2>
                   {draft.variables.map((variable, index) => (
                     <VariableEditor
                       key={variable.name}
@@ -673,12 +669,12 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
               )}
               <div className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-background py-2">
                 <Button size="sm" disabled={!dirty || saveStatus === "saving"} onClick={() => void handleSave()}>
-                  {saveStatus === "saving" ? "Saving…" : "Save"}
+                  {saveStatus === "saving" ? t("common.saving") : t("common.save")}
                 </Button>
                 <span className="text-xs text-muted-foreground">
-                  {dirty && "Unsaved changes"}
-                  {!dirty && saveStatus === "saved" && "Saved to Drive"}
-                  {!dirty && saveStatus === "local-only" && "Saved on this device — Drive save failed"}
+                  {dirty && t("adapt.unsaved")}
+                  {!dirty && saveStatus === "saved" && t("main.savedToDrive")}
+                  {!dirty && saveStatus === "local-only" && t("adapt.localOnly")}
                 </span>
               </div>
             </>

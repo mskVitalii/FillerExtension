@@ -5,7 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { CvMeta, CvSettings } from "@/types/profile";
-import { CV_LANGUAGE_OPTIONS, languageName } from "@/lib/language-codes";
+import { CV_LANGUAGE_OPTIONS } from "@/lib/language-codes";
+import { useI18n } from "@/i18n/react";
+import { displayLanguage } from "@/i18n/core";
 import { cvDisplayName } from "@/features/cv-selection/select";
 
 /**
@@ -28,6 +30,7 @@ export function CvLibraryItem({
   onDelete: () => void;
   onSave: (settings: CvSettings) => Promise<void>;
 }) {
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(cv.name ?? "");
   const [rules, setRules] = useState(cv.rules ?? "");
@@ -52,10 +55,10 @@ export function CvLibraryItem({
             {cvDisplayName(cv)}
           </span>
           {active && (
-            <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Active</span>
+            <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{t("common.active")}</span>
           )}
         </label>
-        <Button size="sm" variant="ghost" onClick={onDelete} aria-label="Delete CV">
+        <Button size="sm" variant="ghost" onClick={onDelete} aria-label={t("cvItem.delete")}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
@@ -64,13 +67,13 @@ export function CvLibraryItem({
           className="h-7 w-32 text-xs"
           value={cv.language ?? ""}
           disabled={saving}
-          aria-label="CV language"
+          aria-label={t("cvItem.language")}
           onChange={(e) => void save({ language: e.target.value || undefined, isDefaultForLanguage: false })}
         >
-          <option value="">Language…</option>
+          <option value="">{t("cvItem.languagePlaceholder")}</option>
           {CV_LANGUAGE_OPTIONS.map((option) => (
             <option key={option.code} value={option.code}>
-              {option.name}
+              {displayLanguage(locale, option.code)}
             </option>
           ))}
         </Select>
@@ -82,10 +85,10 @@ export function CvLibraryItem({
             "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs disabled:opacity-40",
             cv.isDefaultForLanguage ? "text-amber-600" : "text-muted-foreground hover:text-foreground",
           )}
-          title={cv.language ? `Default CV for ${languageName(cv.language)} postings` : "Pick a language first"}
+          title={cv.language ? t("cvItem.defaultTitle", { language: displayLanguage(locale, cv.language) }) : t("cvItem.pickLanguage")}
         >
           <Star className={cn("h-3.5 w-3.5", cv.isDefaultForLanguage && "fill-current")} />
-          {cv.isDefaultForLanguage ? `Default for ${languageName(cv.language)}` : "Make default"}
+          {cv.isDefaultForLanguage ? t("cvItem.defaultFor", { language: displayLanguage(locale, cv.language) }) : t("cvItem.makeDefault")}
         </button>
         <button
           type="button"
@@ -93,7 +96,7 @@ export function CvLibraryItem({
           className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
         >
           {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          Rules{cv.rules?.trim() ? " ✓" : ""}
+          {t("cvItem.rules")}{cv.rules?.trim() ? " ✓" : ""}
         </button>
       </div>
       {open && (
@@ -103,11 +106,11 @@ export function CvLibraryItem({
             onChange={(e) => setName(e.target.value)}
             placeholder={cv.fileName}
             className="h-8 text-xs"
-            aria-label="CV name"
+            aria-label={t("cvItem.name")}
           />
           <textarea
             className="min-h-14 rounded-md border border-border bg-background p-2 text-xs outline-none"
-            placeholder="Which postings is this CV for? e.g. Backend roles with Go or Kotlin, fintech, startups…"
+            placeholder={t("cvItem.rulesPlaceholder")}
             value={rules}
             onChange={(e) => setRules(e.target.value)}
           />
@@ -117,7 +120,7 @@ export function CvLibraryItem({
             disabled={!dirty || saving}
             onClick={() => void save({ name: name.trim() || undefined, rules: rules.trim() || undefined })}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/i18n/react";
 import { ArrowLeft, ExternalLink, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,7 @@ const PROVIDER_LABELS: Record<JobSearchProvider, string> = {
  * extract → cover letter → autofill flow picks up.
  */
 export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettings }: JobSearchPanelProps) {
+  const t = useT();
   const [provider, setProvider] = useState<JobSearchProvider>("openai");
   const [what, setWhat] = useState("");
   const [where, setWhere] = useState("");
@@ -293,7 +295,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       setWarnings(response.warnings ?? []);
       setTiming({ totalMs: response.totalMs, stages: response.stages });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed.");
+      setError(err instanceof Error ? err.message : t("search.failed"));
       if (!loadMore) setResults([]);
     } finally {
       searchIdRef.current = null;
@@ -306,41 +308,39 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> {t("common.back")}
         </button>
-        <h1 className="text-base font-semibold">Job Search</h1>
+        <h1 className="text-base font-semibold">{t("search.title")}</h1>
         <span />
       </div>
 
       {!hasApiKey && (
         <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          OpenAI web search and Tavily both parse their results with your OpenAI key — add it in
-          Settings first. Adzuna doesn't need it at all.
+          {t("search.needsKey")}
         </p>
       )}
 
       <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/20 p-2">
         <p className="text-xs text-muted-foreground">
-          OpenAI and Tavily search grounded in your full Personal Legend (see Settings), not just
-          what you type below. Role/location here narrow that search rather than replace it.
+          {t("search.grounded")}
         </p>
         {personalLegend ? (
           <p className="text-xs italic text-muted-foreground">"{summaryPreview(personalLegend)}"</p>
         ) : (
-          <p className="text-xs text-muted-foreground">Not written yet — add one in Settings for grounded results.</p>
+          <p className="text-xs text-muted-foreground">{t("search.noLegend")}</p>
         )}
         <button
           onClick={onOpenSettings}
           className="w-fit text-xs text-muted-foreground underline underline-offset-2"
         >
-          {personalLegend ? "Edit in Settings" : "Write one in Settings"}
+          {personalLegend ? t("search.editInSettings") : t("search.writeInSettings")}
         </button>
       </div>
 
       <Card>
         <CardContent className="flex flex-col gap-3 p-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Provider</label>
+            <label className="text-xs text-muted-foreground">{t("search.provider")}</label>
             <Select value={provider} onChange={(e) => setProvider(e.target.value as JobSearchProvider)}>
               {(Object.keys(PROVIDER_LABELS) as JobSearchProvider[]).map((p) => (
                 <option key={p} value={p}>
@@ -352,7 +352,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
           {provider === "adzuna" ? (
             <div className="flex flex-col gap-1">
               <label className="text-xs text-muted-foreground">
-                Search terms — press Enter to add each as its own Adzuna search
+                {t("search.terms")}
               </label>
               {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -364,7 +364,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
                       {tag}
                       <button
                         onClick={() => handleRemoveTag(tag)}
-                        aria-label={`Remove "${tag}"`}
+                        aria-label={t("search.removeTag", { tag })}
                         className="text-muted-foreground hover:text-foreground"
                       >
                         ×
@@ -382,12 +382,12 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
                     handleAddTag();
                   }
                 }}
-                placeholder="e.g. backend engineer — Enter to add"
+                placeholder={t("search.termsPlaceholder")}
               />
             </div>
           ) : (
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">Role / keywords</label>
+              <label className="text-xs text-muted-foreground">{t("search.role")}</label>
               <Input
                 value={what}
                 onChange={(e) => {
@@ -398,16 +398,16 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
                   // now-stale tags instead of the freshly typed keyword.
                   setTags([]);
                 }}
-                placeholder="e.g. senior backend engineer"
+                placeholder={t("search.rolePlaceholder")}
               />
             </div>
           )}
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Location</label>
-            <Input value={where} onChange={(e) => setWhere(e.target.value)} placeholder="e.g. Berlin, Germany" />
+            <label className="text-xs text-muted-foreground">{t("job.location")}</label>
+            <Input value={where} onChange={(e) => setWhere(e.target.value)} placeholder={t("search.locationPlaceholder")} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Grade — pick any number</label>
+            <label className="text-xs text-muted-foreground">{t("search.grade")}</label>
             <div className="flex flex-wrap gap-1.5">
               {JOB_GRADES.map(({ id, label }) => {
                 const active = grades.includes(id);
@@ -430,27 +430,27 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
-            Remote only
+            {t("search.remoteOnly")}
           </label>
           <div className="flex flex-col gap-1">
             <label htmlFor="job-search-negative" className="text-xs text-muted-foreground">
-              What I don't want — comma-separated, remembered
+              {t("search.negative")}
             </label>
             <Input
               id="job-search-negative"
               value={negative}
               maxLength={MAX_NEGATIVE_PROMPT_LENGTH}
               onChange={(e) => setNegative(e.target.value)}
-              placeholder="e.g. no crypto, no gambling, no on-site only, no agencies"
+              placeholder={t("search.negativePlaceholder")}
             />
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => void handleSuggest()} disabled={suggesting}>
               <Sparkles className="mr-1 h-3 w-3" />
-              {suggesting ? "Suggesting…" : "Suggest from CV"}
+              {suggesting ? t("search.suggesting") : t("search.suggest")}
             </Button>
             <Button size="sm" onClick={() => void handleSearch(false)} disabled={searching}>
-              {searching ? `Searching… ${elapsed}s` : "Search"}
+              {searching ? t("search.searching", { seconds: elapsed }) : t("search.search")}
             </Button>
           </div>
         </CardContent>
@@ -460,12 +460,12 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
       {warnings.length > 0 && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-          Some categories were rate-limited or failed; showing partial results. {warnings.join(" · ")}
+          {t("search.partial", { warnings: warnings.join(" · ") })}
         </p>
       )}
 
       {searched && !searching && !error && results.length === 0 && (
-        <p className="text-sm text-muted-foreground">No postings found — try a broader query.</p>
+        <p className="text-sm text-muted-foreground">{t("search.none")}</p>
       )}
 
       {searching && streamedVisible.length > 0 && (
@@ -485,12 +485,12 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
       {!searching && split.hidden.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          {split.hidden.length} hidden by "What I don't want".{" "}
+          {t("search.hidden", { count: split.hidden.length })}{" "}
           <button
             onClick={() => setShowHidden((prev) => !prev)}
             className="underline underline-offset-2 hover:text-foreground"
           >
-            {showHidden ? "Hide them" : "Show them"}
+            {showHidden ? t("search.hideThem") : t("search.showThem")}
           </button>
         </p>
       )}
@@ -550,12 +550,12 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       <div className="flex gap-2">
         {searched && results.length > 0 && (
           <Button size="sm" variant="outline" onClick={() => void handleSearch(true)} disabled={loadingMore}>
-            {loadingMore ? `Loading… ${elapsed}s` : "More"}
+            {loadingMore ? t("search.loadingMore", { seconds: elapsed }) : t("search.more")}
           </Button>
         )}
         {results.length > 0 && (
           <Button size="sm" variant="ghost" onClick={handleClearResults}>
-            Clear results
+            {t("search.clear")}
           </Button>
         )}
       </div>
@@ -589,6 +589,7 @@ function JobResultCard({
   hiddenBy?: string;
   onVisit: () => void;
 }) {
+  const t = useT();
   return (
     <Card
       className={cn(
@@ -603,7 +604,7 @@ function JobResultCard({
               <p className={cn("truncate text-sm", visited ? "font-normal text-muted-foreground" : "font-medium")}>{job.title}</p>
               {visited && (
                 <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Visited
+                  {t("search.visited")}
                 </span>
               )}
               {hiddenBy && (
@@ -622,7 +623,7 @@ function JobResultCard({
             rel="noreferrer"
             onClick={onVisit}
             className="shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label="Open job posting"
+            aria-label={t("apps.openPosting")}
           >
             <ExternalLink className="h-4 w-4" />
           </a>

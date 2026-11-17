@@ -17,6 +17,10 @@ export interface CvChoice {
   /** Short human explanation, shown next to the picked CV. */
   reason: string;
   source: "language" | "rules" | "ai" | "manual";
+  /** The posting's language code the pick was based on (offline picks). */
+  language?: string;
+  /** No CV in the posting's language — the English one stands in. */
+  fallback?: boolean;
 }
 
 const STOPWORDS: Record<string, string[]> = {
@@ -84,17 +88,17 @@ export function pickCvForPosting(cvs: CvMeta[], job: Job, postingLanguages?: str
   if (inLanguage.length === 0) {
     const fallback = cvs.find((cv) => cv.language === "en" && cv.isDefaultForLanguage) ?? cvs.find((cv) => cv.language === "en");
     if (!fallback) return null;
-    return { cvId: fallback.id, reason: `no ${languageName(language)} CV, English instead`, source: "language" };
+    return { cvId: fallback.id, reason: `no ${languageName(language)} CV, English instead`, source: "language", language, fallback: true };
   }
   const scored = inLanguage
     .map((cv) => ({ cv, score: rulesScore(cv.rules, job) }))
     .sort((a, b) => b.score - a.score || Number(Boolean(b.cv.isDefaultForLanguage)) - Number(Boolean(a.cv.isDefaultForLanguage)));
   const best = scored[0];
   if (best.score > 0 && (scored.length === 1 || best.score > scored[1].score)) {
-    return { cvId: best.cv.id, reason: `${languageName(language)} posting, matches its rules`, source: "rules" };
+    return { cvId: best.cv.id, reason: `${languageName(language)} posting, matches its rules`, source: "rules", language };
   }
   const chosen = inLanguage.find((cv) => cv.isDefaultForLanguage) ?? inLanguage[0];
-  return { cvId: chosen.id, reason: `${languageName(language)} posting`, source: "language" };
+  return { cvId: chosen.id, reason: `${languageName(language)} posting`, source: "language", language };
 }
 
 /** Marks `id` default for its language and clears the flag on every other CV in that language. */

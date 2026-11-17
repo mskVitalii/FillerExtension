@@ -1,4 +1,5 @@
 import { Lock } from "lucide-react";
+import { useT } from "@/i18n/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -18,22 +19,22 @@ interface TabAccessBannerProps {
  */
 export function TabAccessBanner({ url, onAllowSite, onAllowAll }: TabAccessBannerProps) {
   const host = hostOf(url);
+  const t = useT();
   return (
     <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
       <CardContent className="flex items-start gap-2.5 p-3">
         <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <p className="text-xs">
-            Filler can't read {host ? <span className="font-medium">{host}</span> : "this tab"} yet. Click the Filler
-            icon in the toolbar on this tab, or allow access so switching tabs just works.
+            {t("access.cantRead", { host: host ?? t("access.thisTab") })}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={onAllowAll}>
-              Allow on all sites
+              {t("access.allowAll")}
             </Button>
             {host && (
               <Button size="sm" variant="outline" onClick={onAllowSite}>
-                Allow on {host}
+                {t("access.allowOn", { host })}
               </Button>
             )}
           </div>

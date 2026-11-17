@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "@/i18n/react";
 import { Frame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +22,7 @@ interface FrameAccessBannerProps {
  * the user gesture, which wouldn't survive a hop to the background.
  */
 export function FrameAccessBanner({ tabId, onGranted }: FrameAccessBannerProps) {
+  const t = useT();
   const [blocked, setBlocked] = useState<string[]>([]);
 
   useEffect(() => {
@@ -54,11 +56,10 @@ export function FrameAccessBanner({ tabId, onGranted }: FrameAccessBannerProps) 
         <Frame className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <p className="text-xs">
-            Part of this page is embedded from <span className="font-medium">{hosts.join(", ")}</span>. Filler
-            can't see or fill fields there until you allow access to {hosts.length === 1 ? "that site" : "those sites"}.
+            {t("access.embedded", { hosts: hosts.join(", ") })}
           </p>
           <Button size="sm" className="self-start" onClick={() => void handleAllow()}>
-            Allow access
+            {t("access.allow")}
           </Button>
         </div>
       </CardContent>

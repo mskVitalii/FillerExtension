@@ -1,4 +1,5 @@
 import { Check, Cloud, KeyRound } from "lucide-react";
+import { useT } from "@/i18n/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -18,33 +19,34 @@ interface SetupBannerProps {
  * saved, which needs Drive. Renders nothing once both are done.
  */
 export function SetupBanner({ googleConnected, hasApiKey, onConnectGoogle, onAddApiKey }: SetupBannerProps) {
+  const t = useT();
   if (googleConnected && hasApiKey) return null;
 
   return (
     <Card className="border-primary/40 bg-primary/5">
       <CardContent className="flex flex-col gap-3 p-3">
-        <p className="text-sm font-semibold">Finish setup to unlock cover letters</p>
+        <p className="text-sm font-semibold">{t("setup.title")}</p>
 
         <SetupRow
           icon={Cloud}
           done={googleConnected}
-          label="Connect Google Drive"
-          description="Free — one Google sign-in. Stores your profile, CV and cover letters privately in your own account."
-          doneLabel="Connected"
-          actionLabel="Connect"
+          label={t("setup.drive")}
+          description={t("setup.driveHint")}
+          doneLabel={t("setup.connected")}
+          actionLabel={t("setup.connect")}
           onAction={onConnectGoogle}
         />
         <SetupRow
           icon={KeyRound}
           done={hasApiKey}
-          label="Add your OpenAI key"
-          description="Powers cover letters, auto-answers and keyword highlights. You pay OpenAI directly — a few cents per letter."
-          doneLabel="Added"
-          actionLabel="Add key"
+          label={t("setup.key")}
+          description={t("setup.keyHint")}
+          doneLabel={t("setup.added")}
+          actionLabel={t("setup.addKey")}
           onAction={onAddApiKey}
         />
 
-        <p className="text-xs text-muted-foreground">Autofill already works without either of these.</p>
+        <p className="text-xs text-muted-foreground">{t("setup.autofillWorks")}</p>
       </CardContent>
     </Card>
   );

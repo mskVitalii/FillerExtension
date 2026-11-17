@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n, useT } from "@/i18n/react";
 import { ArrowLeft, Download, ExternalLink, Eye, Search, Trash2 } from "lucide-react";
 import { SubmissionsTimeline } from "@/components/charts/SubmissionsTimeline";
 import { DayTimeline } from "@/components/charts/DayTimeline";
@@ -75,6 +76,7 @@ function FileChip({
   busy: boolean;
   onAction: (action: FileAction) => void;
 }) {
+  const t = useT();
   return (
     <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/30 py-0.5 pl-2 pr-1 text-xs">
       <span className="shrink-0 font-medium">{label}</span>
@@ -87,7 +89,7 @@ function FileChip({
         onClick={() => onAction("preview")}
         disabled={busy}
         className="ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-        aria-label={`Preview ${label}`}
+        aria-label={t("apps.preview", { label })}
       >
         <Eye className="h-3.5 w-3.5" />
       </button>
@@ -95,7 +97,7 @@ function FileChip({
         onClick={() => onAction("download")}
         disabled={busy}
         className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-        aria-label={`Download ${label}`}
+        aria-label={t("apps.download", { label })}
       >
         <Download className="h-3.5 w-3.5" />
       </button>
@@ -109,6 +111,7 @@ function FileChip({
  * cover letter and adapted CV sent for it — each previewable/downloadable in place.
  */
 export function ApplicationsList({ onBack }: ApplicationsListProps) {
+  const { t, locale } = useI18n();
   const [applications, setApplications] = useState<Application[]>([]);
   const [activations, setActivations] = useState<UrlActivation[]>([]);
   const [stats, setStats] = useState<SubmissionStats>(EMPTY_STATS);
@@ -122,6 +125,8 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
 
   useEffect(() => {
     void load();
+    // Once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {
@@ -136,7 +141,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
       setActivations(activations);
       setStats(computeSubmissionStats(activations));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load applications from Drive.");
+      setError(err instanceof Error ? err.message : t("apps.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -154,11 +159,11 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     setError(null);
     try {
       const file = await load();
-      if (!file) throw new Error("The file is no longer in Google Drive.");
+      if (!file) throw new Error(t("apps.fileGone"));
       if (action === "preview") await openPdfPreview(file);
       else await downloadFile(file);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open the file.");
+      setError(err instanceof Error ? err.message : t("apps.openFailed"));
     } finally {
       setBusyFile(null);
     }
@@ -205,24 +210,24 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="flex w-fit items-center gap-1 text-sm text-muted-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> {t("common.back")}
         </button>
-        <h1 className="text-base font-semibold">Applications</h1>
+        <h1 className="text-base font-semibold">{t("nav.applications")}</h1>
         <span />
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Loading from Google Drive…</p>}
+      {loading && <p className="text-sm text-muted-foreground">{t("apps.loading")}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
 
       {!loading && !error && stats.total > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between">
             <span className="text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">{stats.total}</span> unique URLs
+              <span className="font-semibold text-foreground">{stats.total}</span> {t("apps.uniqueUrls")}
             </span>
-            <span className="text-xs text-muted-foreground" title={`Averaged over the last ${ROLLING_WINDOW_DAYS} days`}>
-              <span className="font-semibold text-foreground">{stats.lastWindow}</span> in last {ROLLING_WINDOW_DAYS} days ·{" "}
-              <span className="font-semibold text-foreground">{stats.avgPerDay}</span>/day
+            <span className="text-xs text-muted-foreground" title={t("apps.averagedOver", { days: ROLLING_WINDOW_DAYS })}>
+              <span className="font-semibold text-foreground">{stats.lastWindow}</span> {t("apps.inLastDays", { days: ROLLING_WINDOW_DAYS })} ·{" "}
+              <span className="font-semibold text-foreground">{stats.avgPerDay}</span>{t("apps.perDay")}
             </span>
           </div>
           <div className="flex gap-1 border-b border-border text-xs">
@@ -235,7 +240,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   chartTab === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground",
                 )}
               >
-                {tab === "volume" ? "Per day" : "Time to apply"}
+                {tab === "volume" ? t("apps.tabVolume") : t("apps.tabTime")}
               </button>
             ))}
           </div>
@@ -245,7 +250,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
 
       {!loading && !error && rows.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No job postings tracked yet — run Autofill or generate a cover letter on a posting to save one.
+          {t("apps.empty")}
         </p>
       )}
 
@@ -257,7 +262,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`Search ${rows.length} postings by position, company, or URL…`}
+              placeholder={t("apps.search", { count: rows.length })}
               className="h-9 border-foreground/25 bg-muted/40 pl-8 text-sm shadow-sm transition-colors hover:border-foreground/40 focus-visible:border-primary focus-visible:bg-background"
             />
           </div>
@@ -265,7 +270,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
       )}
 
       {!loading && !error && rows.length > 0 && visibleRows.length === 0 && (
-        <p className="text-sm text-muted-foreground">No matches for "{search}".</p>
+        <p className="text-sm text-muted-foreground">{t("apps.noMatches", { query: search })}</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -289,7 +294,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                     target="_blank"
                     rel="noreferrer"
                     className="text-muted-foreground hover:text-foreground"
-                    aria-label="Open job posting"
+                    aria-label={t("apps.openPosting")}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </a>
@@ -297,7 +302,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                     onClick={() => void handleDelete(row)}
                     disabled={deletingUrl === row.url}
                     className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                    aria-label="Delete from history"
+                    aria-label={t("apps.delete")}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -306,20 +311,20 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
               {row.application && (
                 <div className="flex flex-wrap gap-1.5">
                   <FileChip
-                    label="Job posting"
+                    label={t("apps.jobPosting")}
                     busy={busyFile === `${row.application.id}:posting`}
                     onAction={(action) => handleJobPosting(row.application!, action)}
                   />
                   {row.application.coverLetter && (
                     <FileChip
-                      label="Cover letter"
+                      label={t("apps.coverLetter")}
                       busy={busyFile === `${row.application.id}:letter`}
                       onAction={(action) => handleCoverLetter(row.application!, action)}
                     />
                   )}
                   {row.application.adaptedCv && (
                     <FileChip
-                      label="CV"
+                      label={t("main.cv")}
                       detail={
                         describeValues(row.application.adaptedCv.values) || row.application.adaptedCv.cvFileName
                       }
@@ -338,18 +343,18 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   >
                     {STATUS_OPTIONS.map((status) => (
                       <option key={status} value={status}>
-                        {status}
+                        {t(`status.${status}`)}
                       </option>
                     ))}
                   </Select>
                 )}
                 <span className="text-xs text-muted-foreground">
                   {row.application?.timing && (
-                    <span title="From opening the posting to marking it applied">
+                    <span title={t("apps.durationTitle")}>
                       {formatDuration(row.application.timing.durationMs)} ·{" "}
                     </span>
                   )}
-                  {row.application ? new Date(row.application.updatedAt).toLocaleDateString() : row.date}
+                  {row.application ? new Date(row.application.updatedAt).toLocaleDateString(locale) : row.date}
                 </span>
               </div>
             </CardContent>

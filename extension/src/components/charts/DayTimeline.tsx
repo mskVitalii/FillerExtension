@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useI18n } from "@/i18n/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Application } from "@/types/application";
 import {
@@ -10,8 +11,6 @@ import {
 } from "@/features/applications/day-timeline";
 
 const HOUR_MS = 60 * 60 * 1000;
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-const dayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
 
 /**
  * One day of applying: each application marked applied that day is a bar
@@ -26,12 +25,14 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
   const timeline = useMemo(() => computeDayTimeline(applications, shown), [applications, shown]);
   const overall = useMemo(() => overallTiming(applications), [applications]);
   const index = days.indexOf(shown);
+  const { t, locale } = useI18n();
+  const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" });
 
   if (overall.count === 0) {
     return (
       <p className="text-xs text-muted-foreground">
-        No timings yet — press “Mark as applied” on a posting after sending it, or set its status to “applied” here.
-        The time from opening the posting to that click is recorded.
+        {t("timeline.empty")}
       </p>
     );
   }
@@ -49,7 +50,7 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
           className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
           onClick={() => setDay(days[index + 1])}
           disabled={index === -1 || index >= days.length - 1}
-          aria-label="Previous day"
+          aria-label={t("timeline.prev")}
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -59,7 +60,7 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
           className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
           onClick={() => setDay(days[index - 1])}
           disabled={index <= 0}
-          aria-label="Next day"
+          aria-label={t("timeline.next")}
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -67,16 +68,18 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
 
       <div className="grid grid-cols-3 gap-1 text-center text-[11px] text-muted-foreground">
         <span>
-          <span className="block text-sm font-semibold text-foreground">{timeline.bars.length}</span>applied
+          <span className="block text-sm font-semibold text-foreground">{timeline.bars.length}</span>
+          {t("timeline.applied")}
         </span>
         <span>
-          <span className="block text-sm font-semibold text-foreground">{formatDuration(timeline.totalMs)}</span>total
+          <span className="block text-sm font-semibold text-foreground">{formatDuration(timeline.totalMs)}</span>
+          {t("timeline.total")}
         </span>
         <span>
           <span className="block text-sm font-semibold text-foreground">
             {timeline.bars.length ? formatDuration(timeline.medianMs) : "—"}
           </span>
-          median
+          {t("timeline.median")}
         </span>
       </div>
 
@@ -108,7 +111,7 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
                     rel="noreferrer"
                     className="absolute top-0 h-4 rounded-sm bg-primary/70 hover:bg-primary"
                     style={{ left: `${left}%`, width: `${width}%` }}
-                    title={`${label}\n${bar.startedEarlier ? "started an earlier day" : timeFormat.format(bar.start)} – ${timeFormat.format(bar.end)} · ${formatDuration(bar.durationMs)}`}
+                    title={`${label}\n${bar.startedEarlier ? t("timeline.startedEarlier") : timeFormat.format(bar.start)} – ${timeFormat.format(bar.end)} · ${formatDuration(bar.durationMs)}`}
                   />
                 </li>
               );
@@ -118,7 +121,7 @@ export function DayTimeline({ applications }: { applications: Application[] }) {
       )}
 
       <p className="text-[11px] text-muted-foreground">
-        All time: {overall.count} timed · median {formatDuration(overall.medianMs)} · average {formatDuration(overall.averageMs)}
+        {t("timeline.allTime", { count: overall.count, median: formatDuration(overall.medianMs), average: formatDuration(overall.averageMs) })}
       </p>
     </div>
   );
