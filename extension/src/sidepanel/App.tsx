@@ -219,6 +219,7 @@ export function App() {
               onOpenCvAdapt={() => setStep("cv-adapt")}
               onRequestApiKey={() => setStep("api-key")}
               onRequestGoogleConnect={() => setStep("connect-google")}
+              onCvChange={setCvMeta}
             />
           </div>
         );

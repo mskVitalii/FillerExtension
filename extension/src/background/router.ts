@@ -22,6 +22,7 @@ import { answerCustomQuestion } from "@/features/openai/answer-question";
 import { decomposeBlock } from "@/features/openai/decompose-block";
 import { decidePageContent } from "@/features/openai/decide-page-content";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
+import { chooseCvWithAi } from "@/features/openai/choose-cv";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
 import { ensureContentScript, findBlockedFrameOrigins } from "./inject-content-script";
 import { setCoverLetterRun } from "@/features/storage/session";
@@ -573,6 +574,11 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "SUGGEST_CV_VALUES": {
       const values = await suggestCvValues(message.job, message.template);
       return { type: "CV_VALUES", values };
+    }
+
+    case "CHOOSE_CV": {
+      const choice = await chooseCvWithAi(message.job, message.cvs, message.postingLanguage);
+      return { type: "CV_CHOICE", choice };
     }
 
     default:

@@ -22,6 +22,10 @@ export interface Preferences {
    * item, and sync allows 8 KB per item — so it's capped at `MAX_NEGATIVE_PROMPT_LENGTH`.
    */
   jobSearchNegativePrompt: string;
+  /** Settings → CVs: pick the CV per posting by its language and rules (on), or always use the active one (off). */
+  autoSelectCv: boolean;
+  /** Settings → CVs: ask the support model to choose the CV instead of the offline language/rules match. */
+  aiChooseCv: boolean;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -34,6 +38,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   supportModel: "",
   outreachModel: "",
   jobSearchNegativePrompt: "",
+  autoSelectCv: true,
+  aiChooseCv: false,
 };
 
 export async function getPreferences(): Promise<Preferences> {

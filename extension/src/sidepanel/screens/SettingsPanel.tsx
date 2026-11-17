@@ -3,6 +3,7 @@ import { ArrowLeft, Mail, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { CvLibraryItem } from "@/components/CvLibraryItem";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
@@ -11,6 +12,7 @@ import {
   PRONOUN_OPTIONS,
   type CustomField,
   type CvMeta,
+  type CvSettings,
   type FaqEntry,
   type LanguageLevel,
   type LegendMeta,
@@ -31,6 +33,7 @@ import {
   saveProfile,
   setActiveCv,
   setActiveLegend,
+  updateCvSettings,
   updateLegendContent,
   uploadCv,
   uploadLegendFile,
@@ -125,6 +128,8 @@ export function SettingsPanel({
   const [savingLegendContent, setSavingLegendContent] = useState(false);
 
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
+  const [autoSelectCv, setAutoSelectCv] = useState(true);
+  const [aiChooseCv, setAiChooseCv] = useState(false);
   const [coverLetterModel, setCoverLetterModel] = useState<string>(MODEL_TERRA);
   const [extractionModel, setExtractionModel] = useState<string>(MODEL_LUNA);
   const [jobAnalysisModel, setJobAnalysisModel] = useState<string>(MODEL_LUNA);
@@ -178,6 +183,8 @@ export function SettingsPanel({
   useEffect(() => {
     void getPreferences().then((prefs) => {
       setAutofillOnOpen(prefs.autofillOnOpen);
+      setAutoSelectCv(prefs.autoSelectCv);
+      setAiChooseCv(prefs.aiChooseCv);
       setCoverLetterModel(resolveModel(prefs.coverLetterModel, MODEL_TERRA));
       setExtractionModel(resolveModel(prefs.extractionModel, MODEL_LUNA));
       setJobAnalysisModel(resolveModel(prefs.jobAnalysisModel, MODEL_LUNA));
@@ -257,6 +264,19 @@ export function SettingsPanel({
     } finally {
       setSwitchingCvId(null);
     }
+  }
+
+  async function handleSaveCvSettings(id: string, settings: CvSettings) {
+    const library = await updateCvSettings(id, settings);
+    setCvList(library.items);
+    const active = library.items.find((cv) => cv.id === cvMeta?.id);
+    if (active) onCvChange(active);
+  }
+
+  async function handleCvSelectionPreference(patch: { autoSelectCv?: boolean; aiChooseCv?: boolean }) {
+    if (patch.autoSelectCv !== undefined) setAutoSelectCv(patch.autoSelectCv);
+    if (patch.aiChooseCv !== undefined) setAiChooseCv(patch.aiChooseCv);
+    await setPreferences(patch);
   }
 
   async function handleDeleteCv(id: string) {
@@ -530,40 +550,39 @@ export function SettingsPanel({
             </p>
           )}
           <div className="flex flex-col gap-1.5">
-            {cvList.map((cv) => {
-              const isActive = cv.id === cvMeta?.id;
-              return (
-                <div
-                  key={cv.id}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border p-2",
-                    isActive ? "border-primary bg-primary/5" : "border-border",
-                  )}
-                >
-                  <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="active-cv"
-                      checked={isActive}
-                      disabled={switchingCvId === cv.id}
-                      onChange={() => void handleSetActiveCv(cv.id)}
-                    />
-                    <span className="min-w-0 flex-1 truncate" title={cv.fileName}>
-                      {cv.fileName}
-                    </span>
-                    {isActive && (
-                      <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                        Active
-                      </span>
-                    )}
-                  </label>
-                  <Button size="sm" variant="ghost" onClick={() => void handleDeleteCv(cv.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              );
-            })}
+            {cvList.map((cv) => (
+              <CvLibraryItem
+                key={cv.id}
+                cv={cv}
+                active={cv.id === cvMeta?.id}
+                switching={switchingCvId === cv.id}
+                onActivate={() => void handleSetActiveCv(cv.id)}
+                onDelete={() => void handleDeleteCv(cv.id)}
+                onSave={(settings) => handleSaveCvSettings(cv.id, settings)}
+              />
+            ))}
           </div>
+          {cvList.length > 1 && (
+            <div className="flex flex-col gap-1 rounded-md bg-muted/30 p-2">
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={autoSelectCv}
+                  onChange={(e) => void handleCvSelectionPreference({ autoSelectCv: e.target.checked })}
+                />
+                Pick the CV for each posting by its language and rules
+              </label>
+              <label className={cn("flex items-center gap-2 text-xs", !autoSelectCv && "opacity-50")}>
+                <input
+                  type="checkbox"
+                  checked={aiChooseCv}
+                  disabled={!autoSelectCv}
+                  onChange={(e) => void handleCvSelectionPreference({ aiChooseCv: e.target.checked })}
+                />
+                Let AI choose the CV (one cheap request per posting)
+              </label>
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"

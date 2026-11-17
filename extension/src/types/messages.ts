@@ -1,5 +1,6 @@
 import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "./job";
-import type { FaqEntry, Profile } from "./profile";
+import type { CvMeta, FaqEntry, Profile } from "./profile";
+import type { CvChoice } from "@/features/cv-selection/select";
 import type { CvTemplate, CvValueSuggestion } from "./cv-template";
 import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
@@ -169,6 +170,9 @@ export type RuntimeMessage =
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
   | { type: "SUGGEST_CV_VALUES"; job: Job; template: CvTemplate }
   | { type: "CV_VALUES"; values: CvValueSuggestion[] }
+  /** "Let AI choose the CV": the support model picks one of `cvs` for `job` — null keeps the offline pick. */
+  | { type: "CHOOSE_CV"; job: Job; cvs: CvMeta[]; postingLanguage?: string }
+  | { type: "CV_CHOICE"; choice: CvChoice | null }
   /** Background reply when `routeMessage` threw — `sendMessage` rethrows it as an Error. */
   | { type: "ERROR"; error: string; code?: string };
 

@@ -57,7 +57,18 @@ export interface CvMeta {
   /** Locally extracted plain text, used as AI context instead of sending the PDF. */
   text: string;
   uploadedAt: string;
+  /** Display name; absent means `fileName`. */
+  name?: string;
+  /** ISO 639-1 code of the language the CV is written in (`lib/language-codes.ts`), e.g. "de". */
+  language?: string;
+  /** This CV is the one to use for a posting in `language` when no rule picks another. */
+  isDefaultForLanguage?: boolean;
+  /** The user's own words on which postings this CV is for ("backend Go roles", "startups") — matched offline and given to the AI chooser. */
+  rules?: string;
 }
+
+/** The CV-specific settings the user edits in Settings → CVs. */
+export type CvSettings = Pick<CvMeta, "name" | "language" | "isDefaultForLanguage" | "rules">;
 
 /** Every CV the user has uploaded, plus which one autofill/AI currently treats as "the" CV. */
 export interface CvLibrary {

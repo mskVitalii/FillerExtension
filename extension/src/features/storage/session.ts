@@ -1,6 +1,7 @@
 import type { Job, JobLanguageInfo } from "@/types/job";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
+import type { CvChoice } from "@/features/cv-selection/select";
 import type { JobGrade, JobSearchProvider, JobSearchResult, JobSearchTiming } from "@/types/job-search";
 
 /**
@@ -58,7 +59,32 @@ export async function setTabState(tabId: number, state: TabState): Promise<void>
 
 /** Also drops the tab's Adapt CV selections, so Reset / closing the tab clears both. */
 export async function clearTabState(tabId: number): Promise<void> {
-  await chrome.storage.session.remove([key(tabId), cvAdaptKey(tabId), coverLetterRunKey(tabId)]);
+  await chrome.storage.session.remove([key(tabId), cvAdaptKey(tabId), coverLetterRunKey(tabId), cvChoiceKey(tabId)]);
+}
+
+/**
+ * Which CV this tab's posting uses (`features/cv-selection`) — picked
+ * automatically from the posting's language/rules, or by hand (`source:
+ * "manual"`, never overridden by a later automatic pick). The library's
+ * active CV is global, so the panel re-applies this whenever the tab comes
+ * back into view. `url` ties it to the posting.
+ */
+export interface CvChoiceState {
+  url: string;
+  choice: CvChoice;
+}
+
+function cvChoiceKey(tabId: number): string {
+  return `cvChoice:${tabId}`;
+}
+
+export async function getCvChoiceState(tabId: number): Promise<CvChoiceState | undefined> {
+  const result = await chrome.storage.session.get(cvChoiceKey(tabId));
+  return result[cvChoiceKey(tabId)] as CvChoiceState | undefined;
+}
+
+export async function setCvChoiceState(tabId: number, state: CvChoiceState): Promise<void> {
+  await chrome.storage.session.set({ [cvChoiceKey(tabId)]: state });
 }
 
 /**

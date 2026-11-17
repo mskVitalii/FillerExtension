@@ -3,6 +3,7 @@ import {
   type CustomField,
   type CvLibrary,
   type CvMeta,
+  type CvSettings,
   type FaqEntry,
   type GenerationRules,
   type LanguageLevel,
@@ -24,6 +25,7 @@ import {
 import * as drive from "@/features/google-drive/client";
 import { extractPdfText } from "@/lib/pdf-text";
 import { isLatexFile } from "@/features/cv-template/latex";
+import { guessTextLanguage, withDefaultForLanguage } from "@/features/cv-selection/select";
 
 /**
  * Profile/CV/Personal Legend live in Google Drive appDataFolder (source of
@@ -237,6 +239,12 @@ export async function uploadCv(file: File, extractedText: string, compiledPdf?: 
     uploadedAt: new Date().toISOString(),
   };
   const library = await getCvLibrary(true);
+  // A first guess at the CV's language (de/en) so automatic selection works before the user tags it.
+  const language = guessTextLanguage(extractedText);
+  if (language) {
+    meta.language = language;
+    meta.isDefaultForLanguage = !library.items.some((cv) => cv.language === language);
+  }
   const next: CvLibrary = { items: [...library.items, meta], activeId: id };
   await saveCvLibrary(next);
   return meta;
@@ -249,6 +257,23 @@ export async function setActiveCv(id: string): Promise<CvMeta | null> {
   if (!meta) return null;
   await saveCvLibrary({ ...library, activeId: id });
   return meta;
+}
+
+/**
+ * Saves a CV's language/default/rules/name (Settings → CVs). Marking one
+ * default for its language clears that flag on the other CVs in it.
+ */
+export async function updateCvSettings(id: string, settings: CvSettings): Promise<CvLibrary> {
+  const library = await getCvLibrary(true);
+  if (!library.items.some((cv) => cv.id === id)) return library;
+  let items = library.items.map((cv) => (cv.id === id ? { ...cv, ...settings } : cv));
+  // The first CV tagged with a language becomes that language's default.
+  const language = settings.language;
+  const otherDefault = items.some((cv) => cv.id !== id && cv.language === language && cv.isDefaultForLanguage);
+  if (settings.isDefaultForLanguage || (language && !otherDefault)) items = withDefaultForLanguage(items, id);
+  const next = { ...library, items };
+  await saveCvLibrary(next);
+  return next;
 }
 
 /** Defaults to the active CV; pass `id` to fetch a specific library entry's file instead. */

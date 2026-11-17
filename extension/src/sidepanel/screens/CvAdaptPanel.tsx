@@ -32,6 +32,7 @@ import {
 } from "@/features/cv-template/adapt";
 import { extractVariableNames, fillTemplate, findOptionsInPosting, syncVariables } from "@/features/cv-template/template";
 import { parsePlainText } from "@/features/cv-template/preview";
+import { setCvChoiceState } from "@/features/storage/session";
 import { getCvFile, getCvLibrary, replaceCvFile, setActiveCv, uploadCv } from "@/features/profile/repository";
 import { getTabState, type CvAdaptEntry } from "@/features/storage/session";
 import { getCachedJob } from "@/features/storage/local";
@@ -229,6 +230,9 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
     setError(null);
     setStatus(null);
     setSelectedId(id);
+    // A hand pick for this posting: the main view keeps it instead of choosing by language again.
+    const url = job.url || tabUrl;
+    if (url) void setCvChoiceState(tabId, { url, choice: { cvId: id, reason: "", source: "manual" } });
     const meta = await setActiveCv(id);
     if (meta) onCvChange(meta);
   }

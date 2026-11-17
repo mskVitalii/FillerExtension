@@ -10,6 +10,8 @@ import { SetupBanner } from "@/components/SetupBanner";
 import { FrameAccessBanner } from "@/components/FrameAccessBanner";
 import { TabAccessBanner } from "@/components/TabAccessBanner";
 import { useToolbarPinned } from "../hooks/useToolbarPinned";
+import { useCvChoice } from "../hooks/useCvChoice";
+import { CvChoiceLine } from "@/components/CvChoiceLine";
 // TipTap + ProseMirror (~200 kB) load only once a cover letter exists and
 // the editor actually renders — kept out of the Side Panel's initial bundle.
 const CoverLetterEditor = lazy(() =>
@@ -101,6 +103,8 @@ interface MainViewProps {
   onOpenCvAdapt: () => void;
   onRequestApiKey: () => void;
   onRequestGoogleConnect: () => void;
+  /** The posting's CV was picked automatically or by hand here — it becomes the active CV. */
+  onCvChange: (cv: CvMeta) => void;
 }
 
 const PROFILE_FIELDS = Object.keys(PROFILE_FIELD_LABELS) as (keyof Profile)[];
@@ -130,6 +134,7 @@ export function MainView({
   onOpenCvAdapt,
   onRequestApiKey,
   onRequestGoogleConnect,
+  onCvChange,
 }: MainViewProps) {
   // Gates every AI-only and Drive-only section of the panel (spec_8): with
   // either missing, cover letters/auto-answers/keyword highlighting/job
@@ -1607,6 +1612,17 @@ export function MainView({
   // popping in one at a time — the whole point being asked for (spec: it's otherwise unclear
   // when extraction/analysis is done and the panel is safe to act on, e.g. before Autofill).
   const isAnalyzingJob = loadingJob || completingJob || briefLoading || decidingPageContent;
+  const cvChoice = useCvChoice({
+    tabId,
+    tabUrl,
+    active,
+    job,
+    postingLanguages: jobLanguage?.postingLanguages,
+    settled: !(loadingJob || completingJob || briefLoading),
+    cvMeta,
+    hasApiKey,
+    onCvChange,
+  });
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -1715,6 +1731,16 @@ export function MainView({
           onCommit={() => void handleJobFieldCommit("contact")}
         />
       </div>
+
+      {setupComplete && cvChoice.cvs.length > 1 && (
+        <CvChoiceLine
+          cvs={cvChoice.cvs}
+          activeId={cvMeta?.id ?? null}
+          choice={cvChoice.choice}
+          choosing={cvChoice.choosing}
+          onChange={(id) => void cvChoice.override(id)}
+        />
+      )}
 
       {setupComplete && (
         <>
