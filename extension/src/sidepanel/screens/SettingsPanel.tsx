@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Mail, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Mail, Send, Trash2 } from "lucide-react";
+import { downloadFile } from "@/features/pdf/export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -132,6 +133,8 @@ export function SettingsPanel({
 
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
   const [autoSelectCv, setAutoSelectCv] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [aiChooseCv, setAiChooseCv] = useState(false);
   const [coverLetterModel, setCoverLetterModel] = useState<string>(MODEL_TERRA);
   const [extractionModel, setExtractionModel] = useState<string>(MODEL_LUNA);
@@ -262,6 +265,25 @@ export function SettingsPanel({
       onCvChange(meta);
     } finally {
       setSwitchingCvId(null);
+    }
+  }
+
+  async function handleExportData() {
+    setExporting(true);
+    setExportNotice(null);
+    try {
+      const { buildExport } = await import("@/features/export/data-export");
+      const result = await buildExport();
+      await downloadFile(new File([result.zip as Uint8Array<ArrayBuffer>], result.fileName, { type: "application/zip" }));
+      const { counts, warnings } = result.manifest;
+      setExportNotice(
+        `Exported ${counts.cvs} CV(s), ${counts.legends} legend(s), ${counts.applications} application(s).` +
+          (warnings.length > 0 ? ` ${warnings.length} item(s) couldn't be read: ${warnings.slice(0, 3).join("; ")}${warnings.length > 3 ? "…" : ""}` : ""),
+      );
+    } catch (err) {
+      setExportNotice(err instanceof Error ? `Export failed: ${err.message}` : "Export failed.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -1043,6 +1065,31 @@ export function SettingsPanel({
               {renderModelOptions(outreachModel, MODEL_TERRA)}
             </Select>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Your Data</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            One .zip with everything Filler knows: profile, CVs (files and settings), Personal Legends, rules, FAQ,
+            placeholder templates and every saved application with its posting, cover letter and adapted CV. Your API
+            keys are never included.
+          </p>
+          <Button size="sm" variant="outline" className="w-fit" onClick={() => void handleExportData()} disabled={exporting}>
+            {exporting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Collecting from Google Drive…
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" /> Export all data (.zip)
+              </>
+            )}
+          </Button>
+          {exportNotice && <p className="text-xs text-muted-foreground">{exportNotice}</p>}
         </CardContent>
       </Card>
 
