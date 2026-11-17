@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
-import { Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
+import { CheckCircle2, Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ import { PROFILE_FIELD_LABELS } from "@/features/profile/labels";
 import { formatProfileValueForDisplay } from "@/features/profile/format-value";
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
 import { fileToBase64 } from "@/lib/base64";
-import { recordUrlActivation, setCachedJob, setLocal } from "@/features/storage/local";
+import { getWorkStart, recordUrlActivation, recordWorkStart, setCachedJob, setLocal } from "@/features/storage/local";
 import { keepUserEdits } from "@/features/job-extraction/completion";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import {
@@ -40,7 +40,8 @@ import {
   setTabState,
   type CoverLetterRun,
 } from "@/features/storage/session";
-import { getApplicationByUrl, saveCoverLetterDraft } from "@/features/applications/repository";
+import { getApplicationByUrl, markJobApplied, saveCoverLetterDraft } from "@/features/applications/repository";
+import { formatDuration } from "@/features/applications/day-timeline";
 import type { Application } from "@/types/application";
 import { getCvAttachmentFile } from "@/features/profile/repository";
 import { LATEX_COMPILE_HOST } from "@/features/cv-template/latex";
@@ -149,6 +150,7 @@ export function MainView({
   // surfaced as a badge so re-opening a posting already applied to is
   // obvious before generating a duplicate cover letter.
   const [existingApplication, setExistingApplication] = useState<Application | null>(null);
+  const [markingApplied, setMarkingApplied] = useState(false);
   const [coverLetter, setCoverLetter] = useState("");
   const [generating, setGenerating] = useState(false);
   const [outreachMessage, setOutreachMessage] = useState<{ subject: string | null; body: string } | null>(null);
@@ -522,6 +524,26 @@ export function MainView({
     setAutofillStatus(null);
     void handleGeneratedPassword(generatePassword());
     void bootstrapJob(true);
+  }
+
+  // Time-to-apply starts the first time a posting is read (only the first: revisits keep it).
+  useEffect(() => {
+    if (job.url && (job.position || job.company)) void recordWorkStart(job.url).catch(() => undefined);
+  }, [job.url, job.position, job.company]);
+
+  /** "Mark as applied": ends this posting's time-to-apply and files it as applied in Drive. */
+  async function handleMarkApplied() {
+    setMarkingApplied(true);
+    setError(null);
+    try {
+      const saved = await markJobApplied(job, await getWorkStart(job.url));
+      if (saved) setExistingApplication(saved);
+      void recordUrlActivation(job.url);
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't mark as applied: ${err.message}` : "Couldn't mark as applied.");
+    } finally {
+      setMarkingApplied(false);
+    }
   }
 
   // Persist this tab's content so switching away and back restores it
@@ -1912,6 +1934,14 @@ export function MainView({
         )}
       </div>
 
+      {googleConnected && job.url && (job.position || job.company) && (
+        <MarkAppliedButton
+          application={existingApplication}
+          busy={markingApplied}
+          onMark={() => void handleMarkApplied()}
+        />
+      )}
+
       {setupComplete && job.contact && (
         <Button
           variant="outline"
@@ -2491,5 +2521,23 @@ function EditableField({
         </div>
       )}
     </div>
+  );
+}
+
+/** "Mark as applied" — once done, shows how long the application took instead. */
+function MarkAppliedButton({ application, busy, onMark }: { application: Application | null; busy: boolean; onMark: () => void }) {
+  if (application?.status === "applied" && application.timing) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Applied in {formatDuration(application.timing.durationMs)}
+      </p>
+    );
+  }
+  return (
+    <Button variant="outline" size="sm" className="w-fit" onClick={onMark} disabled={busy}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+      Mark as applied
+    </Button>
   );
 }

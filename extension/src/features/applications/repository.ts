@@ -1,4 +1,4 @@
-import type { AdaptedCvRecord, Application, ApplicationStatus, JobPostingRecord } from "@/types/application";
+import type { AdaptedCvRecord, Application, ApplicationStatus, ApplicationTiming, JobPostingRecord } from "@/types/application";
 import type { Job } from "@/types/job";
 import * as drive from "@/features/google-drive/client";
 import { applicationIdForUrl } from "./id";
@@ -151,11 +151,53 @@ export async function getJobPostingFile(application: Application): Promise<File>
   return new File([markdown], name, { type: "text/plain;charset=utf-8" });
 }
 
-export async function setApplicationStatus(id: string, status: ApplicationStatus): Promise<void> {
-  await updateApplication(id, async () => {
+/**
+ * The record's timing once it's marked applied: kept if it already has one
+ * (re-marking mustn't stretch it), else from `startedAt` (when the posting
+ * was first read; the record's creation as a stand-in) to now.
+ */
+export function timingOnApplied(existing: Pick<Application, "timing" | "createdAt"> | null, startedAt: string | undefined, now: Date): ApplicationTiming {
+  if (existing?.timing) return existing.timing;
+  const start = startedAt ?? existing?.createdAt ?? now.toISOString();
+  const durationMs = Math.max(0, now.getTime() - Date.parse(start));
+  return { startedAt: start, submittedAt: now.toISOString(), durationMs };
+}
+
+/** `startedAt` — when work on the posting began (`getWorkStart`), used the first time a record turns "applied". */
+export async function setApplicationStatus(id: string, status: ApplicationStatus, startedAt?: string): Promise<Application | null> {
+  return updateApplication(id, async () => {
     const existing = await drive.readJsonFile<Application>(fileName(id));
-    if (!existing) return;
-    await drive.writeJsonFile(fileName(id), { ...existing, status, updatedAt: new Date().toISOString() });
+    if (!existing) return null;
+    const now = new Date();
+    const next: Application = { ...existing, status, updatedAt: now.toISOString() };
+    if (status === "applied") next.timing = timingOnApplied(existing, startedAt, now);
+    await drive.writeJsonFile(fileName(id), next);
+    return next;
+  });
+}
+
+/**
+ * "Mark as applied" in the main view — the signal that ends the posting's
+ * time-to-apply. Creates the record when nothing was saved for it yet (an
+ * application made with Autofill alone).
+ */
+export async function markJobApplied(job: Job, startedAt: string | undefined): Promise<Application | null> {
+  if (!job.url) return null;
+  const id = await applicationIdForUrl(job.url);
+  return updateApplication(id, async () => {
+    const existing = await drive.readJsonFile<Application>(fileName(id));
+    const now = new Date();
+    const iso = now.toISOString();
+    const base = baseRecord(id, job, existing, existing?.createdAt ?? startedAt ?? iso);
+    const application: Application = {
+      ...base,
+      status: "applied",
+      updatedAt: iso,
+      timing: timingOnApplied(existing, startedAt, now),
+      jobPosting: await syncJobPosting(id, job, existing, iso),
+    };
+    await drive.writeJsonFile(fileName(id), application);
+    return application;
   });
 }
 

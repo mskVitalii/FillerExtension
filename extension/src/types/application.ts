@@ -41,6 +41,19 @@ export interface Application {
   createdAt: string;
   updatedAt: string;
   status: ApplicationStatus;
+  /** Time spent on this posting — set the first time it's marked applied. */
+  timing?: ApplicationTiming;
+}
+
+/**
+ * How long one application took: from the extension first reading the
+ * posting (`startedAt`, `recordWorkStart`) to the user marking it applied
+ * (main view's "Mark as applied", or status "applied" in the list).
+ */
+export interface ApplicationTiming {
+  startedAt: string;
+  submittedAt: string;
+  durationMs: number;
 }
 
 /**

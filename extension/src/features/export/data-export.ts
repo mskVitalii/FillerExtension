@@ -103,6 +103,8 @@ export interface ExportedApplicationEntry {
   status: Application["status"];
   createdAt: string;
   updatedAt: string;
+  /** Time-to-apply, when it was marked applied (`ApplicationTiming`). */
+  timing: Application["timing"] | null;
   files: {
     application: string;
     jobPosting: string | null;
@@ -311,6 +313,7 @@ async function addApplications(zip: ZipBuilder, warnings: string[]): Promise<num
       status: app.status,
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,
+      timing: app.timing ?? null,
       files,
     });
   });

@@ -165,6 +165,7 @@ Newest first:
     "status": "applied",              // "draft" | "applied" | "interview" | "rejected" | "offer"
     "createdAt": "…",
     "updatedAt": "…",
+    "timing": null,                   // or { startedAt, submittedAt, durationMs }, see below
     "files": {
       "application": "applications/ab12…/application.json",
       "jobPosting": "applications/ab12…/job-posting.md",       // null if unreadable

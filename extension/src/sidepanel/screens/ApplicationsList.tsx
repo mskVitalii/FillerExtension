@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download, ExternalLink, Eye, Search, Trash2 } from "lucide-react";
 import { SubmissionsTimeline } from "@/components/charts/SubmissionsTimeline";
+import { DayTimeline } from "@/components/charts/DayTimeline";
+import { formatDuration } from "@/features/applications/day-timeline";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -14,7 +16,7 @@ import {
 } from "@/features/applications/repository";
 import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } from "@/features/applications/stats";
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
-import { getUrlActivationsWithBackfill, removeUrlActivation } from "@/features/storage/local";
+import { getUrlActivationsWithBackfill, getWorkStart, removeUrlActivation } from "@/features/storage/local";
 import type { AdaptedCvRecord, Application, ApplicationStatus, UrlActivation } from "@/types/application";
 
 const STATUS_OPTIONS: ApplicationStatus[] = ["draft", "applied", "interview", "rejected", "offer"];
@@ -116,6 +118,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
   /** `${application id}:${"posting" | "letter" | "cv"}` of the file currently being fetched/rendered. */
   const [busyFile, setBusyFile] = useState<string | null>(null);
+  const [chartTab, setChartTab] = useState<"volume" | "time">("volume");
 
   useEffect(() => {
     void load();
@@ -141,7 +144,9 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
 
   async function handleStatusChange(app: Application, status: ApplicationStatus) {
     setApplications((apps) => apps.map((a) => (a.id === app.id ? { ...a, status } : a)));
-    await setApplicationStatus(app.id, status);
+    const updated = await setApplicationStatus(app.id, status, await getWorkStart(app.url));
+    // "applied" may have just recorded its timing.
+    if (updated) setApplications((apps) => apps.map((a) => (a.id === app.id ? updated : a)));
   }
 
   async function runFileAction(key: string, action: FileAction, load: () => Promise<File | null>) {
@@ -220,7 +225,21 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
               <span className="font-semibold text-foreground">{stats.avgPerDay}</span>/day
             </span>
           </div>
-          <SubmissionsTimeline series={stats.series} />
+          <div className="flex gap-1 border-b border-border text-xs">
+            {(["volume", "time"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setChartTab(tab)}
+                className={cn(
+                  "-mb-px border-b-2 px-2 py-1",
+                  chartTab === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground",
+                )}
+              >
+                {tab === "volume" ? "Per day" : "Time to apply"}
+              </button>
+            ))}
+          </div>
+          {chartTab === "volume" ? <SubmissionsTimeline series={stats.series} /> : <DayTimeline applications={applications} />}
         </div>
       )}
 
@@ -325,6 +344,11 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   </Select>
                 )}
                 <span className="text-xs text-muted-foreground">
+                  {row.application?.timing && (
+                    <span title="From opening the posting to marking it applied">
+                      {formatDuration(row.application.timing.durationMs)} ·{" "}
+                    </span>
+                  )}
                   {row.application ? new Date(row.application.updatedAt).toLocaleDateString() : row.date}
                 </span>
               </div>

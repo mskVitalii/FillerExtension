@@ -67,6 +67,8 @@ export interface LocalStorageSchema {
    * pulling Drive's older copy over it (`storage/drive-cache.ts`).
    */
   driveSyncPending: string[];
+  /** When the extension first read each job posting URL (ISO) — the start of its time-to-apply (`ApplicationTiming`). Pruned after `WORK_START_TTL_DAYS`. */
+  workStarts: Record<string, string>;
 }
 
 export interface JobSearchSuggestionCacheEntry {
@@ -193,4 +195,21 @@ export async function recordJobSearchLinkVisit(url: string): Promise<void> {
   const visited = await getJobSearchVisitedLinks();
   if (visited.includes(url)) return;
   await setLocal("jobSearchVisitedLinks", [...visited, url]);
+}
+
+/** A posting not applied to within this many days is dropped from `workStarts`, keeping it small at thousands of postings a month. */
+export const WORK_START_TTL_DAYS = 45;
+
+/** Remembers when work on `url` began — only the first time, so revisiting a posting keeps its original start. */
+export async function recordWorkStart(url: string, now = new Date()): Promise<void> {
+  if (!url) return;
+  const starts = (await getLocal("workStarts")) ?? {};
+  if (starts[url]) return;
+  const cutoff = now.getTime() - WORK_START_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const kept = Object.fromEntries(Object.entries(starts).filter(([, iso]) => Date.parse(iso) >= cutoff));
+  await setLocal("workStarts", { ...kept, [url]: now.toISOString() });
+}
+
+export async function getWorkStart(url: string): Promise<string | undefined> {
+  return (await getLocal("workStarts"))?.[url];
 }
