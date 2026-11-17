@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Star, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Loader2, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -21,6 +21,7 @@ export function CvLibraryItem({
   switching,
   onActivate,
   onDelete,
+  onDownload,
   onSave,
 }: {
   cv: CvMeta;
@@ -28,6 +29,7 @@ export function CvLibraryItem({
   switching: boolean;
   onActivate: () => void;
   onDelete: () => void;
+  onDownload: () => Promise<void>;
   onSave: (settings: CvSettings) => Promise<void>;
 }) {
   const { t, locale } = useI18n();
@@ -35,6 +37,7 @@ export function CvLibraryItem({
   const [name, setName] = useState(cv.name ?? "");
   const [rules, setRules] = useState(cv.rules ?? "");
   const [saving, setSaving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const dirty = name !== (cv.name ?? "") || rules !== (cv.rules ?? "");
 
   async function save(settings: CvSettings) {
@@ -58,6 +61,19 @@ export function CvLibraryItem({
             <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{t("common.active")}</span>
           )}
         </label>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={downloading}
+          onClick={() => {
+            setDownloading(true);
+            void onDownload().finally(() => setDownloading(false));
+          }}
+          aria-label={t("cvItem.download")}
+          title={t("cvItem.download")}
+        >
+          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        </Button>
         <Button size="sm" variant="ghost" onClick={onDelete} aria-label={t("cvItem.delete")}>
           <Trash2 className="h-4 w-4" />
         </Button>

@@ -31,6 +31,15 @@ body {
     sans-serif;
 }
 
+/* The `Select` arrow: Chrome's native one hugs the right border, so it's drawn
+   here instead, with room around it (`appearance-none` + `pr-8` on the select). */
+.select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.625rem center;
+  background-size: 1rem;
+  background-repeat: no-repeat;
+}
+
 .ProseMirror {
   outline: none;
   min-height: 220px;

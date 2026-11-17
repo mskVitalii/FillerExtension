@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, Loader2, Mail, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Mail, Send, Trash2, X } from "lucide-react";
 import { downloadFile } from "@/features/pdf/export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ import {
   createLegend,
   deleteCv,
   deleteLegend,
+  getCvFile,
   getCvLibrary,
   getGenerationRules,
   getLegendLibrary,
@@ -160,6 +161,8 @@ export function SettingsPanel({
   const [generatingFaq, setGeneratingFaq] = useState(false);
   const [faqError, setFaqError] = useState<string | null>(null);
   const [savingFaq, setSavingFaq] = useState(false);
+  const faqDialogRef = useRef<HTMLDialogElement>(null);
+  const faqAnsweredCount = FAQ_QUESTIONS.filter(({ question }) => faqDraft[question]?.trim()).length;
   const [jobSearchCreds, setJobSearchCreds] = useState<JobSearchCredentials>({
     tavilyApiKey: "",
     adzunaAppId: "",
@@ -297,6 +300,24 @@ export function SettingsPanel({
     } finally {
       setExporting(false);
     }
+  }
+
+  async function handleDownloadCv(id: string) {
+    setCvUploadError(null);
+    try {
+      const file = await getCvFile(id);
+      if (!file) throw new Error(t("settings.cvDownloadMissing"));
+      await downloadFile(file);
+    } catch (err) {
+      setCvUploadError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** The saved legend as a file; the name gets `.md` unless it already ends in an extension. */
+  async function handleDownloadLegend(legend: LegendMeta) {
+    const base = (legend.name || t("settings.untitledLegend")).trim();
+    const fileName = /\.[a-z0-9]{1,5}$/i.test(base) ? base : `${base}.md`;
+    await downloadFile(new File([legend.content], fileName, { type: "text/markdown" }));
   }
 
   async function handleSaveCvSettings(id: string, settings: CvSettings) {
@@ -584,6 +605,7 @@ export function SettingsPanel({
                 switching={switchingCvId === cv.id}
                 onActivate={() => void handleSetActiveCv(cv.id)}
                 onDelete={() => void handleDeleteCv(cv.id)}
+                onDownload={() => handleDownloadCv(cv.id)}
                 onSave={(settings) => handleSaveCvSettings(cv.id, settings)}
               />
             ))}
@@ -672,6 +694,15 @@ export function SettingsPanel({
                       </span>
                     )}
                   </label>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleDownloadLegend(legend)}
+                    aria-label={t("settings.downloadLegend")}
+                    title={t("settings.downloadLegend")}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => void handleDeleteLegend(legend.id)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -932,65 +963,92 @@ export function SettingsPanel({
           <p className="text-xs text-muted-foreground">
             {t("settings.faqHint")}
           </p>
-          {FAQ_GROUPS.map(([category, items]) => (
-            <div key={category} className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</h4>
-              {items.map(({ question }) => (
-                <div key={question} className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">{question}</label>
-                  <textarea
-                    className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                    value={faqDraft[question] ?? ""}
-                    placeholder={t("settings.notGenerated")}
-                    onChange={(e) => setFaqDraft((prev) => ({ ...prev, [question]: e.target.value }))}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
+          <p className="text-xs">
+            {t("settings.faqSummary", { answered: faqAnsweredCount, total: FAQ_QUESTIONS.length, custom: customFaqDraft.filter((e) => e.question.trim()).length })}
+          </p>
+          <Button size="sm" variant="outline" className="w-fit" onClick={() => faqDialogRef.current?.showModal()}>
+            {t("settings.editFaq")}
+          </Button>
+          <dialog
+            ref={faqDialogRef}
+            aria-labelledby="faq-dialog-title"
+            className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl overscroll-contain rounded-lg border border-border bg-background p-0 text-foreground shadow-xl backdrop:overflow-hidden backdrop:overscroll-contain backdrop:bg-black/40"
+          >
+            <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+                <h2 id="faq-dialog-title" className="text-base font-semibold">
+                  {t("settings.faq")}
+                </h2>
+                <form method="dialog">
+                  <Button size="sm" variant="ghost" aria-label={t("common.close")} title={t("common.close")}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </form>
+              </div>
+              <div className="flex flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3">
+                {FAQ_GROUPS.map(([category, items]) => (
+                  <div key={category} className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</h4>
+                    {items.map(({ question }) => (
+                      <div key={question} className="flex flex-col gap-1">
+                        <label className="text-xs font-medium">{question}</label>
+                        <textarea
+                          className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                          value={faqDraft[question] ?? ""}
+                          placeholder={t("settings.notGenerated")}
+                          onChange={(e) => setFaqDraft((prev) => ({ ...prev, [question]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
 
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {t("settings.customQuestions")}
-            </h4>
-            <p className="text-[11px] text-muted-foreground">
-              {t("settings.customQuestionsHint")}
-            </p>
-            {customFaqDraft.map((entry) => (
-              <div key={entry.id} className="flex flex-col gap-1 rounded-md border border-border bg-background p-2">
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={entry.question}
-                    onChange={(e) => handleCustomFaqChange(entry.id!, { question: e.target.value })}
-                    placeholder={t("settings.question")}
-                    className="h-8 flex-1 text-xs"
-                  />
-                  <Button size="sm" variant="ghost" onClick={() => handleRemoveCustomFaq(entry.id!)}>
-                    <Trash2 className="h-4 w-4" />
+                <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("settings.customQuestions")}
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("settings.customQuestionsHint")}
+                  </p>
+                  {customFaqDraft.map((entry) => (
+                    <div key={entry.id} className="flex flex-col gap-1 rounded-md border border-border bg-background p-2">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={entry.question}
+                          onChange={(e) => handleCustomFaqChange(entry.id!, { question: e.target.value })}
+                          placeholder={t("settings.question")}
+                          className="h-8 flex-1 text-xs"
+                        />
+                        <Button size="sm" variant="ghost" onClick={() => handleRemoveCustomFaq(entry.id!)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <textarea
+                        className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                        value={entry.answer}
+                        placeholder={t("settings.answer")}
+                        onChange={(e) => handleCustomFaqChange(entry.id!, { answer: e.target.value })}
+                      />
+                    </div>
+                  ))}
+                  <Button size="sm" variant="outline" className="w-fit" onClick={handleAddCustomFaq}>
+                    {t("settings.addQuestion")}
                   </Button>
                 </div>
-                <textarea
-                  className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                  value={entry.answer}
-                  placeholder={t("settings.answer")}
-                  onChange={(e) => handleCustomFaqChange(entry.id!, { answer: e.target.value })}
-                />
               </div>
-            ))}
-            <Button size="sm" variant="outline" className="w-fit" onClick={handleAddCustomFaq}>
-              {t("settings.addQuestion")}
-            </Button>
-          </div>
-
-          {faqError && <p className="text-xs text-destructive">{faqError}</p>}
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={handleGenerateMissingFaq} disabled={generatingFaq}>
-              {generatingFaq ? t("common.generating") : t("settings.generateMissing")}
-            </Button>
-            <Button size="sm" onClick={() => void handleSaveFaqDraft(faqDraft)} disabled={savingFaq}>
-              {savingFaq ? t("common.saving") : t("settings.saveFaq")}
-            </Button>
-          </div>
+              <div className="flex flex-col gap-2 border-t border-border px-4 py-3">
+                {faqError && <p className="text-xs text-destructive">{faqError}</p>}
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={handleGenerateMissingFaq} disabled={generatingFaq}>
+                    {generatingFaq ? t("common.generating") : t("settings.generateMissing")}
+                  </Button>
+                  <Button size="sm" onClick={() => void handleSaveFaqDraft(faqDraft)} disabled={savingFaq}>
+                    {savingFaq ? t("common.saving") : t("settings.saveFaq")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </dialog>
         </CardContent>
       </Card>
 
