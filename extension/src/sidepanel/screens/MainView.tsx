@@ -160,6 +160,7 @@ export function MainView({
   const [outreachImproveInstructions, setOutreachImproveInstructions] = useState("");
   const [improvingOutreach, setImprovingOutreach] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<string | null>(null);
+  const [autofilling, setAutofilling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cleanedNotice, setCleanedNotice] = useState<string | null>(null);
   const [driveSaveStatus, setDriveSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -1577,6 +1578,7 @@ export function MainView({
    */
   async function runAutofill(rescanQuestions = false) {
     setAutofillStatus(null);
+    setAutofilling(true);
     try {
       const response = await sendMessage<{
         type: "AUTOFILL_RESULT";
@@ -1595,6 +1597,8 @@ export function MainView({
       if (response.filled > 0 && job.url) void recordUrlActivation(job.url);
     } catch {
       setAutofillStatus("Autofill failed on this page.");
+    } finally {
+      setAutofilling(false);
     }
     if (rescanQuestions) void handleDetectQuestions(job);
   }
@@ -1634,6 +1638,21 @@ export function MainView({
   // popping in one at a time — the whole point being asked for (spec: it's otherwise unclear
   // when extraction/analysis is done and the panel is safe to act on, e.g. before Autofill).
   const isAnalyzingJob = loadingJob || completingJob || briefLoading || decidingPageContent;
+  // Work the user started that writes the draft or the page: while one runs, every button that would
+  // start another (or the same one again) is locked, so repeated clicks can't stack conflicting work.
+  const busyTask = generating
+    ? "Generating the cover letter…"
+    : improving
+      ? "Improving the cover letter…"
+      : adaptingCv
+        ? (adaptStatus ?? "Preparing the adapted CV…")
+        : autofilling
+          ? "Filling in the form…"
+          : answeringAllQuestions
+            ? "Answering application questions…"
+            : null;
+  const locked = busyTask !== null;
+  const lockedTitle = locked ? `Wait: ${busyTask}` : undefined;
   const cvChoice = useCvChoice({
     tabId,
     tabUrl,
@@ -1673,7 +1692,17 @@ export function MainView({
         </div>
       </div>
 
-      {isAnalyzingJob && (
+      {busyTask && (
+        <p
+          role="status"
+          className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-xs font-medium text-primary"
+        >
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+          {busyTask}
+        </p>
+      )}
+
+      {isAnalyzingJob && !busyTask && (
         <p className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           <Loader2 className="size-3 shrink-0 animate-spin" />
           {loadingJob
@@ -1911,7 +1940,8 @@ export function MainView({
             className="flex-auto"
             variant={generating || coverLetter ? "outline" : "default"}
             onClick={handleGenerate}
-            disabled={generating || Boolean(coverLetter) || !job.position}
+            disabled={locked || Boolean(coverLetter) || !job.position}
+            title={generating ? undefined : lockedTitle}
           >
             {generating ? (
               <>
@@ -1924,11 +1954,12 @@ export function MainView({
             )}
           </Button>
         )}
-        <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)}>
+        <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)} disabled={locked} title={lockedTitle}>
+          {autofilling && <Loader2 className="h-4 w-4 animate-spin" />}
           Autofill Application
         </Button>
         {setupComplete && cvMeta && (
-          <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt}>
+          <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt} disabled={locked} title={lockedTitle}>
             <FileUser className="h-4 w-4" /> Adapt CV
           </Button>
         )}
@@ -1937,7 +1968,7 @@ export function MainView({
       {googleConnected && job.url && (job.position || job.company) && (
         <MarkAppliedButton
           application={existingApplication}
-          busy={markingApplied}
+          busy={markingApplied || locked}
           onMark={() => void handleMarkApplied()}
         />
       )}
@@ -2082,7 +2113,8 @@ export function MainView({
                 <CoverLetterEditor content={coverLetter} onChange={handleCoverLetterChange} />
               </Suspense>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
+                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={locked} title={lockedTitle}>
+                  {generating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Regenerate
                 </Button>
                 <Button
@@ -2106,8 +2138,10 @@ export function MainView({
                   size="sm"
                   variant="outline"
                   onClick={handleImprove}
-                  disabled={improving || !improveInstructions.trim()}
+                  disabled={locked || !improveInstructions.trim()}
+                  title={improving ? undefined : lockedTitle}
                 >
+                  {improving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {improving ? "Improving…" : "Apply"}
                 </Button>
               </div>
@@ -2206,6 +2240,8 @@ export function MainView({
                 variant="outline"
                 className="w-full rounded-[5px] border-0"
                 onClick={() => void handleStartPicker()}
+                disabled={locked}
+                title={lockedTitle}
               >
                 Pick fields on page
                 <kbd className="ml-1.5 rounded border px-1 text-[10px] font-medium opacity-70">
@@ -2377,30 +2413,34 @@ export function MainView({
             {cvMeta && (
               <AttachmentIcon
                 label="CV"
-                ready={cvFileReady}
+                ready={cvFileReady && !locked}
                 onDragStart={handleCvDragStart}
-                onActivate={() => void handleAttachCvToPage()}
+                onActivate={() => {
+                  if (!locked) void handleAttachCvToPage();
+                }}
               />
             )}
             {coverLetter && (
               <AttachmentIcon
                 label="Cover Letter"
-                ready={coverLetterFileReady}
+                ready={coverLetterFileReady && !locked}
                 onDragStart={handleCoverLetterDragStart}
-                onActivate={() => void handleUploadCoverLetterToPage()}
+                onActivate={() => {
+                  if (!locked) void handleUploadCoverLetterToPage();
+                }}
               />
             )}
           </div>
           {adaptTemplate && (
             <div className="mt-2 flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" disabled={adaptingCv} onClick={() => void handleAdaptedCv("preview")}>
+                <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("preview")}>
                   <Eye className="h-3.5 w-3.5" /> Preview adapted CV
                 </Button>
-                <Button size="sm" variant="outline" disabled={adaptingCv} onClick={() => void handleAdaptedCv("attach")}>
+                <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("attach")}>
                   <Paperclip className="h-3.5 w-3.5" /> Attach adapted CV
                 </Button>
-                <Button size="sm" variant="ghost" disabled={adaptingCv} onClick={() => void handleAdaptedCv("download")}>
+                <Button size="sm" variant="ghost" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("download")}>
                   <Download className="h-3.5 w-3.5" /> Export adapted CV
                 </Button>
                 <button onClick={onOpenCvAdapt} className="text-xs text-muted-foreground underline underline-offset-2">

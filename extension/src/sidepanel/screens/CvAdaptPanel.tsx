@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, Eye, FilePlus, FileUp, Paperclip, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, Eye, FilePlus, FileUp, Loader2, Paperclip, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -391,7 +391,8 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
   if (!loaded) return null;
 
   const missingValues = usedVariables.filter((v) => !resolvedValues[v.name]?.trim()).map((v) => v.name);
-  const exportDisabled = Boolean(busy) || !source;
+  // Rendering mid-suggestion would export half-picked values — wait for the AI.
+  const exportDisabled = Boolean(busy) || suggesting || !source;
 
   // Plain render helpers, called as functions — not mounted as <Components/>,
   // which React would remount (and so defocus their inputs) on every render.
@@ -455,10 +456,10 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
             variant="outline"
             size="sm"
             className="w-fit"
-            disabled={suggesting || !hasJob}
+            disabled={suggesting || Boolean(busy) || !hasJob}
             onClick={() => void handleSuggest()}
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             {suggesting ? "Picking values…" : entry.aiSuggested ? "Re-suggest from posting" : "Suggest from posting"}
           </Button>
         </div>
