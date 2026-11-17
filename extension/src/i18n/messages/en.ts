@@ -315,6 +315,7 @@ export const en = {
   "settings.cvs": "CVs",
   "settings.cvsHint": "Autofill and cover-letter generation use whichever one is active — on a posting, the CV for its language is made active automatically.",
   "settings.deleteKey": "Delete API Key",
+  "settings.deleteQuestion": "Delete question",
   "settings.disconnectGoogle": "Disconnect Google",
   "settings.downloadLegend": "Download legend",
   "settings.editFaq": "Edit questions and answers",

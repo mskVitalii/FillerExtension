@@ -317,6 +317,7 @@ export const de: Record<MessageKey, string> = {
   "settings.cvs": "Lebensläufe",
   "settings.cvsHint": "Automatisches Ausfüllen und die Erstellung von Anschreiben nutzen den aktiven Lebenslauf — bei einer Stelle wird automatisch der Lebenslauf in ihrer Sprache aktiviert.",
   "settings.deleteKey": "API-Schlüssel löschen",
+  "settings.deleteQuestion": "Frage löschen",
   "settings.disconnectGoogle": "Google trennen",
   "settings.downloadLegend": "Legende herunterladen",
   "settings.editFaq": "Fragen und Antworten bearbeiten",

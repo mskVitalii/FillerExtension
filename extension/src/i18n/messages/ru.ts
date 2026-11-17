@@ -317,6 +317,7 @@ export const ru: Record<MessageKey, string> = {
   "settings.cvs": "CV",
   "settings.cvsHint": "Автозаполнение и генерация писем используют активное CV. Для вакансии автоматически становится активным CV на языке вакансии.",
   "settings.deleteKey": "Удалить API-ключ",
+  "settings.deleteQuestion": "Удалить вопрос",
   "settings.disconnectGoogle": "Отключить Google",
   "settings.downloadLegend": "Скачать легенду",
   "settings.editFaq": "Редактировать вопросы и ответы",

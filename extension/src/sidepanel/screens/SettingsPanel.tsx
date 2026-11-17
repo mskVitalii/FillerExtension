@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CvLibraryItem } from "@/components/CvLibraryItem";
 import { RulesEditor } from "@/components/RulesEditor";
+import { FaqAnswerBubble, FaqChatDivider, FaqQuestionBubble } from "@/components/FaqChat";
 import { useI18n } from "@/i18n/react";
 import { LOCALES, LOCALE_NAMES, detectLocale, type UiLanguagePreference } from "@/i18n/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -985,56 +986,48 @@ export function SettingsPanel({
                   </Button>
                 </form>
               </div>
-              <div className="flex flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3">
+              <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain bg-muted/20 px-4 py-3">
                 {FAQ_GROUPS.map(([category, items]) => (
-                  <div key={category} className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</h4>
+                  <section key={category} className="flex flex-col gap-2">
+                    <FaqChatDivider>{category}</FaqChatDivider>
                     {items.map(({ question }) => (
                       <div key={question} className="flex flex-col gap-1">
-                        <label className="text-xs font-medium">{question}</label>
-                        <textarea
-                          className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                          value={faqDraft[question] ?? ""}
+                        <FaqQuestionBubble question={question} />
+                        <FaqAnswerBubble
+                          answer={faqDraft[question] ?? ""}
+                          label={question}
                           placeholder={t("settings.notGenerated")}
-                          onChange={(e) => setFaqDraft((prev) => ({ ...prev, [question]: e.target.value }))}
+                          onChange={(value) => setFaqDraft((prev) => ({ ...prev, [question]: value }))}
                         />
                       </div>
                     ))}
-                  </div>
+                  </section>
                 ))}
 
-                <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("settings.customQuestions")}
-                  </h4>
-                  <p className="text-[11px] text-muted-foreground">
-                    {t("settings.customQuestionsHint")}
-                  </p>
+                <section className="flex flex-col gap-2">
+                  <FaqChatDivider>{t("settings.customQuestions")}</FaqChatDivider>
+                  <p className="text-center text-[11px] text-muted-foreground">{t("settings.customQuestionsHint")}</p>
                   {customFaqDraft.map((entry) => (
-                    <div key={entry.id} className="flex flex-col gap-1 rounded-md border border-border bg-background p-2">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={entry.question}
-                          onChange={(e) => handleCustomFaqChange(entry.id!, { question: e.target.value })}
-                          placeholder={t("settings.question")}
-                          className="h-8 flex-1 text-xs"
-                        />
-                        <Button size="sm" variant="ghost" onClick={() => handleRemoveCustomFaq(entry.id!)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <textarea
-                        className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                        value={entry.answer}
+                    <div key={entry.id} className="flex flex-col gap-1">
+                      <FaqQuestionBubble
+                        question={entry.question}
+                        placeholder={t("settings.question")}
+                        onChange={(value) => handleCustomFaqChange(entry.id!, { question: value })}
+                        onDelete={() => handleRemoveCustomFaq(entry.id!)}
+                        deleteLabel={t("settings.deleteQuestion")}
+                      />
+                      <FaqAnswerBubble
+                        answer={entry.answer}
+                        label={entry.question || t("settings.answer")}
                         placeholder={t("settings.answer")}
-                        onChange={(e) => handleCustomFaqChange(entry.id!, { answer: e.target.value })}
+                        onChange={(value) => handleCustomFaqChange(entry.id!, { answer: value })}
                       />
                     </div>
                   ))}
-                  <Button size="sm" variant="outline" className="w-fit" onClick={handleAddCustomFaq}>
+                  <Button size="sm" variant="outline" className="w-fit self-center" onClick={handleAddCustomFaq}>
                     {t("settings.addQuestion")}
                   </Button>
-                </div>
+                </section>
               </div>
               <div className="flex flex-col gap-2 border-t border-border px-4 py-3">
                 {faqError && <p className="text-xs text-destructive">{faqError}</p>}
