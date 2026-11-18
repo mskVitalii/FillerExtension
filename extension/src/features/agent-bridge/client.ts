@@ -6,8 +6,9 @@ import type { Job } from "@/types/job";
  * posting on its own Chrome. `sync.ts` keeps its copy of the user's data current.
  * The agent sends no CORS headers, so only an extension holding the
  * `http://127.0.0.1/*` host permission (requested from the optional ones on
- * the "Connect" click) can read its answers, and every call carries the
- * pairing token the agent printed at startup.
+ * the "Connect" click) can read its answers. Every call carries the agent's
+ * token, which "Connect" fetches from `/api/pair` — the agent hands it only to
+ * a request with a `chrome-extension://` Origin, so there is nothing to copy.
  */
 
 export const AGENT_ORIGINS = ["http://127.0.0.1/*"];
@@ -47,6 +48,21 @@ export function hasAgentPermission(): Promise<boolean> {
  */
 export function requestAgentPermission(): Promise<boolean> {
   return chrome.permissions.request({ origins: AGENT_ORIGINS });
+}
+
+/** Asks the running agent for its token. Throws "offline" when nothing answers on the port. */
+export async function pairWithAgent(port = DEFAULT_AGENT_PORT): Promise<AgentBridgeSettings> {
+  let res: Response;
+  try {
+    res = await fetch(`http://127.0.0.1:${port}/api/pair`, { method: "POST", signal: AbortSignal.timeout(3000) });
+  } catch {
+    throw new Error("offline");
+  }
+  const data = (await res.json().catch(() => null)) as { token?: string; name?: string; error?: string } | null;
+  if (!res.ok || !data?.token || data.name !== "filler-agent") throw new Error(data?.error ?? `Agent answered ${res.status}.`);
+  const settings = { port, token: data.token };
+  await saveAgentSettings(settings);
+  return settings;
 }
 
 export function agentBaseUrl(settings: AgentBridgeSettings): string {

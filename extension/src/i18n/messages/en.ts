@@ -1,10 +1,8 @@
 /** English — the source of truth for every UI string key (`MessageKey`). `{name}` marks a placeholder. */
 export const en = {
   "agent.connectLink": "Connect local AI agent (experimental)",
-  "agent.tokenHint": "Pairing token printed by the agent at startup (`npm run cli -- token`).",
-  "agent.tokenPlaceholder": "Token",
-  "agent.port": "Port",
-  "agent.connect": "Connect agent",
+  "agent.connecting": "Connecting…",
+  "agent.notRunning": "AI agent isn't running. Start it: npm start in the FillerAgent folder.",
   "agent.notGranted": "Access to 127.0.0.1 was not granted.",
   "agent.apply": "Apply via AI agent",
   "agent.online": "AI agent online",

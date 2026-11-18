@@ -3,10 +3,8 @@ import type { MessageKey } from "./en";
 /** Russian. Typed against `en`, so a missing key fails typecheck. */
 export const ru: Record<MessageKey, string> = {
   "agent.connectLink": "Подключить локального AI-агента (эксперимент)",
-  "agent.tokenHint": "Токен сопряжения, который агент печатает при запуске (`npm run cli -- token`).",
-  "agent.tokenPlaceholder": "Токен",
-  "agent.port": "Порт",
-  "agent.connect": "Подключить агента",
+  "agent.connecting": "Подключаю…",
+  "agent.notRunning": "AI-агент не запущен. Запустите: npm start в папке FillerAgent.",
   "agent.notGranted": "Доступ к 127.0.0.1 не выдан.",
   "agent.apply": "Откликнуться через AI-агента",
   "agent.online": "AI-агент онлайн",

@@ -3,10 +3,8 @@ import type { MessageKey } from "./en";
 /** German. Typed against `en`, so a missing key fails typecheck. */
 export const de: Record<MessageKey, string> = {
   "agent.connectLink": "Lokalen KI-Agenten verbinden (experimentell)",
-  "agent.tokenHint": "Kopplungs-Token, das der Agent beim Start ausgibt (`npm run cli -- token`).",
-  "agent.tokenPlaceholder": "Token",
-  "agent.port": "Port",
-  "agent.connect": "Agent verbinden",
+  "agent.connecting": "Verbinde…",
+  "agent.notRunning": "Der KI-Agent läuft nicht. Starten: npm start im Ordner FillerAgent.",
   "agent.notGranted": "Zugriff auf 127.0.0.1 wurde nicht erteilt.",
   "agent.apply": "Über KI-Agenten bewerben",
   "agent.online": "KI-Agent online",

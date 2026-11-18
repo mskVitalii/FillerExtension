@@ -3,7 +3,6 @@ import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { Bot, Loader2 } from "lucide-react";
 import type { Job } from "@/types/job";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/react";
 import type { MessageKey } from "@/i18n/core";
@@ -14,8 +13,8 @@ import {
   applyViaAgent,
   checkWithAgent,
   getAgentSettings,
+  pairWithAgent,
   requestAgentPermission,
-  saveAgentSettings,
   type AgentBridgeSettings,
   type AgentCheck,
   type AgentHealth,
@@ -50,8 +49,6 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   const [health, setHealth] = useState<AgentHealth>("offline");
   const [check, setCheck] = useState<AgentCheck | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [token, setToken] = useState("");
-  const [port, setPort] = useState(String(DEFAULT_AGENT_PORT));
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
@@ -84,7 +81,17 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
 
   const refresh = useCallback(async () => {
     if (!settings) return;
-    const next = await agentHealth(settings);
+    let next = await agentHealth(settings);
+    // The agent's token changed (new install, config reset): pair again, no click needed.
+    if (next === "unauthorized") {
+      try {
+        setSettings(await pairWithAgent(settings.port));
+        return;
+      } catch {
+        /* stays "unauthorized" */
+      }
+      next = "unauthorized";
+    }
     setHealth(next);
     if (next !== "online" || !url || !job.position) {
       setCheck(null);
@@ -136,17 +143,18 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   const connect = () => {
     // No await before this: the permission prompt needs the click's user gesture.
     const granted = requestAgentPermission();
-    void granted.then(async (ok) => {
-      if (!ok) {
-        setMessage(t("agent.notGranted"));
-        return;
-      }
-      const next = { token: token.trim(), port: Number(port) || DEFAULT_AGENT_PORT };
-      await saveAgentSettings(next);
-      setSettings(next);
-      setConnecting(false);
-      setMessage(null);
-    });
+    setConnecting(true);
+    setMessage(null);
+    void granted
+      .then(async (ok) => {
+        if (!ok) {
+          setMessage(t("agent.notGranted"));
+          return;
+        }
+        setSettings(await pairWithAgent(settings?.port ?? DEFAULT_AGENT_PORT));
+      })
+      .catch((err: Error) => setMessage(err.message === "offline" ? t("agent.notRunning") : err.message))
+      .finally(() => setConnecting(false));
   };
 
   const apply = async () => {
@@ -166,30 +174,13 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
     }
   };
 
-  if (!settings || connecting) {
-    if (!connecting) {
-      return (
-        <button type="button" className="self-start text-xs text-muted-foreground underline" onClick={() => setConnecting(true)}>
-          {t("agent.connectLink")}
-        </button>
-      );
-    }
+  if (!settings) {
     return (
-      <div className="flex flex-col gap-2 rounded-md border border-border p-2 text-xs">
-        <span className="text-muted-foreground">{t("agent.tokenHint")}</span>
-        <div className="flex gap-2">
-          <Input value={token} onChange={(e) => setToken(e.target.value)} placeholder={t("agent.tokenPlaceholder")} className="h-8 flex-1" />
-          <Input value={port} onChange={(e) => setPort(e.target.value)} className="h-8 w-20" inputMode="numeric" aria-label={t("agent.port")} />
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={connect} disabled={!token.trim()}>
-            {t("agent.connect")}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setConnecting(false)}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-        {message && <span className="text-destructive">{message}</span>}
+      <div className="flex flex-col gap-1">
+        <button type="button" className="self-start text-xs text-muted-foreground underline disabled:opacity-50" onClick={connect} disabled={connecting}>
+          {connecting ? t("agent.connecting") : t("agent.connectLink")}
+        </button>
+        {message && <span className="text-xs text-destructive">{message}</span>}
       </div>
     );
   }
@@ -241,7 +232,7 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
             </>
           ))}
         {(health === "unauthorized" || health === "no-permission") && (
-          <button type="button" className="underline" onClick={() => setConnecting(true)}>
+          <button type="button" className="underline" onClick={connect}>
             {t("agent.reconnect")}
           </button>
         )}
