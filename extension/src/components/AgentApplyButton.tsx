@@ -20,6 +20,10 @@ import {
   type AgentHealth,
 } from "@/features/agent-bridge/client";
 import { SYNCED_CACHE_KEYS, lastAgentSync, syncWithAgent } from "@/features/agent-bridge/sync";
+import { connectAgentLive } from "@/features/agent-bridge/live";
+
+/** Polling only stands in for the push channel: often while it's down, rarely as a safety net. */
+const POLL_MS = { live: 5 * 60 * 1000, fallback: 15000 };
 
 const HEALTH_LABEL: Record<AgentHealth, MessageKey> = {
   online: "agent.online",
@@ -54,6 +58,7 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
     void getAgentSettings().then(setSettings);
@@ -107,11 +112,14 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   useEffect(() => {
     if (!settings) return;
     void refresh();
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 15000);
+    const timer = setInterval(
+      () => {
+        if (document.visibilityState === "visible") void refresh();
+      },
+      live ? POLL_MS.live : POLL_MS.fallback,
+    );
     return () => clearInterval(timer);
-  }, [settings, refresh]);
+  }, [settings, refresh, live]);
 
   // First sync once the agent is reachable (panel open, agent started later, reconnect).
   const online = health === "online";
@@ -119,14 +127,32 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
     if (online) void sync();
   }, [online, sync]);
 
-  // While the panel is open, pick up answers given in the agent's dashboard (two-way FAQ sync).
+  // Answers given in the agent's dashboard come over at once (`faq` on the push channel); a job of
+  // this posting changing refreshes the button. Polling remains as the fallback.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+  useEffect(() => {
+    if (!online || !settings) return;
+    return connectAgentLive(settings, {
+      onState: setLive,
+      onMessage: (m) => {
+        if (m.type === "faq") void syncRef.current(false, true);
+        if (m.type === "job" && m.job.url === url) void refreshRef.current();
+      },
+    });
+  }, [online, settings, url]);
   useEffect(() => {
     if (!online) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void sync(false, true);
-    }, 15000);
+    const timer = setInterval(
+      () => {
+        if (document.visibilityState === "visible") void sync(false, true);
+      },
+      live ? POLL_MS.live : POLL_MS.fallback,
+    );
     return () => clearInterval(timer);
-  }, [online, sync]);
+  }, [online, sync, live]);
 
   // Re-sync a few seconds after the user's data changes (profile, CVs, legends, FAQ, rules, …).
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
