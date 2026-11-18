@@ -39,6 +39,7 @@ import {
   setCoverLetterRun,
   setTabState,
   type CoverLetterRun,
+  type CvAdaptEntry,
 } from "@/features/storage/session";
 import { getApplicationByUrl, markJobApplied, saveCoverLetterDraft } from "@/features/applications/repository";
 import { formatDuration } from "@/features/applications/day-timeline";
@@ -231,6 +232,7 @@ export function MainView({
   needsTabAccessRef.current = needsTabAccess;
   const activeRef = useRef(active);
   activeRef.current = active;
+  const cvSuggestRef = useRef<{ key: string; promise: Promise<CvAdaptEntry> } | null>(null);
   /** This panel sent the GENERATE_COVER_LETTER in flight and gets its answer directly. */
   const ownRunRef = useRef(false);
   /** Following a generation another (unloaded) instance of this panel started — via session storage. */
@@ -1281,6 +1283,8 @@ export function MainView({
     setCoverLetter("");
     ownRunRef.current = true;
     resumedRunRef.current = false;
+    // The adapted CV's values are picked in parallel with the letter, so "Attach adapted CV" right after is instant.
+    void ensureCvValues()?.catch(() => undefined);
     try {
       const response = await sendMessage<MessageOf<"COVER_LETTER_RESULT">>({ type: "GENERATE_COVER_LETTER", tabId, job, postingLanguage: jobLanguage?.postingLanguages[0] });
       setCoverLetter(response.content);
@@ -1480,6 +1484,32 @@ export function MainView({
   }
 
   /**
+   * The CV values for this posting, AI-picked once if they weren't yet. One in-flight pick per
+   * tab+CV+posting is shared, so the one started alongside the cover letter (`handleGenerate`) is
+   * simply awaited by a later "Preview/Attach adapted CV" instead of being asked for twice.
+   */
+  function ensureCvValues(): Promise<CvAdaptEntry> | null {
+    if (!cvMeta || !adaptTemplate) return null;
+    const key = `${tabId}|${tabUrl}|${cvMeta.id}`;
+    if (cvSuggestRef.current?.key === key) return cvSuggestRef.current.promise;
+    const cvId = cvMeta.id;
+    const template = adaptTemplate;
+    const promise = (async () => {
+      const entry = await loadAdaptEntry(tabId, tabUrl, cvId);
+      if (entry.aiSuggested || !hasApiKey || !(job.position || job.description)) return entry;
+      const suggested = await suggestEntry(job, template, entry);
+      await saveAdaptEntry(tabId, tabUrl, cvId, suggested);
+      return suggested;
+    })();
+    cvSuggestRef.current = { key, promise };
+    // A failed pick isn't cached: the next click asks again.
+    promise.catch(() => {
+      if (cvSuggestRef.current?.promise === promise) cvSuggestRef.current = null;
+    });
+    return promise;
+  }
+
+  /**
    * The active CV adapted to this posting (Adapt CV tab): reuses the values
    * picked there for this tab; if none were AI-picked yet, asks the AI first
    * (only now, on click — not on every panel open), falling back to the
@@ -1488,14 +1518,10 @@ export function MainView({
   async function handleAdaptedCv(mode: "preview" | "download" | "attach") {
     if (!cvMeta || !adaptTemplate) return;
     setAdaptingCv(true);
-    setAdaptStatus(null);
+    setAdaptStatus(t("main.pickingValues"));
     try {
-      let entry = await loadAdaptEntry(tabId, tabUrl, cvMeta.id);
-      if (!entry.aiSuggested && hasApiKey && (job.position || job.description)) {
-        setAdaptStatus(t("main.pickingValues"));
-        entry = await suggestEntry(job, adaptTemplate, entry);
-        await saveAdaptEntry(tabId, tabUrl, cvMeta.id, entry);
-      }
+      const entry = await ensureCvValues()!;
+      setAdaptStatus(null);
       if (adaptTemplate.format === "docx") setAdaptStatus(t("main.convertingDocx"));
       if (adaptTemplate.format === "latex") setAdaptStatus(t("main.compilingLatex", { host: LATEX_COMPILE_HOST }));
       const values = resolveValues(adaptTemplate, job, entry.values);
@@ -1666,6 +1692,28 @@ export function MainView({
             : null;
   const locked = busyTask !== null;
   const lockedTitle = locked ? t("busy.wait", { task: busyTask }) : undefined;
+  // The cover letter and the adapted CV don't touch each other, so they run side by side: writing the
+  // draft doesn't lock the adapted-CV buttons and adapting the CV doesn't lock the draft's.
+  const draftBusyTask = generating
+    ? t("busy.generating")
+    : improving
+      ? t("busy.improving")
+      : autofilling
+        ? t("busy.autofilling")
+        : answeringAllQuestions
+          ? t("busy.answering")
+          : null;
+  const draftLocked = draftBusyTask !== null;
+  const draftLockedTitle = draftLocked ? t("busy.wait", { task: draftBusyTask }) : undefined;
+  const cvBusyTask = adaptingCv
+    ? (adaptStatus ?? t("busy.adaptingCv"))
+    : autofilling
+      ? t("busy.autofilling")
+      : answeringAllQuestions
+        ? t("busy.answering")
+        : null;
+  const cvLocked = cvBusyTask !== null;
+  const cvLockedTitle = cvLocked ? t("busy.wait", { task: cvBusyTask }) : undefined;
   const cvChoice = useCvChoice({
     tabId,
     tabUrl,
@@ -1953,8 +2001,8 @@ export function MainView({
             className="flex-auto"
             variant={generating || coverLetter ? "outline" : "default"}
             onClick={handleGenerate}
-            disabled={locked || Boolean(coverLetter) || !job.position}
-            title={generating ? undefined : lockedTitle}
+            disabled={draftLocked || Boolean(coverLetter) || !job.position}
+            title={generating ? undefined : draftLockedTitle}
           >
             {generating ? (
               <>
@@ -1972,7 +2020,7 @@ export function MainView({
           {t("main.autofill")}
         </Button>
         {setupComplete && cvMeta && (
-          <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt} disabled={locked} title={lockedTitle}>
+          <Button className="flex-auto" variant="outline" onClick={onOpenCvAdapt} disabled={cvLocked} title={cvLockedTitle}>
             <FileUser className="h-4 w-4" /> {t("nav.adaptCv")}
           </Button>
         )}
@@ -2127,7 +2175,7 @@ export function MainView({
                 <CoverLetterEditor content={coverLetter} onChange={handleCoverLetterChange} />
               </Suspense>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={locked} title={lockedTitle}>
+                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={draftLocked} title={draftLockedTitle}>
                   {generating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {t("common.regenerate")}
                 </Button>
@@ -2152,8 +2200,8 @@ export function MainView({
                   size="sm"
                   variant="outline"
                   onClick={handleImprove}
-                  disabled={locked || !improveInstructions.trim()}
-                  title={improving ? undefined : lockedTitle}
+                  disabled={draftLocked || !improveInstructions.trim()}
+                  title={improving ? undefined : draftLockedTitle}
                 >
                   {improving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {improving ? t("main.improving") : t("common.apply")}
@@ -2422,10 +2470,10 @@ export function MainView({
             {cvMeta && (
               <AttachmentIcon
                 label={t("main.cv")}
-                ready={cvFileReady && !locked}
+                ready={cvFileReady && !cvLocked}
                 onDragStart={handleCvDragStart}
                 onActivate={() => {
-                  if (!locked) void handleAttachCvToPage();
+                  if (!cvLocked) void handleAttachCvToPage();
                 }}
               />
             )}
@@ -2443,13 +2491,13 @@ export function MainView({
           {adaptTemplate && (
             <div className="mt-2 flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("preview")}>
+                <Button size="sm" variant="outline" disabled={cvLocked} title={cvLockedTitle} onClick={() => void handleAdaptedCv("preview")}>
                   <Eye className="h-3.5 w-3.5" /> {t("main.previewAdaptedCv")}
                 </Button>
-                <Button size="sm" variant="outline" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("attach")}>
+                <Button size="sm" variant="outline" disabled={cvLocked} title={cvLockedTitle} onClick={() => void handleAdaptedCv("attach")}>
                   <Paperclip className="h-3.5 w-3.5" /> {t("main.attachAdaptedCv")}
                 </Button>
-                <Button size="sm" variant="ghost" disabled={locked} title={lockedTitle} onClick={() => void handleAdaptedCv("download")}>
+                <Button size="sm" variant="ghost" disabled={cvLocked} title={cvLockedTitle} onClick={() => void handleAdaptedCv("download")}>
                   <Download className="h-3.5 w-3.5" /> {t("main.exportAdaptedCv")}
                 </Button>
                 <button onClick={onOpenCvAdapt} className="text-xs text-muted-foreground underline underline-offset-2">
