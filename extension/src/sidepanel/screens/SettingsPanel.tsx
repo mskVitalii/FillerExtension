@@ -24,6 +24,7 @@ import {
   type Profile,
 } from "@/types/profile";
 import { CEFR_LEVELS } from "@/lib/language-level";
+import { buildExport } from "@/features/export/data-export";
 import {
   createLegend,
   deleteCv,
@@ -286,7 +287,6 @@ export function SettingsPanel({
     setExporting(true);
     setExportNotice(null);
     try {
-      const { buildExport } = await import("@/features/export/data-export");
       const result = await buildExport();
       await downloadFile(new File([result.zip as Uint8Array<ArrayBuffer>], result.fileName, { type: "application/zip" }));
       const { counts, warnings } = result.manifest;
