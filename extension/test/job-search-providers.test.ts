@@ -8,7 +8,7 @@ vi.mock("@/features/openai/client", () => ({
   streamWithWebSearch: (...args: unknown[]) => streamWithWebSearch(...args),
 }));
 
-const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS } = await import("@/features/job-search/openai-provider");
+const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS, OPENAI_SEARCH_SHARDS } = await import("@/features/job-search/openai-provider");
 const { buildTavilyRequest } = await import("@/features/job-search/tavily-provider");
 const { buildAdzunaUrl, searchAdzunaJobs } = await import("@/features/job-search/adzuna-provider");
 const { extractJobListings } = await import("@/features/openai/extract-job-listings");
@@ -46,33 +46,48 @@ describe("searchOpenAiJobs", () => {
     requestStructured.mockReset();
   });
 
-  function streams(chunks: string[]) {
-    streamWithWebSearch.mockImplementation(async (_prompt: string, onDelta: (d: string) => void) => {
+  const line = (n: number, extra = "", company = "Acme") =>
+    `{"title":"Go dev ${n}","company":"${company}","location":"","url":"https://jobs.lever.co/acme/${n}${company === "Acme" ? "" : "-b"}","salary":"","postedAt":"${extra}","snippet":"fits"}`;
+
+  /** Each shard (recognized by its focus line in the prompt) streams its own chunks. */
+  function streams(byShard: Record<string, string[] | Error>) {
+    streamWithWebSearch.mockImplementation(async (prompt: string, onDelta: (d: string) => void) => {
+      const shard = OPENAI_SEARCH_SHARDS.find((s) => prompt.includes(s.focus))!;
+      const chunks = byShard[shard.id] ?? [];
+      if (chunks instanceof Error) throw chunks;
       for (const chunk of chunks) onDelta(chunk);
       return chunks.join("");
     });
   }
 
-  it("emits each posting as soon as its line is complete, with no parse call", async () => {
-    const line = (n: number, extra = "") => `{"title":"Go dev ${n}","company":"Acme","location":"","url":"https://jobs.lever.co/acme/${n}","salary":"","postedAt":"${extra}","snippet":"fits"}`;
-    const lines = [line(1), line(2, "2020-01-01"), line(1), line(3)];
-    // Split mid-object and mid-line, the way SSE deltas arrive.
-    const text = `${lines.join("\n")}`;
-    const emitted: string[][] = [];
-    streams([text.slice(0, 40), text.slice(40, 200), text.slice(200)]);
-    const stages: { label: string; ms: number }[] = [];
-    const { results } = await searchOpenAiJobs(query(), "bg", [], stages, (jobs) => emitted.push(jobs.map((j) => j.title)));
+  it("runs every shard in parallel at low effort and tells each where to look", async () => {
+    streams({});
+    await searchOpenAiJobs(query(), "bg");
+    expect(streamWithWebSearch).toHaveBeenCalledTimes(OPENAI_SEARCH_SHARDS.length);
+    for (const [i, shard] of OPENAI_SEARCH_SHARDS.entries()) {
+      expect(streamWithWebSearch.mock.calls[i][0]).toContain(shard.focus);
+      expect(streamWithWebSearch.mock.calls[i][2]).toMatchObject({ reasoningEffort: "low", timeoutMs: expect.any(Number), idleMs: expect.any(Number) });
+    }
+  });
 
-    // The stale and the duplicate posting are dropped.
-    expect(results.map((r) => r.title)).toEqual(["Go dev 1", "Go dev 3"]);
-    expect(emitted).toEqual([["Go dev 1"], ["Go dev 3"]]);
+  it("emits each posting as soon as its line is complete, dropping stale ones and duplicates across shards", async () => {
+    const text = [line(1), line(2, "2020-01-01"), line(1), line(3)].join("\n");
+    // Split mid-object and mid-line, the way SSE deltas arrive.
+    streams({ ats: [text.slice(0, 40), text.slice(40, 200), text.slice(200)], boards: [line(3, "", "Acme") + "\n", line(4, "", "Beta")] });
+    const emitted: string[] = [];
+    const stages: { label: string; ms: number }[] = [];
+    const { results, warnings } = await searchOpenAiJobs(query(), "bg", [], stages, (jobs) => emitted.push(...jobs.map((j) => j.title)));
+
+    expect(results.map((r) => r.title).sort()).toEqual(["Go dev 1", "Go dev 3", "Go dev 4"]);
+    expect(emitted.sort()).toEqual(["Go dev 1", "Go dev 3", "Go dev 4"]);
     expect(results[0].source).toBe("openai");
+    expect(warnings).toEqual([]);
     expect(requestStructured).not.toHaveBeenCalled();
-    expect(stages.map((s) => s.label)).toEqual(["Web search", "First result"]);
+    expect(stages.map((s) => s.label)).toContain("First result");
   });
 
   it("falls back to the parse pass when the model answers in prose", async () => {
-    streams(["Here are some roles:\n1. Go developer at Acme — https://acme.dev/jobs/1"]);
+    streams({ careers: ["Here are some roles:\n1. Go developer at Acme — https://acme.dev/jobs/1"] });
     requestStructured.mockResolvedValue({
       jobs: [{ title: "Go developer", company: "Acme", location: "", url: "https://acme.dev/jobs/1", salary: "", snippet: "", postedAt: "" }],
     });
@@ -82,13 +97,39 @@ describe("searchOpenAiJobs", () => {
     const request = requestStructured.mock.calls[0][0] as { systemPrompt: string; reasoningEffort: string };
     expect(request.systemPrompt).toContain('"no crypto"');
     expect(request.reasoningEffort).toBe("low");
-    expect(stages.map((s) => s.label)).toEqual(["Web search", "Parse results"]);
+    expect(stages.map((s) => s.label)).toContain("Parse results");
   });
 
   it("returns nothing, without a parse call, when the model wrote nothing", async () => {
-    streams([]);
+    streams({});
     expect(await searchOpenAiJobs(query(), "bg")).toEqual({ results: [], warnings: [] });
     expect(requestStructured).not.toHaveBeenCalled();
+  });
+});
+
+describe("searchOpenAiJobs when a shard fails", () => {
+  beforeEach(() => {
+    streamWithWebSearch.mockReset();
+  });
+  const posting = `{"title":"Go dev","company":"Acme","location":"","url":"https://jobs.lever.co/acme/1","salary":"","postedAt":"","snippet":"fits"}\n`;
+
+  it("keeps what the other shards and the failing one already found, with a warning", async () => {
+    streamWithWebSearch.mockImplementation(async (prompt: string, onDelta: (d: string) => void) => {
+      if (prompt.includes(OPENAI_SEARCH_SHARDS[0].focus)) {
+        onDelta(posting);
+        throw new Error("OpenAI web search timed out after 90 s.");
+      }
+      if (prompt.includes(OPENAI_SEARCH_SHARDS[1].focus)) throw new Error("OpenAI web search request failed (500)");
+      return "";
+    });
+    const { results, warnings } = await searchOpenAiJobs(query(), "bg");
+    expect(results.map((r) => r.title)).toEqual(["Go dev"]);
+    expect(warnings).toEqual([expect.stringMatching(/ats.*timed out after 90 s/), expect.stringMatching(/careers.*500/)]);
+  });
+
+  it("throws when every shard failed and nothing came in", async () => {
+    streamWithWebSearch.mockRejectedValue(new Error("OpenAI web search request failed (401)"));
+    await expect(searchOpenAiJobs(query(), "bg")).rejects.toThrow(/401/);
   });
 });
 
@@ -171,33 +212,5 @@ describe("searchAdzunaJobs", () => {
     expect(results.map((r) => r.url)).toEqual(["https://adzuna/a/1", "https://adzuna/shared", "https://adzuna/b/1"]);
     expect(streamed).toEqual([["https://adzuna/a/1", "https://adzuna/shared"], ["https://adzuna/b/1"]]);
     expect(warnings).toEqual([expect.stringContaining('"broken"')]);
-  });
-});
-
-describe("searchOpenAiJobs when the stream fails", () => {
-  beforeEach(() => {
-    streamWithWebSearch.mockReset();
-  });
-  const line = `{"title":"Go dev","company":"Acme","location":"","url":"https://jobs.lever.co/acme/1","salary":"","postedAt":"","snippet":"fits"}\n`;
-
-  it("keeps the postings already streamed and says it stopped early", async () => {
-    streamWithWebSearch.mockImplementation(async (_p: string, onDelta: (d: string) => void) => {
-      onDelta(line);
-      throw new Error("OpenAI web search timed out after 90 s.");
-    });
-    const { results, warnings } = await searchOpenAiJobs(query(), "bg");
-    expect(results.map((r) => r.title)).toEqual(["Go dev"]);
-    expect(warnings[0]).toMatch(/stopped early.*timed out after 90 s/);
-  });
-
-  it("throws when nothing came in", async () => {
-    streamWithWebSearch.mockRejectedValue(new Error("OpenAI web search request failed (500)"));
-    await expect(searchOpenAiJobs(query(), "bg")).rejects.toThrow(/500/);
-  });
-
-  it("searches at low effort, within a time budget", async () => {
-    streamWithWebSearch.mockResolvedValue("");
-    await searchOpenAiJobs(query(), "bg");
-    expect(streamWithWebSearch.mock.calls[0][2]).toMatchObject({ reasoningEffort: "low", timeoutMs: expect.any(Number), idleMs: expect.any(Number) });
   });
 });

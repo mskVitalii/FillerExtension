@@ -9,10 +9,28 @@ import { createListingLineParser } from "./listing-lines";
 import { todayISO } from "@/lib/date-format";
 
 /**
- * Postings per search. Output is most of a web search's latency, and "More"
- * fetches the next batch, so 10 good ones beat 15 slower ones.
+ * Postings per search (each shard asks for up to this many). Output is most of a
+ * web search's latency, and "More" fetches the next batch.
  */
-export const MAX_OPENAI_RESULTS = 10;
+export const MAX_OPENAI_RESULTS = 6;
+
+/**
+ * One search is split into parallel low-effort web searches, each told where to
+ * look. Measured (Nov 2026, gpt-6-luna, a 26 KB Personal Legend): one search at
+ * the default effort ran ~10 web searches and took 47-75 s for 3 postings; one at
+ * "low" took ~10 s but kept only 1. Three low-effort shards cost about as many
+ * tokens as the old single call, finish in about the time of the slowest one, and
+ * stream postings from whichever shard is first.
+ */
+export const OPENAI_SEARCH_SHARDS: readonly { id: string; focus: string }[] = [
+  { id: "ats", focus: `Look on applicant tracking systems: ${ATS_DOMAINS.join(", ")}.` },
+  { id: "careers", focus: "Look on the hiring companies' own career pages (company websites, not job boards)." },
+  {
+    id: "boards",
+    focus:
+      "Look on job boards and aggregators (LinkedIn, Indeed, StepStone, Glassdoor, Welcome to the Jungle, Wellfound, Arbeitnow and similar); when the board links to the employer's own posting, give that URL.",
+  },
+];
 
 /**
  * spec_5 section C, option 1: OpenAI's own hosted web-search tool finds
@@ -34,6 +52,7 @@ export function buildOpenAiSearchPrompt(
   query: JobSearchQuery,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
+  focus?: string,
 ): string {
   const refinements = searchRefinements(query);
   const today = todayISO();
@@ -51,7 +70,7 @@ seniority, unrelated field).
 Prefer the employer's own posting on its applicant tracking system (${ATS_DOMAINS.join(", ")})
 or career page over copies on aggregators, which often outlive the real posting.
 Only real individual postings with their direct listing URL — never a search results page,
-a generic careers homepage or an aggregator's category page.${describeExcluded(excludeResults)}
+a generic careers homepage or an aggregator's category page.${focus ? `\n${focus}` : ""}${describeExcluded(excludeResults)}
 
 OUTPUT FORMAT — follow exactly. Up to ${MAX_OPENAI_RESULTS} of the best matches, best first, as JSON
 Lines: one JSON object per line, nothing else (no prose, no markdown, no code fences, no
@@ -78,6 +97,12 @@ export interface OpenAiSearchOutcome {
   warnings: string[];
 }
 
+/** Same posting reached through two shards (two URLs) counts once. */
+function postingKey(job: JobSearchResult): string {
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return job.company ? `${norm(job.company)}|${norm(job.title)}` : job.url;
+}
+
 export async function searchOpenAiJobs(
   query: JobSearchQuery,
   candidateBackground: string,
@@ -86,50 +111,64 @@ export async function searchOpenAiJobs(
   onResults?: (results: JobSearchResult[]) => void,
   signal?: AbortSignal,
 ): Promise<OpenAiSearchOutcome> {
-  const prompt = buildOpenAiSearchPrompt(query, candidateBackground, excludeResults);
   const startedAt = performance.now();
   let firstAt: number | null = null;
   const results: JobSearchResult[] = [];
   const seen = new Set<string>();
-  const parser = createListingLineParser((listing) => {
-    const [job] = dropStalePostings([{ ...listing, source: "openai" }]);
-    if (!job || seen.has(job.url)) return;
+  const accept = (job: JobSearchResult): boolean => {
+    if (seen.has(job.url) || seen.has(postingKey(job))) return false;
     seen.add(job.url);
+    seen.add(postingKey(job));
     results.push(job);
-    firstAt ??= performance.now();
-    onResults?.([job]);
-  });
+    return true;
+  };
 
-  let rawText: string;
-  try {
-    rawText = await timeStage(stages, "Web search", () =>
-      streamWithWebSearch(prompt, parser.push, {
-        reasoningEffort: "low",
-        timeoutMs: OPENAI_SEARCH_LIMITS.timeoutMs,
-        idleMs: OPENAI_SEARCH_LIMITS.idleMs,
-        signal,
-      }),
-    );
-  } catch (err) {
-    // Postings already shown stay: a search that stops halfway is still useful.
-    parser.end();
-    if (results.length === 0) throw err;
-    const reason = err instanceof Error ? err.message : "the search stopped";
-    return { results, warnings: [`Web search stopped early (${reason}) — showing the ${results.length} postings found so far.`] };
-  } finally {
-    if (firstAt !== null) stages?.push({ label: "First result", ms: firstAt - startedAt });
-  }
-  parser.end();
-  if (results.length > 0 || !rawText.trim()) return { results, warnings: [] };
+  const shards = await Promise.allSettled(
+    OPENAI_SEARCH_SHARDS.map(async (shard) => {
+      const prompt = buildOpenAiSearchPrompt(query, candidateBackground, excludeResults, shard.focus);
+      const parser = createListingLineParser((listing) => {
+        const [job] = dropStalePostings([{ ...listing, source: "openai" }]);
+        if (!job || !accept(job)) return;
+        firstAt ??= performance.now();
+        onResults?.([job]);
+      });
+      const shardStart = performance.now();
+      try {
+        const text = await streamWithWebSearch(prompt, parser.push, {
+          reasoningEffort: "low",
+          timeoutMs: OPENAI_SEARCH_LIMITS.timeoutMs,
+          idleMs: OPENAI_SEARCH_LIMITS.idleMs,
+          signal,
+        });
+        parser.end();
+        return text;
+      } finally {
+        stages?.push({ label: `Web search (${shard.id})`, ms: performance.now() - shardStart });
+      }
+    }),
+  );
+  stages?.push({ label: "Web search", ms: performance.now() - startedAt });
+  if (firstAt !== null) stages?.push({ label: "First result", ms: firstAt - startedAt });
 
-  // The model answered in prose despite the format — structure it the old way.
+  const failures = shards.flatMap((s, i) => (s.status === "rejected" ? [{ id: OPENAI_SEARCH_SHARDS[i].id, err: s.reason as unknown }] : []));
+  const message = (err: unknown) => (err instanceof Error ? err.message : "the search failed");
+  if (failures.length === shards.length && results.length === 0) throw failures[0].err;
+  const warnings = failures.map((f) => `Web search (${f.id}) stopped: ${message(f.err)}`);
+  if (results.length > 0) return { results, warnings };
+
+  // No JSON lines anywhere: a model answered in prose despite the format — structure that the old way.
+  const prose = shards
+    .map((s) => (s.status === "fulfilled" ? s.value : ""))
+    .filter((t) => t.trim())
+    .join("\n\n---\n\n");
+  if (!prose) return { results, warnings };
   const parsed = await timeStage(stages, "Parse results", () =>
-    extractJobListings(rawText, "openai", candidateBackground, {
+    extractJobListings(prose, "openai", candidateBackground, {
       negative: query.negative,
       reasoningEffort: "low",
       timeoutMs: OPENAI_SEARCH_LIMITS.parseTimeoutMs,
       signal,
     }),
   );
-  return { results: parsed, warnings: [] };
+  return { results: parsed, warnings };
 }
