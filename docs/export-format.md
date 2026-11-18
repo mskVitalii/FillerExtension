@@ -204,3 +204,10 @@ every 6 h: `application.json` + index, no postings/adapted CVs) and uploads only
 `contentHash` — SHA-256 over every file except `manifest.json` and `applications/` — differs
 from the hash the agent reports at `GET /api/sync`. An export whose CV files couldn't be read
 (Drive not connected) is not sent.
+
+The FAQ syncs both ways. `GET /api/sync` also returns `agentFaq`: answers the user gave in the
+agent's dashboard (ids `agent-…`). Before building the export, the extension adopts them into its
+own `faq.json` (`mergeAgentFaq`): a question it already has (same question once normalized, or one
+wording containing the other — `sameQuestion`) only gets the answer if its own is empty, and a new
+question is added once. The upload then carries them, and the agent drops its `agent-…` copies of
+questions the export answers. While the panel is open it checks for new agent answers every 15 s.

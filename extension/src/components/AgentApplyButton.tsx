@@ -61,9 +61,9 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   }, []);
 
   const sync = useCallback(
-    async (force = false): Promise<boolean> => {
+    async (force = false, quiet = false): Promise<boolean> => {
       if (!settings) return false;
-      setSyncing(true);
+      if (!quiet) setSyncing(true);
       try {
         const result = await syncWithAgent(settings, { force });
         setSyncedAt(result.syncedAt);
@@ -117,6 +117,15 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   const online = health === "online";
   useEffect(() => {
     if (online) void sync();
+  }, [online, sync]);
+
+  // While the panel is open, pick up answers given in the agent's dashboard (two-way FAQ sync).
+  useEffect(() => {
+    if (!online) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void sync(false, true);
+    }, 15000);
+    return () => clearInterval(timer);
   }, [online, sync]);
 
   // Re-sync a few seconds after the user's data changes (profile, CVs, legends, FAQ, rules, …).

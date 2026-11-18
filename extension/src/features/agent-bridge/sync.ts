@@ -1,6 +1,8 @@
 import { buildExport } from "@/features/export/data-export";
 import { isGoogleConnected } from "@/features/google-drive/auth";
 import { agentBaseUrl, type AgentBridgeSettings } from "@/features/agent-bridge/client";
+import { getFaqAnswers, saveFaqAnswers } from "@/features/profile/repository";
+import type { FaqEntry } from "@/types/profile";
 
 /**
  * Keeps the local agent's copy of the user's data in step with the extension,
@@ -14,6 +16,11 @@ import { agentBaseUrl, type AgentBridgeSettings } from "@/features/agent-bridge/
  *   an unchanged library is never re-sent;
  * - the applications list (one Drive read per application) goes along at most
  *   every few hours — the agent only uses it to skip postings already applied to.
+ *
+ * It also runs the other way: answers the user gave in the agent's dashboard
+ * (FAQ entries with an `agent-…` id) are adopted into Filler's own FAQ first
+ * (`mergeAgentFaq`, same-question dedupe), so the export that follows carries
+ * them and the agent drops its own copies.
  */
 
 const STATE_KEY = "agentBridgeSync";
@@ -64,13 +71,60 @@ export async function lastAgentSync(): Promise<number | null> {
   return (await readState())?.syncedAt ?? null;
 }
 
-async function agentSyncHash(settings: AgentBridgeSettings): Promise<string> {
+async function agentSyncState(settings: AgentBridgeSettings): Promise<{ hash: string; agentFaq: FaqEntry[] }> {
   const res = await fetch(`${agentBaseUrl(settings)}/api/sync`, {
     headers: { Authorization: `Bearer ${settings.token}` },
     signal: AbortSignal.timeout(4000),
   });
   if (!res.ok) throw new Error(`Agent answered ${res.status}.`);
-  return ((await res.json()) as { hash?: string }).hash ?? "";
+  const data = (await res.json()) as { hash?: string; agentFaq?: FaqEntry[] };
+  return { hash: data.hash ?? "", agentFaq: Array.isArray(data.agentFaq) ? data.agentFaq : [] };
+}
+
+function normalizeQuestion(text: string): string {
+  return text
+    .replace(/\((erforderlich|required|optional|pflichtfeld)\)/gi, "")
+    .toLowerCase()
+    .replace(/[*:?!.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The same question, worded with more or less around it ("Do you need visa sponsorship?" inside
+ * "Do you need visa sponsorship? Please explain."). Mirrors the agent's `sameQuestion`.
+ */
+export function sameQuestion(a: string, b: string): boolean {
+  const x = normalizeQuestion(a);
+  const y = normalizeQuestion(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 15 && long.includes(short);
+}
+
+/**
+ * Adopts answers given in the agent into Filler's FAQ: a question Filler already has gets the
+ * answer only if its own is empty (Filler's answer wins otherwise); a new question is added once.
+ * Returns null when nothing changes.
+ */
+export function mergeAgentFaq(local: FaqEntry[], fromAgent: FaqEntry[]): FaqEntry[] | null {
+  const merged = local.map((entry) => ({ ...entry }));
+  let changed = false;
+  for (const answer of fromAgent) {
+    if (!answer.question?.trim() || !answer.answer?.trim()) continue;
+    const match = merged.find((entry) => sameQuestion(entry.question, answer.question));
+    if (match) {
+      if (!match.answer.trim()) {
+        match.answer = answer.answer.trim();
+        changed = true;
+      }
+      continue;
+    }
+    merged.push({ id: crypto.randomUUID(), question: answer.question.trim(), answer: answer.answer.trim() });
+    changed = true;
+  }
+  return changed ? merged : null;
 }
 
 let inFlight: Promise<AgentSyncResult> | null = null;
@@ -88,15 +142,20 @@ export function syncWithAgent(settings: AgentBridgeSettings, options: { force?: 
 }
 
 async function runSync(settings: AgentBridgeSettings, force: boolean): Promise<AgentSyncResult> {
-  const [state, print, agentHash, google] = await Promise.all([readState(), fingerprint(), agentSyncHash(settings), isGoogleConnected()]);
+  const [state, agent, google] = await Promise.all([readState(), agentSyncState(settings), isGoogleConnected()]);
+  const agentHash = agent.hash;
   // Drive is the source of truth; without it the local caches may be empty or stale, and an
   // empty export would wipe the agent's copy.
   if (!google) {
     return { outcome: "skipped", message: "Not synced — connect Google Drive in Filler first.", syncedAt: state?.syncedAt ?? null };
   }
+  // Answers given in the agent come into Filler's FAQ first, so the upload below carries them.
+  const adopted = agent.agentFaq.length > 0 ? mergeAgentFaq(await getFaqAnswers(), agent.agentFaq) : null;
+  if (adopted) await saveFaqAnswers(adopted);
+  const print = await fingerprint();
   const now = Date.now();
   const applicationsDue = !state || now - state.applicationsSyncedAt > APPLICATIONS_EVERY_MS;
-  if (!force && !applicationsDue && state && agentHash && state.fingerprint === print && state.hash === agentHash) {
+  if (!force && !adopted && !applicationsDue && state && agentHash && state.fingerprint === print && state.hash === agentHash) {
     return { outcome: "unchanged", syncedAt: state.syncedAt };
   }
 

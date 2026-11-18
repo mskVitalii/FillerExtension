@@ -204,10 +204,12 @@ describe("syncWithAgent", () => {
   const settings = { port: 47615, token: "t0k" };
   let agentHash = "";
   let uploads: string[] = [];
+  let agentFaq: { id: string; question: string; answer: string }[] = [];
 
   beforeEach(() => {
     agentHash = "";
     uploads = [];
+    agentFaq = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -217,9 +219,35 @@ describe("syncWithAgent", () => {
           uploads.push(agentHash);
           return new Response(JSON.stringify({ hash: agentHash }), { status: 200 });
         }
-        return new Response(JSON.stringify({ hash: agentHash }), { status: 200 });
+        return new Response(JSON.stringify({ hash: agentHash, agentFaq }), { status: 200 });
       }),
     );
+  });
+
+  it("takes answers given in the agent into Filler's FAQ, once, and pushes them back", async () => {
+    const { syncWithAgent } = await import("@/features/agent-bridge/sync");
+    await repo.saveFaqAnswers([
+      { question: "Do you need visa sponsorship?", answer: "" },
+      { question: "Why us?", answer: "Because of Go." },
+    ]);
+    await syncWithAgent(settings);
+    const before = uploads.length;
+    agentFaq = [
+      { id: "agent-1", question: "Do you need visa sponsorship? (required)", answer: "No" },
+      { id: "agent-2", question: "I identify my gender as:", answer: "Male" },
+      { id: "agent-3", question: "Why us?", answer: "Something else" }, // Filler's own answer wins
+    ];
+    expect((await syncWithAgent(settings)).outcome).toBe("uploaded");
+    expect(uploads.length).toBe(before + 1);
+    const faq = await repo.getFaqAnswers();
+    expect(faq.find((f) => f.question === "Do you need visa sponsorship?")?.answer).toBe("No");
+    expect(faq.find((f) => f.question === "Why us?")?.answer).toBe("Because of Go.");
+    expect(faq.filter((f) => f.question === "I identify my gender as:")).toHaveLength(1);
+    expect(faq).toHaveLength(3);
+
+    // The agent still lists them until it imports the upload: no duplicates on the next round.
+    await syncWithAgent(settings, { force: true });
+    expect(await repo.getFaqAnswers()).toHaveLength(3);
   });
 
   it("uploads once, then only when the data changed — and always checks before apply", async () => {
