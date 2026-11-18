@@ -136,11 +136,70 @@ export function extractFromDom(doc: Document, url: string): Job {
   const root = mainContent(doc);
   const bodyText = root.innerText || root.textContent || "";
 
-  const position = meta(doc, "og:title") || firstHeadingText(root) || doc.title;
-  const company = meta(doc, "og:site_name") || "";
+  const title = meta(doc, "og:title") || doc.title.trim();
+  const heading = firstHeadingText(root);
+  const { position, location } = positionAndLocation(title, heading);
+  const company = companyName(meta(doc, "og:site_name") || "", title, url);
   const description = bodyText.replace(/\s+/g, " ").trim().slice(0, 6000);
 
-  return { position, company, location: "", description, ...detailsFromElement(root), url };
+  return { position, company, location, description, ...detailsFromElement(root), url };
+}
+
+/** "Careers at SumUp", "Jobs bei Acme", "Acme Careers" — the site part of a page title. */
+const TITLE_COMPANY_RE = [
+  /\b(?:careers?|jobs?|karriere|stellenangebote|stellen)\s+(?:at|bei|@|with)\s+(.+)$/i,
+  /^(.+?)\s+(?:careers?|jobs?|karriere|stellenangebote)$/i,
+];
+
+/** The company a page title's site tail names, or "". */
+function companyFromTitle(title: string): string {
+  const parts = title.split(/\s+[|–—·]\s+/);
+  if (parts.length < 2) return "";
+  const tail = parts[parts.length - 1].trim();
+  for (const re of TITLE_COMPANY_RE) {
+    const match = tail.match(re);
+    if (match?.[1]?.trim()) return match[1].trim();
+  }
+  return "";
+}
+
+const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * `og:site_name` is often the brand plus its tagline ("SumUp - A Better Way to Get Paid"). Keep
+ * just the brand: the name the title's "Careers at X" tail gives, else the segment the host
+ * spells (sumup.com), else the first segment.
+ */
+function companyName(siteName: string, title: string, url: string): string {
+  const fromTitle = companyFromTitle(title);
+  const segments = siteName.split(/\s+[-–—|:·]\s+/).map((s) => s.trim()).filter(Boolean);
+  if (segments.length < 2) return siteName || fromTitle;
+  if (fromTitle && squash(siteName).includes(squash(fromTitle))) return fromTitle;
+  let host = "";
+  try {
+    host = squash(new URL(url).hostname);
+  } catch {
+    /* no host to compare */
+  }
+  const byHost = host ? segments.find((s) => squash(s).length >= 3 && host.includes(squash(s))) : undefined;
+  return byHost ?? segments[0];
+}
+
+/**
+ * The role and, when the title spells it, the place. A page title is usually the heading plus
+ * a tail ("Backend Engineer - Transfers Europe in Berlin, Germany | Careers at SumUp"), so when
+ * it starts with the page's `<h1>` the `<h1>` is the role and an "in <place>" right after it is
+ * the location. Otherwise the title stays the role, as before.
+ */
+function positionAndLocation(title: string, heading: string): { position: string; location: string } {
+  if (!title) return { position: heading, location: "" };
+  const base = title.split(/\s+\|\s+/)[0].trim();
+  if (heading && base.toLowerCase().startsWith(heading.toLowerCase())) {
+    const rest = base.slice(heading.length).trim();
+    const place = rest.match(/^(?:in|[-–—@·,])\s+(.{2,60})$/i)?.[1]?.trim() ?? "";
+    return { position: heading, location: /\d/.test(place) ? "" : place };
+  }
+  return { position: title, location: "" };
 }
 
 export type JobDetails = Pick<Job, "requirements" | "responsibilities" | "salary" | "techStack" | "contact">;
