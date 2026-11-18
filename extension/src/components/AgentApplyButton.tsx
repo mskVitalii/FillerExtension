@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { Bot, Loader2 } from "lucide-react";
 import type { Job } from "@/types/job";
 import { Button } from "@/components/ui/button";
@@ -200,7 +201,14 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <Button className="flex-auto" variant="outline" onClick={() => void apply()} disabled={!enabled} title={reasons.join("\n") || undefined}>
+        <Button
+          className="flex-auto border-0 text-white hover:text-white hover:opacity-90"
+          style={{ background: PICKER_GRADIENT }}
+          variant="outline"
+          onClick={() => void apply()}
+          disabled={!enabled}
+          title={reasons.join("\n") || undefined}
+        >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
           {t("agent.apply")}
         </Button>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
+import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { CheckCircle2, Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -76,7 +77,6 @@ const PICKER_HOTKEY_LABEL =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌥P" : "Alt+P";
 
 /** Kept identical to the gradient `element-picker.ts` draws around a picked block on the page. */
-const PICKER_GRADIENT = "linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #ec4899)";
 
 /** Matches a bare email address (not a full RFC grammar) — just enough to tell `job.contact` apart from a LinkedIn URL for the outreach-message "open" action. */
 
@@ -1981,6 +1981,7 @@ export function MainView({
       {googleConnected && job.url && (job.position || job.company) && (
         <MarkAppliedButton
           application={existingApplication}
+          suggested={Boolean(coverLetter) && !generating}
           busy={markingApplied || locked}
           onMark={() => void handleMarkApplied()}
         />
@@ -2571,7 +2572,18 @@ function EditableField({
 }
 
 /** "Mark as applied" — once done, shows how long the application took instead. */
-function MarkAppliedButton({ application, busy, onMark }: { application: Application | null; busy: boolean; onMark: () => void }) {
+function MarkAppliedButton({
+  application,
+  busy,
+  suggested,
+  onMark,
+}: {
+  application: Application | null;
+  busy: boolean;
+  /** A cover letter is ready — applying is the likely next step, so the button is drawn filled. */
+  suggested: boolean;
+  onMark: () => void;
+}) {
   const t = useT();
   if (application?.status === "applied" && application.timing) {
     return (
@@ -2582,7 +2594,7 @@ function MarkAppliedButton({ application, busy, onMark }: { application: Applica
     );
   }
   return (
-    <Button variant="outline" size="sm" className="w-fit" onClick={onMark} disabled={busy}>
+    <Button variant={suggested ? "default" : "outline"} className="w-full" onClick={onMark} disabled={busy}>
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
       {t("main.markApplied")}
     </Button>
