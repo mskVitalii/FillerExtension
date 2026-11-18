@@ -99,7 +99,7 @@ export function CvLibraryItem({
           onClick={() => void save({ isDefaultForLanguage: !cv.isDefaultForLanguage })}
           className={cn(
             "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs disabled:opacity-40",
-            cv.isDefaultForLanguage ? "text-amber-600" : "text-muted-foreground hover:text-foreground",
+            cv.isDefaultForLanguage ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground hover:text-foreground",
           )}
           title={cv.language ? t("cvItem.defaultTitle", { language: displayLanguage(locale, cv.language) }) : t("cvItem.pickLanguage")}
         >
