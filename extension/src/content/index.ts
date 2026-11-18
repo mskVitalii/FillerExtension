@@ -22,6 +22,27 @@ import { initFileDropCatcher } from "@/features/file-upload/drop-catcher";
 import { showPageToast } from "@/features/autofill/page-toast";
 import { INSERT_FIELD_LABELS } from "@/features/autofill/insert-field-labels";
 import { base64ToFile } from "@/lib/base64";
+import { atsOf, type FillFieldStat, type FillRun } from "@/features/fill-stats/stats";
+
+/** Hands one Autofill's per-field outcome to the background, which keeps the fill statistics. */
+function reportFillStats(fields: FillFieldStat[]): void {
+  if (fields.length === 0) return;
+  let parentUrl: string | undefined;
+  try {
+    parentUrl = window.top?.location.href;
+  } catch {
+    parentUrl = document.referrer || undefined; // cross-origin frame: the embedding page, if it says
+  }
+  const run: FillRun = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    source: "extension",
+    host: location.hostname.replace(/^www\./, ""),
+    ats: atsOf(location.href, parentUrl),
+    fields,
+  };
+  chrome.runtime.sendMessage({ type: "FILL_STATS_REPORT", run } satisfies RuntimeMessage).catch(() => {});
+}
 
 /**
  * Right-click "Insert" places one value into whichever field the user
@@ -78,7 +99,7 @@ function registerMessageListener(): void {
       }
 
       case "AUTOFILL": {
-        void autofillDocument(message.profile)
+        void autofillDocument(message.profile, { onReport: reportFillStats })
           .then((result) => {
             const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
             sendResponse(response);

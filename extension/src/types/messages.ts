@@ -11,6 +11,7 @@ import type { PageCheckbox, CheckboxDecisionInput } from "@/features/autofill/ch
 import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
 import type { InsertField } from "@/features/autofill/insert-field-labels";
 import type { DateInputKind } from "@/lib/date-format";
+import type { FillRun } from "@/features/fill-stats/stats";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -39,6 +40,8 @@ export type RuntimeMessage =
   | { type: "PROFILE_DATA"; profile: Profile }
   | { type: "AUTOFILL"; tabId: number; profile: Profile }
   | { type: "AUTOFILL_RESULT"; filled: number; total: number; generatedPassword: string | null }
+  /** Content script → background, once an Autofill's refill guard settled: what happened to each profile field. */
+  | { type: "FILL_STATS_REPORT"; run: FillRun }
   | { type: "INSERT_VALUE"; field: InsertField; value: string }
   | { type: "GENERATE_COVER_LETTER"; tabId: number; job: Job; postingLanguage?: string }
   | { type: "COVER_LETTER_RESULT"; content: string; slopFindings: SlopFinding[]; cleaned: boolean }

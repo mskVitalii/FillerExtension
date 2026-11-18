@@ -3,6 +3,7 @@ import { useI18n, useT } from "@/i18n/react";
 import { ArrowLeft, Download, ExternalLink, Eye, Search, Trash2 } from "lucide-react";
 import { SubmissionsTimeline } from "@/components/charts/SubmissionsTimeline";
 import { DayTimeline } from "@/components/charts/DayTimeline";
+import { FillStatsPanel } from "@/components/FillStatsPanel";
 import { formatDuration } from "@/features/applications/day-timeline";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -121,7 +122,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
   /** `${application id}:${"posting" | "letter" | "cv"}` of the file currently being fetched/rendered. */
   const [busyFile, setBusyFile] = useState<string | null>(null);
-  const [chartTab, setChartTab] = useState<"volume" | "time">("volume");
+  const [chartTab, setChartTab] = useState<"volume" | "time" | "fill">("volume");
 
   useEffect(() => {
     void load();
@@ -231,7 +232,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
             </span>
           </div>
           <div className="flex gap-1 border-b border-border text-xs">
-            {(["volume", "time"] as const).map((tab) => (
+            {(["volume", "time", "fill"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setChartTab(tab)}
@@ -240,11 +241,11 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
                   chartTab === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground",
                 )}
               >
-                {tab === "volume" ? t("apps.tabVolume") : t("apps.tabTime")}
+                {tab === "volume" ? t("apps.tabVolume") : tab === "time" ? t("apps.tabTime") : t("apps.tabFill")}
               </button>
             ))}
           </div>
-          {chartTab === "volume" ? <SubmissionsTimeline series={stats.series} /> : <DayTimeline applications={applications} />}
+          {chartTab === "volume" ? <SubmissionsTimeline series={stats.series} /> : chartTab === "time" ? <DayTimeline applications={applications} /> : <FillStatsPanel />}
         </div>
       )}
 

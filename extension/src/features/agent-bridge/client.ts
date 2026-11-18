@@ -1,4 +1,5 @@
 import type { Job } from "@/types/job";
+import type { FillRun } from "@/features/fill-stats/stats";
 
 /**
  * Experimental bridge to the local Filler agent (the separate FillerAgent
@@ -105,4 +106,20 @@ export async function applyViaAgent(settings: AgentBridgeSettings, url: string, 
   const { status, data } = await call<{ id: string; status: string; error?: string; reasons?: string[] }>(settings, "/api/jobs", { url, job }, 8000);
   if (status !== 201 || !data) throw new Error(data?.reasons?.join(" ") || data?.error || `Agent answered ${status}.`);
   return data;
+}
+
+/** Fill statistics of every run the agent knows: its own and the ones this browser pushed. */
+export async function fetchAgentFillRuns(settings: AgentBridgeSettings): Promise<FillRun[] | null> {
+  try {
+    const { status, data } = await call<{ runs?: FillRun[] }>(settings, "/api/stats", undefined, 4000);
+    return status === 200 && Array.isArray(data?.runs) ? data.runs : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Sends this browser's autofill runs to the agent, which keeps them by id (a repeat costs nothing). */
+export async function pushFillRuns(settings: AgentBridgeSettings, runs: FillRun[]): Promise<void> {
+  if (runs.length === 0) return;
+  await call(settings, "/api/stats/runs", { runs }, 8000);
 }

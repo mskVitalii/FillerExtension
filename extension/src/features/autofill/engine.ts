@@ -8,6 +8,9 @@ import { generatePassword } from "@/lib/generate-password";
 import { queryFillableDeep } from "./dom-query";
 import { describeField, findByKey } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
+import { fieldQuestionText } from "./field-signal";
+import { fieldKind } from "@/features/fill-stats/dom";
+import type { FillFieldStat } from "@/features/fill-stats/stats";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 
@@ -96,6 +99,13 @@ function fillRegistrationPassword(elements: HTMLElement[]): { password: string |
  */
 export async function autofillDocument(
   profile: Profile,
+  options: {
+    /**
+     * Called once the refill guard settles, with what happened to every field
+     * recognized as a profile field (fill statistics, `features/fill-stats`).
+     */
+    onReport?: (fields: FillFieldStat[]) => void;
+  } = {},
 ): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
 
@@ -118,6 +128,9 @@ export async function autofillDocument(
 
   let filled = 0;
   const guarded: GuardedFill[] = [];
+  const stats: FillFieldStat[] = [];
+  /** `guarded[i]` is `stats[guardedStat[i]]`. */
+  const guardedStat: number[] = [];
   for (const el of elements) {
     // Defense in depth on top of the label-matching patterns themselves:
     // no profile value is ever a password, so a password-type input is
@@ -129,11 +142,16 @@ export async function autofillDocument(
     const field = detectSemanticField(el);
     if (!field) continue;
     const value = profileValue(profile, field);
+    const stat: FillFieldStat = { kind: fieldKind(el), field, label: fieldQuestionText(el).slice(0, 120), filler: "no-value" };
+    stats.push(stat);
     if (!value) continue;
     const before = readValue(el);
     const key = describeField(el);
+    stat.filler = "failed";
     if (await fillSemanticField(el, field, value, profile)) {
       filled++;
+      stat.filler = "filled";
+      guardedStat.push(stats.length - 1);
       guarded.push({
         el,
         before,
@@ -144,7 +162,10 @@ export async function autofillDocument(
   }
   // Not awaited: the Side Panel gets its count now, while the guard keeps
   // the values in place through the form's next re-render (refill-guard.ts).
-  void guardFills(guarded);
+  void guardFills(guarded).then((report) => {
+    for (const i of report.lostIndexes) stats[guardedStat[i]].filler = "lost";
+    options.onReport?.(stats);
+  });
 
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);
   filled += passwordFilled;

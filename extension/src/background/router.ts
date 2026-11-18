@@ -10,6 +10,7 @@ import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
 import { searchAdzunaJobs } from "@/features/job-search/adzuna-provider";
 import { adzunaCountryCode } from "@/features/job-search/adzuna-country";
 import { timeStage } from "@/features/job-search/timing";
+import { recordFillRun } from "@/features/fill-stats/repository";
 import { getSearchSuggestion } from "@/features/job-search/suggestion-cache";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
 import { generateOutreachMessage } from "@/features/openai/outreach-message";
@@ -102,6 +103,11 @@ function groupByFrame<T extends { locator: ElementLocator }>(items: T[]): Map<nu
  */
 export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMessage | undefined> {
   switch (message.type) {
+    case "FILL_STATS_REPORT": {
+      await recordFillRun(message.run);
+      return undefined;
+    }
+
     case "GET_PROFILE": {
       const profile = await getProfile();
       return { type: "PROFILE_DATA", profile };
