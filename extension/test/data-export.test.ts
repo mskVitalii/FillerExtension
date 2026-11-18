@@ -205,8 +205,11 @@ describe("syncWithAgent", () => {
   let agentHash = "";
   let uploads: string[] = [];
   let agentFaq: { id: string; question: string; answer: string }[] = [];
+  /** Non-zip posts: search settings and fill runs. */
+  let settingsPosts: string[] = [];
 
   beforeEach(() => {
+    settingsPosts = [];
     agentHash = "";
     uploads = [];
     agentFaq = [];
@@ -214,6 +217,10 @@ describe("syncWithAgent", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer t0k");
+        if (init?.method === "POST" && !new URL(url).pathname.endsWith("/api/sync")) {
+          settingsPosts.push(new URL(url).pathname);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
         if (init?.method === "POST") {
           agentHash = new URL(url).searchParams.get("hash") ?? "";
           uploads.push(agentHash);
@@ -256,6 +263,7 @@ describe("syncWithAgent", () => {
     expect((await syncWithAgent(settings)).outcome).toBe("unchanged");
     expect((await syncWithAgent(settings, { force: true })).outcome).toBe("unchanged"); // rebuilt, same hash
     expect(uploads).toHaveLength(1);
+    expect(settingsPosts).toEqual(["/api/sync/settings"]); // once: unchanged settings aren't sent again
 
     await repo.saveFaqAnswers([{ question: "Why us?", answer: "Because of Go." }]);
     expect((await syncWithAgent(settings)).outcome).toBe("uploaded");

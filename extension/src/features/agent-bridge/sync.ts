@@ -1,6 +1,9 @@
 import { buildExport } from "@/features/export/data-export";
 import { isGoogleConnected } from "@/features/google-drive/auth";
-import { agentBaseUrl, type AgentBridgeSettings } from "@/features/agent-bridge/client";
+import { agentBaseUrl, pushFillRuns, type AgentBridgeSettings } from "@/features/agent-bridge/client";
+import { getJobSearchCredentials } from "@/features/storage/local";
+import { getPreferences } from "@/features/storage/sync";
+import { getFillRuns } from "@/features/fill-stats/repository";
 import { getFaqAnswers, saveFaqAnswers } from "@/features/profile/repository";
 import type { FaqEntry } from "@/types/profile";
 
@@ -127,6 +130,40 @@ export function mergeAgentFaq(local: FaqEntry[], fromAgent: FaqEntry[]): FaqEntr
   return changed ? merged : null;
 }
 
+const SETTINGS_KEY = "agentBridgeSettingsHash";
+
+/**
+ * Settings the agent's own job search reuses: the search providers' keys and the "what I don't
+ * want" text. Sent to the user's own agent on this machine (token-authenticated, loopback only),
+ * and only when they changed.
+ */
+async function pushSearchSettings(settings: AgentBridgeSettings): Promise<void> {
+  const [creds, prefs] = await Promise.all([getJobSearchCredentials(), getPreferences()]);
+  const search = { ...creds, negative: prefs.jobSearchNegativePrompt ?? "" };
+  const hash = await sha256(JSON.stringify(search));
+  const sent = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY];
+  if (sent === `${settings.port}:${hash}`) return;
+  const res = await fetch(`${agentBaseUrl(settings)}/api/sync/settings`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ search }),
+    signal: AbortSignal.timeout(4000),
+  });
+  if (res.ok) await chrome.storage.local.set({ [SETTINGS_KEY]: `${settings.port}:${hash}` });
+}
+
+const FILL_RUNS_KEY = "agentBridgeFillRunsSent";
+
+/** This browser's autofill runs, for the agent's stats — sent again only when there are new ones. */
+async function pushNewFillRuns(settings: AgentBridgeSettings): Promise<void> {
+  const runs = await getFillRuns();
+  if (runs.length === 0) return;
+  const mark = `${settings.port}:${runs.length}:${runs[runs.length - 1].id}`;
+  if ((await chrome.storage.local.get(FILL_RUNS_KEY))[FILL_RUNS_KEY] === mark) return;
+  await pushFillRuns(settings, runs);
+  await chrome.storage.local.set({ [FILL_RUNS_KEY]: mark });
+}
+
 let inFlight: Promise<AgentSyncResult> | null = null;
 
 /**
@@ -143,6 +180,8 @@ export function syncWithAgent(settings: AgentBridgeSettings, options: { force?: 
 
 async function runSync(settings: AgentBridgeSettings, force: boolean): Promise<AgentSyncResult> {
   const [state, agent, google] = await Promise.all([readState(), agentSyncState(settings), isGoogleConnected()]);
+  // Not tied to Drive: these live in this browser only.
+  await Promise.all([pushSearchSettings(settings).catch(() => {}), pushNewFillRuns(settings).catch(() => {})]);
   const agentHash = agent.hash;
   // Drive is the source of truth; without it the local caches may be empty or stale, and an
   // empty export would wipe the agent's copy.

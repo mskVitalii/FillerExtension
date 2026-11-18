@@ -1,15 +1,11 @@
 import type { RuntimeMessage } from "@/types/messages";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
-import type { JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
-import { getFaqAnswers, getPersonalLegend, getProfile, saveFaqAnswers } from "@/features/profile/repository";
+import type { JobSearchResult } from "@/types/job-search";
+import { getFaqAnswers, getProfile, saveFaqAnswers } from "@/features/profile/repository";
 import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
-import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
-import { searchOpenAiJobs } from "@/features/job-search/openai-provider";
-import { searchTavilyJobs } from "@/features/job-search/tavily-provider";
-import { searchAdzunaJobs } from "@/features/job-search/adzuna-provider";
-import { adzunaCountryCode } from "@/features/job-search/adzuna-country";
-import { timeStage } from "@/features/job-search/timing";
+import { getCachedJob, setCachedJob, setLocal } from "@/features/storage/local";
+import { runJobSearch } from "@/features/job-search/run-search";
 import { recordFillRun } from "@/features/fill-stats/repository";
 import { getSearchSuggestion } from "@/features/job-search/suggestion-cache";
 import { runCoverLetterPipeline } from "@/features/cover-letter/pipeline";
@@ -489,10 +485,6 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     }
 
     case "SEARCH_JOBS": {
-      const { provider } = message.query;
-      const startedAt = performance.now();
-      const stages: JobSearchStageTiming[] = [];
-      const timing = () => ({ totalMs: performance.now() - startedAt, stages });
       const { searchId } = message;
       // Results already in, ahead of the final reply. Fire-and-forget, like the
       // cover-letter stream: the final reply still carries everything.
@@ -503,64 +495,8 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
               .catch(() => {});
           }
         : undefined;
-      if (provider === "adzuna") {
-        // Adzuna's "what" is a keyword search field, not an LLM prompt — the
-        // candidate digest below is for the two AI-backed providers only.
-        const [creds, profile] = await Promise.all([getJobSearchCredentials(), getProfile()]);
-        if (!creds.adzunaAppId || !creds.adzunaAppKey) {
-          throw new Error("Add your Adzuna app_id and app_key in Settings first.");
-        }
-        // "Keywords decide a lot" for a literal keyword search — never send
-        // Adzuna a single empty/guessed "what" just because the user left it
-        // blank; derive a whole set of title-synonym + per-spoken-language
-        // tags from their own CV instead (`suggestSearchTags`), and fan the
-        // search out over all of them (`searchAdzunaJobs`). Returned as
-        // `resolvedQuery` so the Job Search screen locks `tags` (and
-        // `what`/`where`) into its own state — otherwise a "load more" page 2
-        // would re-derive independently and could land on a *different* tag
-        // set than page 1, an inconsistent pagination sequence.
-        let query = message.query;
-        if (!query.tags?.length) {
-          if (query.what.trim()) {
-            // A user-typed keyword is a deliberate, specific override — respect
-            // it as-is rather than second-guessing it with AI-derived tags.
-            query = { ...query, tags: [query.what.trim()] };
-          } else {
-            const startedSuggest = performance.now();
-            const suggestion = await getSearchSuggestion(true);
-            stages.push({ label: suggestion.cached ? "Suggest tags (cached)" : "Suggest tags", ms: performance.now() - startedSuggest });
-            query = {
-              ...query,
-              what: suggestion.what,
-              where: query.where.trim() || suggestion.where,
-              tags: suggestion.tags?.length ? suggestion.tags : [suggestion.what],
-            };
-          }
-        }
-        const { results, warnings } = await timeStage(stages, "Adzuna search", () =>
-          searchAdzunaJobs(
-            query,
-            { appId: creds.adzunaAppId, appKey: creds.adzunaAppKey },
-            adzunaCountryCode(profile.country),
-            message.page ?? 1,
-            onResults,
-          ),
-        );
-        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: query, warnings, ...timing() };
-      }
-      // Per spec_8 item 8: job-search grounding uses the applicant's own
-      // Personal Legend directly rather than a separately AI-generated
-      // digest — one less thing to keep in sync, and the applicant already
-      // controls exactly what it says.
-      const [legend, creds] = await Promise.all([getPersonalLegend(), getJobSearchCredentials()]);
-      const background = legend?.content ?? "";
-      if (provider === "tavily") {
-        if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
-        const results = await searchTavilyJobs(message.query, creds.tavilyApiKey, background, message.excludeResults, stages);
-        return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
-      }
-      const results = await searchOpenAiJobs(message.query, background, message.excludeResults, stages, onResults);
-      return { type: "JOB_SEARCH_RESULTS", results, resolvedQuery: message.query, ...timing() };
+      const run = await runJobSearch(message.query, { page: message.page, excludeResults: message.excludeResults, onResults });
+      return { type: "JOB_SEARCH_RESULTS", ...run };
     }
 
     case "SUGGEST_SEARCH_QUERY": {
