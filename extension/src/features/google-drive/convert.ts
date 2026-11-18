@@ -31,8 +31,8 @@ async function conversionToken(): Promise<string> {
   return token;
 }
 
-async function uploadAsGoogleDoc(token: string, docx: Blob, parents: string[] | undefined): Promise<Response> {
-  const metadata = { name: "Filler CV conversion (temporary)", mimeType: GOOGLE_DOC_MIME, ...(parents ? { parents } : {}) };
+async function uploadAsGoogleDoc(token: string, docx: Blob, name: string, parents: string[] | undefined): Promise<Response> {
+  const metadata = { name, mimeType: GOOGLE_DOC_MIME, ...(parents ? { parents } : {}) };
   const form = new FormData();
   form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
   form.append("file", docx);
@@ -55,10 +55,10 @@ async function uploadAsGoogleDoc(token: string, docx: Blob, parents: string[] | 
  * Google Doc there, otherwise to My Drive root; either way it's deleted
  * right after export, even when the export fails.
  */
-export async function convertDocxToPdf(docx: Blob): Promise<Blob> {
+export async function convertDocxToPdf(docx: Blob, title: string): Promise<Blob> {
   const token = await conversionToken();
-  let upload = await uploadAsGoogleDoc(token, docx, ["appDataFolder"]);
-  if (!upload.ok) upload = await uploadAsGoogleDoc(token, docx, undefined);
+  let upload = await uploadAsGoogleDoc(token, docx, title, ["appDataFolder"]);
+  if (!upload.ok) upload = await uploadAsGoogleDoc(token, docx, title, undefined);
   if (!upload.ok) {
     const body = await upload.text().catch(() => "");
     throw new Error(`Google Drive conversion upload failed (${upload.status}): ${body.slice(0, 200)}`);

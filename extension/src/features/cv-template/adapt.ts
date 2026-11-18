@@ -152,7 +152,8 @@ export async function renderAdaptedCv(
       ]);
       // Google Docs drops Word's rounded/circular photo masks — bake them into the image first.
       const baked = await bakePictureShapes(filled);
-      return { blob: await convertDocxToPdf(new Blob([new Uint8Array(baked)], { type: DOCX_MIME })), notes: [] };
+      const title = fileName.replace(/\.pdf$/i, "");
+      return { blob: await convertDocxToPdf(new Blob([new Uint8Array(baked)], { type: DOCX_MIME }), title), notes: [] };
     });
     return { file: new File([blob], fileName, { type: "application/pdf" }), notes: [] };
   }

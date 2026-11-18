@@ -4,6 +4,7 @@ import { convertDocxToPdf } from "@/features/google-drive/convert";
 interface Call {
   method: string;
   url: string;
+  name?: string;
   parents?: string[];
 }
 
@@ -23,7 +24,8 @@ describe("convertDocxToPdf", () => {
       vi.fn(async (url: string, init: RequestInit = {}) => {
         const call: Call = { method: init.method ?? "GET", url };
         if (init.body instanceof FormData) {
-          const metadata = JSON.parse(await (init.body.get("metadata") as Blob).text()) as { parents?: string[] };
+          const metadata = JSON.parse(await (init.body.get("metadata") as Blob).text()) as { name: string; parents?: string[] };
+          call.name = metadata.name;
           call.parents = metadata.parents;
         }
         calls.push(call);
@@ -50,7 +52,7 @@ describe("convertDocxToPdf", () => {
       return new Response(null, { status: 204 });
     });
 
-    const pdf = await convertDocxToPdf(new Blob(["docx"]));
+    const pdf = await convertDocxToPdf(new Blob(["docx"]), "Vitalii Popov CV - Tibber");
 
     expect(await pdf.text()).toBe("%PDF-1.7");
     expect(getAuthToken).toHaveBeenNthCalledWith(1, {
@@ -59,6 +61,7 @@ describe("convertDocxToPdf", () => {
     });
     expect(getAuthToken).toHaveBeenLastCalledWith(expect.objectContaining({ interactive: true }));
     expect(calls.map((c) => c.method)).toEqual(["POST", "GET", "DELETE"]);
+    expect(calls[0].name).toBe("Vitalii Popov CV - Tibber");
     expect(calls[0].parents).toEqual(["appDataFolder"]);
     expect(calls[1].url).toContain("/files/doc1/export?mimeType=application%2Fpdf");
     expect(calls[2].url).toMatch(/\/files\/doc1$/);
@@ -72,10 +75,13 @@ describe("convertDocxToPdf", () => {
       return new Response(null, { status: 204 });
     });
 
-    await convertDocxToPdf(new Blob(["docx"]));
+    await convertDocxToPdf(new Blob(["docx"]), "Vitalii Popov CV");
 
     expect(getAuthToken).toHaveBeenCalledTimes(1);
-    expect(calls.filter((c) => c.method === "POST").map((c) => c.parents)).toEqual([["appDataFolder"], undefined]);
+    expect(calls.filter((c) => c.method === "POST").map((c) => [c.name, c.parents])).toEqual([
+      ["Vitalii Popov CV", ["appDataFolder"]],
+      ["Vitalii Popov CV", undefined],
+    ]);
   });
 
   it("still deletes the temporary doc when the export fails", async () => {
@@ -85,13 +91,13 @@ describe("convertDocxToPdf", () => {
       return new Response(null, { status: 204 });
     });
 
-    await expect(convertDocxToPdf(new Blob(["docx"]))).rejects.toThrow(/export failed \(500\)/);
+    await expect(convertDocxToPdf(new Blob(["docx"]), "Vitalii Popov CV")).rejects.toThrow(/export failed \(500\)/);
     expect(calls[calls.length - 1]).toMatchObject({ method: "DELETE" });
   });
 
   it("reports a declined consent instead of hanging", async () => {
     getAuthToken.mockRejectedValue(new Error("The user did not approve access."));
     stubFetch(() => new Response(null));
-    await expect(convertDocxToPdf(new Blob(["docx"]))).rejects.toThrow(/didn't grant/);
+    await expect(convertDocxToPdf(new Blob(["docx"]), "Vitalii Popov CV")).rejects.toThrow(/didn't grant/);
   });
 });
