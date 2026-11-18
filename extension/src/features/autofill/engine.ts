@@ -13,7 +13,7 @@ import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 import { fieldQuestionText } from "./field-signal";
 import { fieldKind } from "@/features/fill-stats/dom";
 import { fillLocationField } from "./location";
-import { activeAtsAdapter, isAtsIgnored } from "./ats";
+import { activeAtsAdapter, isAtsIgnored, withAtsCache } from "./ats";
 import type { AtsAdapter } from "./ats/types";
 import type { FillFieldStat } from "@/features/fill-stats/stats";
 import { backingSelect, repaintFacade } from "./select-facade";
@@ -147,7 +147,7 @@ function fillRegistrationPassword(elements: HTMLElement[]): { password: string |
  * widget, and two open at once can steal each other's focus (see
  * `combobox.ts`).
  */
-export async function autofillDocument(
+async function autofillDocumentUncached(
   profile: Profile,
   options: {
     /**
@@ -288,4 +288,9 @@ function fillSalutationRadios(salutation: string, stats: FillFieldStat[]): numbe
     }
   }
   return filled;
+}
+
+/** `autofillDocumentUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function autofillDocument(...args: Parameters<typeof autofillDocumentUncached>): ReturnType<typeof autofillDocumentUncached> {
+  return withAtsCache(() => autofillDocumentUncached(...args));
 }

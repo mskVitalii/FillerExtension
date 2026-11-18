@@ -1,5 +1,5 @@
 import { queryFillableDeep } from "./engine";
-import { atsAdapterFor, atsFieldLabel, isAtsIgnored } from "./ats";
+import { atsAdapterFor, atsFieldLabel, isAtsIgnored, withAtsCache } from "./ats";
 
 /**
  * Consent / marketing checkboxes on an application form (spec_2 — extends
@@ -172,7 +172,7 @@ const CHOICE_OPTION_MAX_WORDS = 8;
  * label reads like a consent/marketing statement, or that the form marks
  * required. Plain one-word toggles are left alone.
  */
-export function detectCheckboxes(): PageCheckbox[] {
+function detectCheckboxesUncached(): PageCheckbox[] {
   const out: PageCheckbox[] = [];
   checkboxElements().forEach((el, index) => {
     if (!inApplicationForm(el)) return;
@@ -218,7 +218,7 @@ export function setChecked(el: HTMLElement, checked: boolean): boolean {
  * matches each checkbox by `name`, then by exact label text. Returns how
  * many checkboxes actually changed state.
  */
-export function applyCheckboxDecisions(decisions: CheckboxDecisionInput[]): number {
+function applyCheckboxDecisionsUncached(decisions: CheckboxDecisionInput[]): number {
   if (decisions.length === 0) return 0;
   let changed = 0;
 
@@ -234,4 +234,14 @@ export function applyCheckboxDecisions(decisions: CheckboxDecisionInput[]): numb
     if (setChecked(el, decision.check)) changed++;
   }
   return changed;
+}
+
+/** `detectCheckboxesUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function detectCheckboxes(...args: Parameters<typeof detectCheckboxesUncached>): ReturnType<typeof detectCheckboxesUncached> {
+  return withAtsCache(() => detectCheckboxesUncached(...args));
+}
+
+/** `applyCheckboxDecisionsUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function applyCheckboxDecisions(...args: Parameters<typeof applyCheckboxDecisionsUncached>): ReturnType<typeof applyCheckboxDecisionsUncached> {
+  return withAtsCache(() => applyCheckboxDecisionsUncached(...args));
 }

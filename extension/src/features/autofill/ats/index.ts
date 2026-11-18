@@ -79,10 +79,47 @@ export function detectAts(url: string = urlOf(document), doc: Document = documen
   return null;
 }
 
+/**
+ * Per-run memo of `activeAtsAdapter`. Every field asks "which ATS is this page?" — through
+ * `detectSemanticField`, the question scan, checkbox and upload targeting — and each answer
+ * runs all adapters' `detect` (several DOM queries apiece), so a long form paid that once per
+ * field. Inside `withAtsCache` the answer is computed once per document and URL; outside it
+ * (tests, the refill guard firing later) detection stays live, so a form that renders after
+ * the run, or a fixture swapped into the same `document`, is never answered from a stale entry.
+ */
+let cacheDepth = 0;
+let detected = new WeakMap<Document, { url: string; adapter: AtsAdapter | null }>();
+
+/** Runs `run` (sync or async) with ATS detection memoised until it settles. Nests safely. */
+export function withAtsCache<T>(run: () => T): T {
+  cacheDepth++;
+  const leave = () => {
+    cacheDepth--;
+    if (cacheDepth === 0) detected = new WeakMap();
+  };
+  let result: T;
+  try {
+    result = run();
+  } catch (error) {
+    leave();
+    throw error;
+  }
+  if (result instanceof Promise) return result.finally(leave) as T;
+  leave();
+  return result;
+}
+
 /** The adapter for the page `doc` shows (default: this frame's), or null on a non-ATS / unsupported page. */
 export function activeAtsAdapter(doc: Document = document): AtsAdapter | null {
   if (typeof doc === "undefined") return null;
-  return detectAts(urlOf(doc), doc);
+  const url = urlOf(doc);
+  if (cacheDepth === 0) return detectAts(url, doc);
+  const hit = detected.get(doc);
+  // Same document, new URL: an SPA moved to its next step mid-run — detect again.
+  if (hit && hit.url === url) return hit.adapter;
+  const adapter = detectAts(url, doc);
+  detected.set(doc, { url, adapter });
+  return adapter;
 }
 
 /** `activeAtsAdapter` for the document `el` lives in. */

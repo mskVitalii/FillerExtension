@@ -1,3 +1,4 @@
+import { withAtsCache } from "./ats";
 import { queryFillableDeep } from "./engine";
 import { isGhostField } from "./dom-query";
 import { OPTION_BUTTON_CANDIDATES, isOptionButton, optionButtonsIn } from "./option-buttons";
@@ -609,7 +610,7 @@ function selectCheckboxGroupOptions(checkboxes: HTMLInputElement[], answer: stri
  * and closes its own widget, and two open at once can steal each other's
  * focus (see `combobox.ts`).
  */
-export async function fillAnswersByLocator(
+async function fillAnswersByLocatorUncached(
   items: { locator: ElementLocator; answer: string; question?: string }[],
 ): Promise<{ filled: number; unfilled: string[] }> {
   let filled = 0;
@@ -677,4 +678,9 @@ export async function fillAnswersByLocator(
   }
   void guardFills(guarded);
   return { filled, unfilled };
+}
+
+/** `fillAnswersByLocatorUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function fillAnswersByLocator(...args: Parameters<typeof fillAnswersByLocatorUncached>): ReturnType<typeof fillAnswersByLocatorUncached> {
+  return withAtsCache(() => fillAnswersByLocatorUncached(...args));
 }

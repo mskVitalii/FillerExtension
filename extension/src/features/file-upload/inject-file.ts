@@ -1,7 +1,7 @@
 import { resolveLocator, type ElementLocator } from "@/features/autofill/element-locator";
 import { elementSignalParts } from "@/features/autofill/field-detector";
 import { fieldQuestionText } from "@/features/autofill/field-signal";
-import { activeAtsAdapter, isAtsIgnored, type FileSlot, type UploadKind } from "@/features/autofill/ats";
+import { activeAtsAdapter, isAtsIgnored, type FileSlot, type UploadKind, withAtsCache } from "@/features/autofill/ats";
 
 /**
  * Pushes a File into whatever upload mechanism the page exposes (spec
@@ -209,7 +209,7 @@ function injectAtTarget(file: File, locator: ElementLocator): { nativeInputs: nu
   return { nativeInputs, dropZones: 1 };
 }
 
-export function injectFileIntoPage(
+function injectFileIntoPageUncached(
   file: File,
   targetLocator?: ElementLocator | null,
   kind: FileKind | null = null,
@@ -224,4 +224,9 @@ export function injectFileIntoPage(
     nativeInputs: fillNativeFileInputs(file, kind),
     dropZones: dispatchDropEvents(file, kind),
   };
+}
+
+/** `injectFileIntoPageUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function injectFileIntoPage(...args: Parameters<typeof injectFileIntoPageUncached>): ReturnType<typeof injectFileIntoPageUncached> {
+  return withAtsCache(() => injectFileIntoPageUncached(...args));
 }

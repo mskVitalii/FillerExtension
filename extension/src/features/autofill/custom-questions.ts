@@ -7,7 +7,7 @@ import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
-import { activeAtsAdapter, atsFieldLabel, isAtsIgnored } from "./ats";
+import { activeAtsAdapter, atsFieldLabel, isAtsIgnored, withAtsCache } from "./ats";
 import type { AtsAdapter } from "./ats/types";
 import { isRevealedPasswordField } from "./password-fields";
 import { buildLocator } from "./element-locator";
@@ -202,7 +202,7 @@ function scanQuestionFields(ats: AtsAdapter | null = activeAtsAdapter()): Questi
  * open at once can steal each other's focus and cross-contaminate each
  * other's revealed option list (see `revealComboboxOptions`'s docstring).
  */
-export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
+async function detectCustomQuestionsUncached(): Promise<CustomQuestion[]> {
   const ats = activeAtsAdapter();
   const fields = scanQuestionFields(ats);
   for (const field of fields) {
@@ -319,7 +319,7 @@ function isEmptyField(el: HTMLElement): boolean {
  * widget itself, same one-at-a-time constraint `revealComboboxOptions` (used
  * during detection) already documents.
  */
-export async function fillCustomQuestionAnswers(
+async function fillCustomQuestionAnswersUncached(
   answers: Record<string, string>,
 ): Promise<{ filled: number; unfilled: string[] }> {
   let filled = 0;
@@ -352,4 +352,14 @@ export async function fillCustomQuestionAnswers(
   }
   void guardFills(guarded);
   return { filled, unfilled };
+}
+
+/** `detectCustomQuestionsUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function detectCustomQuestions(...args: Parameters<typeof detectCustomQuestionsUncached>): ReturnType<typeof detectCustomQuestionsUncached> {
+  return withAtsCache(() => detectCustomQuestionsUncached(...args));
+}
+
+/** `fillCustomQuestionAnswersUncached` with ATS detection memoised for the whole run (`withAtsCache`). */
+export function fillCustomQuestionAnswers(...args: Parameters<typeof fillCustomQuestionAnswersUncached>): ReturnType<typeof fillCustomQuestionAnswersUncached> {
+  return withAtsCache(() => fillCustomQuestionAnswersUncached(...args));
 }
