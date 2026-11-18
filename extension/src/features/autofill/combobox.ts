@@ -63,7 +63,8 @@ export function findFlyoutToggle(el: HTMLElement): HTMLElement | null {
  * (`select__control`) and the default emotion one (`css-xyz-control`).
  */
 function findSelectControl(el: HTMLElement): HTMLElement | null {
-  return el.closest<HTMLElement>('[class*="__control"], [class*="-control"]');
+  // A wrapper, never the field itself: Bootstrap's `form-control` on a plain input isn't one.
+  return el.parentElement?.closest<HTMLElement>('[class*="__control"], [class*="-control"]') ?? null;
 }
 
 /** A react-select instance, recognisable by its generated ids or its Control wrapper. */

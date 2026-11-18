@@ -1,6 +1,7 @@
 import type { Profile, ProfileFieldKey } from "@/types/profile";
 import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
+import { fillComboboxAnswer, isComboboxLike, isReactSelectLike } from "./combobox";
 import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
@@ -53,6 +54,16 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
   if (field === "country" && el instanceof HTMLSelectElement) {
     for (const candidate of countryCandidates(value)) {
       if (fillElement(el, candidate)) return true;
+    }
+    return false;
+  }
+
+  // A react-select dropdown (Greenhouse's "My pronouns are", "Country", …) takes a value only by
+  // clicking one of its options; typing would leave the search text there and nothing chosen.
+  if (isComboboxLike(el) && isReactSelectLike(el)) {
+    const candidates = field === "country" ? countryCandidates(value) : [value];
+    for (const candidate of candidates) {
+      if (await fillComboboxAnswer(el, candidate)) return true;
     }
     return false;
   }
