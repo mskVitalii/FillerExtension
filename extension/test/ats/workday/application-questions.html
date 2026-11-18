@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  SYNTHETIC: Workday "Application Questions" + "Voluntary Disclosures" (steps 3–4 of 5),
+  merged on one page. Shapes follow the live step-1 markup (listbox buttons, formField
+  wrappers, role=group sections) and Workday's questionnaire conventions:
+  `primaryQuestionnaire--<id>` fields, a `dateInputWrapper` with month/day/year
+  spin buttons, a multiselect prompt, a cover-letter attachment slot, and the
+  `termsAndConditions--acceptTermsAndAgreements` checkbox. German-language tenant.
+
+  FIXTURE-ONLY: `data-fixture-options` (see my-information.html).
+-->
+<html lang="de">
+<body>
+<div data-automation-id="applyFlowPage">
+  <ol data-automation-id="progressBar">
+    <li data-automation-id="progressBarActiveStep">current step 3 of 5</li>
+  </ol>
+  <div data-automation-id="applyFlowPrimaryQuestionsPage">
+    <h2>Fragen zur Bewerbung</h2>
+    <div role="group" aria-labelledby="primaryQuestionnaire-section">
+      <div data-automation-id="formField-q1">
+        <label for="primaryQuestionnaire--q1"><span>Benötigen Sie eine Arbeitserlaubnis für Deutschland?<abbr aria-hidden="true">*</abbr></span></label>
+        <button aria-haspopup="listbox" type="button" id="primaryQuestionnaire--q1" name="q1" value="" data-fixture-options="Ja|Nein">Auswählen</button><input type="text" value="">
+      </div>
+      <div data-automation-id="formField-q2">
+        <label for="primaryQuestionnaire--q2"><span>Warum möchten Sie bei uns arbeiten?<abbr aria-hidden="true">*</abbr></span></label>
+        <textarea id="primaryQuestionnaire--q2" name="q2"></textarea>
+      </div>
+      <div data-automation-id="formField-q3">
+        <label id="primaryQuestionnaire--q3-label"><span>Wann können Sie frühestens beginnen?<abbr aria-hidden="true">*</abbr></span></label>
+        <div data-automation-id="dateInputWrapper" role="group" aria-labelledby="primaryQuestionnaire--q3-label">
+          <input type="text" role="spinbutton" aria-label="Wann können Sie frühestens beginnen? Tag" data-automation-id="dateSectionDay-input" id="primaryQuestionnaire--q3-dateSectionDay-input" value="">
+          <input type="text" role="spinbutton" aria-label="Monat" data-automation-id="dateSectionMonth-input" id="primaryQuestionnaire--q3-dateSectionMonth-input" value="">
+          <input type="text" role="spinbutton" aria-label="Jahr" data-automation-id="dateSectionYear-input" id="primaryQuestionnaire--q3-dateSectionYear-input" value="">
+        </div>
+      </div>
+      <div data-automation-id="formField-q4">
+        <label for="primaryQuestionnaire--q4"><span>Wie viele Jahre Berufserfahrung haben Sie mit Java?</span></label>
+        <input type="text" id="primaryQuestionnaire--q4" name="q4" value="">
+      </div>
+      <div data-automation-id="formField-q5">
+        <label for="primaryQuestionnaire--q5"><span>Welche Sprachen sprechen Sie fließend?</span></label>
+        <div data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect"><input type="text" placeholder="Suchen" id="primaryQuestionnaire--q5" value="" data-fixture-options="Deutsch|Englisch|Französisch|Spanisch"><ul role="listbox" data-automation-id="selectedItemList"></ul></div>
+      </div>
+    </div>
+    <div role="group" aria-labelledby="Cover-Letter-section">
+      <h4 id="Cover-Letter-section">Anschreiben</h4>
+      <div data-automation-id="formField-coverLetter">
+        <div data-automation-id="file-upload-drop-zone"><input type="file" data-automation-id="file-upload-input-ref"></div>
+      </div>
+    </div>
+  </div>
+  <div data-automation-id="applyFlowVoluntaryDisclosuresPage" hidden></div>
+  <div role="group" aria-labelledby="terms-section">
+    <h4 id="terms-section">Allgemeine Geschäftsbedingungen</h4>
+    <div data-automation-id="formField-acceptTermsAndAgreements">
+      <input type="checkbox" id="termsAndConditions--acceptTermsAndAgreements" aria-required="true" aria-checked="false">
+      <label for="termsAndConditions--acceptTermsAndAgreements">Ich habe die Datenschutzerklärung gelesen und stimme der Verarbeitung meiner Daten zu.</label>
+    </div>
+  </div>
+  <div data-automation-id="pageFooter">
+    <button data-automation-id="pageFooterBackButton" type="button">Zurück</button>
+    <button data-automation-id="pageFooterNextButton" type="button">Weiter</button>
+  </div>
+</div>
+</body>
+</html>

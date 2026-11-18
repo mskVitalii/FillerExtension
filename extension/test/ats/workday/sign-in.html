@@ -1,0 +1,56 @@
+<!doctype html>
+<!--
+  SYNTHETIC: Workday's account gate, as it appears after "Apply" on tenants that require
+  an account (the public tenant studied allows "Apply Manually" without one). Three
+  states of the same page, each in its own <section> so a test shows one at a time:
+  the "Start Your Application" dialog, "Create Account" and "Sign In". Automation ids
+  (`applyManually`, `autofillWithResume`, `useMyLastApplication`, `email`, `password`,
+  `verifyPassword`, `createAccountCheckbox`, `createAccountSubmitButton`,
+  `signInSubmitButton`, `signInLink`, `createAccountLink`) follow Workday's documented
+  scheme. There is no <form> element, as in the live app.
+-->
+<html lang="en">
+<body>
+<section id="start" role="dialog" aria-labelledby="start-title">
+  <h2 id="start-title">Start Your Application</h2>
+  <a data-automation-id="autofillWithResume" role="button" href="#">Autofill with Resume</a>
+  <a data-automation-id="applyManually" role="button" href="#">Apply Manually</a>
+  <a data-automation-id="useMyLastApplication" role="button" href="#">Use My Last Application</a>
+</section>
+
+<section id="create" data-automation-id="signInContent" hidden>
+  <h2>Create Account</h2>
+  <div data-automation-id="formField-email"><label for="input-1">Email Address<abbr>*</abbr></label><input type="text" id="input-1" data-automation-id="email" aria-required="true" value=""></div>
+  <div data-automation-id="formField-password"><label for="input-2">Password<abbr>*</abbr></label><input type="password" id="input-2" data-automation-id="password" aria-required="true" value=""></div>
+  <div data-automation-id="formField-verifyPassword"><label for="input-3">Verify New Password<abbr>*</abbr></label><input type="password" id="input-3" data-automation-id="verifyPassword" aria-required="true" value=""></div>
+  <div data-automation-id="formField-createAccountCheckbox"><input type="checkbox" id="input-4" data-automation-id="createAccountCheckbox" aria-required="true"><label for="input-4">Yes, I have read and consent to the Terms and Conditions</label></div>
+  <div role="button" data-automation-id="createAccountSubmitButton" aria-label="Create Account">Create Account</div>
+  <button data-automation-id="signInLink" type="button">Sign In</button>
+</section>
+
+<section id="signin" data-automation-id="signInContent" hidden>
+  <h2>Sign In</h2>
+  <div data-automation-id="formField-email"><label for="input-5">Email Address</label><input type="text" id="input-5" data-automation-id="email" value=""></div>
+  <div data-automation-id="formField-password"><label for="input-6">Password</label><input type="password" id="input-6" data-automation-id="password" value=""></div>
+  <div role="button" data-automation-id="signInSubmitButton" aria-label="Sign In">Sign In</div>
+  <button data-automation-id="createAccountLink" type="button">Create Account</button>
+</section>
+
+<section id="posting" hidden>
+  <h2 data-automation-id="jobPostingHeader">Softwareentwickler (m/w/d)</h2>
+  <div data-automation-id="jobPostingDescription"><p>Wir suchen …</p></div>
+  <a data-automation-id="adventureButton" role="button" href="#">Apply</a>
+</section>
+
+<section id="review" hidden>
+  <div data-automation-id="applyFlowPage">
+    <ol data-automation-id="progressBar"><li data-automation-id="progressBarActiveStep">current step 5 of 5</li></ol>
+    <div data-automation-id="applyFlowReviewPage"><h2>Review</h2></div>
+    <div data-automation-id="pageFooter">
+      <button data-automation-id="pageFooterBackButton" type="button">Back</button>
+      <button data-automation-id="pageFooterNextButton" type="button">Submit</button>
+    </div>
+  </div>
+</section>
+</body>
+</html>

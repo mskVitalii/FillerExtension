@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+  SYNTHETIC: Workday "My Experience" (step 2 of 5). This step is behind "Next" on step 1,
+  which this research did not press. Built from the same tenant's live step-1 markup
+  conventions (`formField-<key>` wrappers, `role=group` sections labelled by an h4, listbox
+  buttons, multiselect prompts) and Workday's documented/widely scripted automation ids:
+  `workExperience-N` / `education-N` / `webAddress-N` entry panels, `Add` buttons,
+  `currentlyWorkHere`, `dateInputWrapper` with `dateSection{Month,Year}-input` spin buttons,
+  `file-upload-input-ref` + `file-upload-drop-zone`, `linkedInAccount`.
+
+  FIXTURE-ONLY: `data-fixture-options` (dropdown/prompt contents) and `data-fixture-add`
+  (which <template> an "Add" button stamps; `__N__` = entry number) — wired by
+  `test/ats/widgets.ts`.
+-->
+<html lang="en">
+<body>
+<div data-automation-id="applyFlowPage">
+  <ol data-automation-id="progressBar">
+    <li data-automation-id="progressBarCompletedStep">step 1 of 5</li>
+    <li data-automation-id="progressBarActiveStep">current step 2 of 5</li>
+    <li data-automation-id="progressBarInactiveStep">step 3 of 5</li>
+    <li data-automation-id="progressBarInactiveStep">step 4 of 5</li>
+    <li data-automation-id="progressBarInactiveStep">step 5 of 5</li>
+  </ol>
+  <div data-automation-id="applyFlowMyExpPage">
+    <div role="group" aria-labelledby="Work-Experience-section">
+      <h4 id="Work-Experience-section">Work Experience</h4>
+      <div data-automation-id="workExperience-1" role="group" aria-labelledby="Work-Experience-1-panel">
+        <h5 id="Work-Experience-1-panel">Work Experience 1</h5>
+        <div data-automation-id="formField-jobTitle"><label for="workExperience-1--jobTitle">Job Title<abbr aria-hidden="true">*</abbr></label><input type="text" id="workExperience-1--jobTitle" name="jobTitle" aria-required="true" value=""></div>
+        <div data-automation-id="formField-companyName"><label for="workExperience-1--companyName">Company<abbr aria-hidden="true">*</abbr></label><input type="text" id="workExperience-1--companyName" name="companyName" aria-required="true" value=""></div>
+        <div data-automation-id="formField-location"><label for="workExperience-1--location">Location</label><input type="text" id="workExperience-1--location" name="location" value=""></div>
+        <div data-automation-id="formField-currentlyWorkHere"><input type="checkbox" id="workExperience-1--currentlyWorkHere" name="currentlyWorkHere" aria-checked="false"><label for="workExperience-1--currentlyWorkHere">I currently work here</label></div>
+        <div data-automation-id="formField-startDate"><label id="workExperience-1--startDate-label">From<abbr aria-hidden="true">*</abbr></label>
+          <div data-automation-id="dateInputWrapper" role="group" aria-labelledby="workExperience-1--startDate-label">
+            <div data-automation-id="dateSectionMonth-display" aria-hidden="true">MM</div><input type="text" role="spinbutton" aria-label="Month" aria-valuemin="1" aria-valuemax="12" data-automation-id="dateSectionMonth-input" id="workExperience-1--startDate-dateSectionMonth-input" value="">
+            <div data-automation-id="dateSectionYear-display" aria-hidden="true">YYYY</div><input type="text" role="spinbutton" aria-label="Year" aria-valuemin="1900" aria-valuemax="2100" data-automation-id="dateSectionYear-input" id="workExperience-1--startDate-dateSectionYear-input" value="">
+          </div>
+        </div>
+        <div data-automation-id="formField-endDate"><label id="workExperience-1--endDate-label">To<abbr aria-hidden="true">*</abbr></label>
+          <div data-automation-id="dateInputWrapper" role="group" aria-labelledby="workExperience-1--endDate-label">
+            <input type="text" role="spinbutton" aria-label="Month" data-automation-id="dateSectionMonth-input" id="workExperience-1--endDate-dateSectionMonth-input" value="">
+            <input type="text" role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input" id="workExperience-1--endDate-dateSectionYear-input" value="">
+          </div>
+        </div>
+        <div data-automation-id="formField-roleDescription"><label for="workExperience-1--roleDescription">Role Description</label><textarea id="workExperience-1--roleDescription" name="roleDescription"></textarea></div>
+      </div>
+      <button data-automation-id="Add" type="button" aria-label="Add Another Work Experience" data-fixture-add="tpl-work">Add</button>
+    </div>
+
+    <div role="group" aria-labelledby="Education-section">
+      <h4 id="Education-section">Education</h4>
+      <button data-automation-id="Add" type="button" aria-label="Add Education" data-fixture-add="tpl-education">Add</button>
+    </div>
+
+    <div role="group" aria-labelledby="Websites-section">
+      <h4 id="Websites-section">Websites</h4>
+      <button data-automation-id="Add" type="button" aria-label="Add Websites" data-fixture-add="tpl-web">Add</button>
+    </div>
+
+    <div role="group" aria-labelledby="Social-Network-URLs-section">
+      <h4 id="Social-Network-URLs-section">Social Network URLs</h4>
+      <div data-automation-id="formField-linkedInAccount"><label for="socialNetworkAccounts--linkedInAccount">LinkedIn</label><input type="text" id="socialNetworkAccounts--linkedInAccount" name="linkedInAccount" value=""></div>
+    </div>
+
+    <div role="group" aria-labelledby="Resume-section">
+      <h4 id="Resume-section">Resume/CV</h4>
+      <div data-automation-id="formField-resume">
+        <div data-automation-id="file-upload-drop-zone">
+          <p>Drop file here</p>
+          <button data-automation-id="select-files" type="button">Select file</button>
+          <input type="file" multiple data-automation-id="file-upload-input-ref" accept=".pdf,.doc,.docx">
+        </div>
+        <p>Upload either DOC, DOCX, HTML, PDF, or TXT file types (5MB max)</p>
+      </div>
+    </div>
+  </div>
+  <div data-automation-id="pageFooter">
+    <button data-automation-id="pageFooterBackButton" type="button">Back</button>
+    <button data-automation-id="pageFooterNextButton" type="button">Save and Continue</button>
+  </div>
+</div>
+
+<template id="tpl-work">
+  <div data-automation-id="workExperience-__N__" role="group" aria-labelledby="Work-Experience-__N__-panel">
+    <h5 id="Work-Experience-__N__-panel">Work Experience __N__</h5>
+    <div data-automation-id="formField-jobTitle"><label for="workExperience-__N__--jobTitle">Job Title</label><input type="text" id="workExperience-__N__--jobTitle" name="jobTitle" value=""></div>
+    <div data-automation-id="formField-companyName"><label for="workExperience-__N__--companyName">Company</label><input type="text" id="workExperience-__N__--companyName" name="companyName" value=""></div>
+    <div data-automation-id="formField-location"><label for="workExperience-__N__--location">Location</label><input type="text" id="workExperience-__N__--location" name="location" value=""></div>
+    <div data-automation-id="formField-currentlyWorkHere"><input type="checkbox" id="workExperience-__N__--currentlyWorkHere" name="currentlyWorkHere"><label for="workExperience-__N__--currentlyWorkHere">I currently work here</label></div>
+    <div data-automation-id="formField-startDate"><div data-automation-id="dateInputWrapper">
+      <input type="text" role="spinbutton" aria-label="Month" data-automation-id="dateSectionMonth-input" id="workExperience-__N__--startDate-dateSectionMonth-input" value="">
+      <input type="text" role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input" id="workExperience-__N__--startDate-dateSectionYear-input" value="">
+    </div></div>
+    <div data-automation-id="formField-endDate"><div data-automation-id="dateInputWrapper">
+      <input type="text" role="spinbutton" aria-label="Month" data-automation-id="dateSectionMonth-input" id="workExperience-__N__--endDate-dateSectionMonth-input" value="">
+      <input type="text" role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input" id="workExperience-__N__--endDate-dateSectionYear-input" value="">
+    </div></div>
+    <div data-automation-id="formField-roleDescription"><label for="workExperience-__N__--roleDescription">Role Description</label><textarea id="workExperience-__N__--roleDescription" name="roleDescription"></textarea></div>
+  </div>
+</template>
+
+<template id="tpl-education">
+  <div data-automation-id="education-__N__" role="group" aria-labelledby="Education-__N__-panel">
+    <h5 id="Education-__N__-panel">Education __N__</h5>
+    <div data-automation-id="formField-schoolName"><label for="education-__N__--schoolName">School or University</label><input type="text" id="education-__N__--schoolName" name="schoolName" value=""></div>
+    <div data-automation-id="formField-degree"><label for="education-__N__--degree">Degree</label><button aria-haspopup="listbox" type="button" id="education-__N__--degree" name="degree" value="" data-fixture-options="Abitur|Bachelor's Degree|Master's Degree|Doctorate|Other">Select One</button><input type="text" value=""></div>
+    <div data-automation-id="formField-fieldOfStudy"><label for="education-__N__--fieldOfStudy">Field of Study</label>
+      <div data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect"><input type="text" placeholder="Search" id="education-__N__--fieldOfStudy" value="" data-fixture-options="Business Administration|Computer Science|Mathematics|Physics"><ul role="listbox" data-automation-id="selectedItemList"></ul></div>
+    </div>
+    <div data-automation-id="formField-gradeAverage"><label for="education-__N__--gradeAverage">Overall Result (GPA)</label><input type="text" id="education-__N__--gradeAverage" name="gradeAverage" value=""></div>
+    <div data-automation-id="formField-firstYearAttended"><label>From</label><div data-automation-id="dateInputWrapper">
+      <input type="text" role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input" id="education-__N__--firstYearAttended-dateSectionYear-input" value="">
+    </div></div>
+    <div data-automation-id="formField-lastYearAttended"><label>To (Actual or Expected)</label><div data-automation-id="dateInputWrapper">
+      <input type="text" role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input" id="education-__N__--lastYearAttended-dateSectionYear-input" value="">
+    </div></div>
+  </div>
+</template>
+
+<template id="tpl-web">
+  <div data-automation-id="webAddress-__N__" role="group" aria-labelledby="Websites-__N__-panel">
+    <h5 id="Websites-__N__-panel">Websites __N__</h5>
+    <div data-automation-id="formField-url"><label for="webAddress-__N__--url">URL</label><input type="text" id="webAddress-__N__--url" name="url" value=""></div>
+  </div>
+</template>
+</body>
+</html>

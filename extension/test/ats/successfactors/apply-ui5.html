@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  SYNTHETIC: the SAPUI5 SuccessFactors apply flow (German locale), step 2 of 3 of a
+  `sap.m.Wizard`. Not captured — it needs an account. Control markup follows SAPUI5's
+  rendered DOM for each control (ids "<control>-inner", classes, roles):
+    sap.m.Input      div.sapMInput > input.sapMInputBaseInner#<id>-inner, label[for=<id>-inner]
+    sap.m.Select     div.sapMSlt[role=combobox] > span.sapMSltLabel; list "<id>-list" in a popover
+    sap.m.ComboBox   div.sapMComboBox > input[role=combobox]#<id>-inner + span#<id>-arrow[role=button]
+    sap.m.DatePicker div.sapMDP > input#<id>-inner, placeholder in the locale pattern
+    sap.m.CheckBox   div.sapMCb[role=checkbox][aria-checked] > div.sapMCbBg > input[type=checkbox] (hidden mirror)
+    sap.ui.unified.FileUploader  div.sapUiFup > input#<id>-fu_input-inner (file name box) + input[type=file]#<id>-fu
+  An account section sits on the same step ("Kennwort" with its show-password icon
+  already pressed, i.e. type=text). `#career_company` is the SF page marker.
+
+  FIXTURE-ONLY: `data-fixture-options` — UI5 builds the option list when the control opens.
+-->
+<html lang="de">
+<body class="sapUiBody">
+<input type="hidden" id="career_company" name="career_company" value="ACME">
+<div id="__wizard0" class="sapMWizard">
+  <ul class="sapMWizardProgressNavList">
+    <li class="sapMWizardProgressNavStep" title="Lebenslauf hochladen" aria-current="false"><span class="sapMWizardProgressNavStepTitle">Lebenslauf hochladen</span></li>
+    <li class="sapMWizardProgressNavStep" title="Persönliche Daten" aria-current="step"><span class="sapMWizardProgressNavStepTitle">Persönliche Daten</span></li>
+    <li class="sapMWizardProgressNavStep" title="Prüfen und absenden" aria-current="false"><span class="sapMWizardProgressNavStepTitle">Prüfen und absenden</span></li>
+  </ul>
+
+  <div class="sapUiForm">
+    <div class="sapUiFormElement">
+      <label id="__label0" class="sapMLabel"><bdi>Anrede</bdi></label>
+      <div id="__select0" class="sapMSlt" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="__label0" tabindex="0" data-fixture-options="Herr|Frau|Divers"><span class="sapMSltLabel" id="__select0-label"></span><span class="sapMSltArrow"></span></div>
+    </div>
+    <div class="sapUiFormElement"><label id="__label1" for="__input1-inner" class="sapMLabel"><bdi>Vorname</bdi></label>
+      <div id="__input1" class="sapMInput sapMInputBase"><div class="sapMInputBaseContentWrapper"><input id="__input1-inner" class="sapMInputBaseInner" type="text" aria-labelledby="__label1" value=""></div></div></div>
+    <div class="sapUiFormElement"><label id="__label2" for="__input2-inner" class="sapMLabel"><bdi>Nachname</bdi></label>
+      <div id="__input2" class="sapMInput sapMInputBase"><div class="sapMInputBaseContentWrapper"><input id="__input2-inner" class="sapMInputBaseInner" type="text" value=""></div></div></div>
+    <div class="sapUiFormElement"><label id="__label3" for="__input3-inner" class="sapMLabel"><bdi>E-Mail-Adresse</bdi></label>
+      <div id="__input3" class="sapMInput sapMInputBase"><input id="__input3-inner" class="sapMInputBaseInner" type="email" value=""></div></div>
+    <div class="sapUiFormElement"><label id="__label4" for="__input4-inner" class="sapMLabel"><bdi>Mobiltelefon</bdi></label>
+      <div id="__input4" class="sapMInput sapMInputBase"><input id="__input4-inner" class="sapMInputBaseInner" type="tel" value=""></div></div>
+    <div class="sapUiFormElement"><label id="__label5" for="__input5-inner" class="sapMLabel"><bdi>Straße und Hausnummer</bdi></label>
+      <div id="__input5" class="sapMInput sapMInputBase"><input id="__input5-inner" class="sapMInputBaseInner" type="text" value=""></div></div>
+    <div class="sapUiFormElement"><label id="__label6" for="__input6-inner" class="sapMLabel"><bdi>PLZ</bdi></label>
+      <div id="__input6" class="sapMInput sapMInputBase"><input id="__input6-inner" class="sapMInputBaseInner" type="text" value=""></div></div>
+    <div class="sapUiFormElement"><label id="__label7" for="__input7-inner" class="sapMLabel"><bdi>Ort</bdi></label>
+      <div id="__input7" class="sapMInput sapMInputBase"><input id="__input7-inner" class="sapMInputBaseInner" type="text" value=""></div></div>
+    <div class="sapUiFormElement"><label id="__label8" for="__box0-inner" class="sapMLabel"><bdi>Land</bdi></label>
+      <div id="__box0" class="sapMComboBox sapMComboBoxBase sapMInputBase"><div class="sapMInputBaseContentWrapper">
+        <input id="__box0-inner" class="sapMInputBaseInner" type="text" role="combobox" aria-autocomplete="both" aria-expanded="false" aria-haspopup="listbox" autocomplete="off" value="" data-fixture-options="Deutschland|Österreich|Schweiz|Vereinigtes Königreich">
+        <span id="__box0-arrow" role="button" aria-label="Optionen auswählen" class="sapUiIcon sapMInputBaseIcon"></span>
+      </div></div></div>
+  </div>
+
+  <div class="sapUiForm">
+    <h3>Konto</h3>
+    <div class="sapUiFormElement"><label id="__label9" for="__input9-inner" class="sapMLabel"><bdi>Kennwort</bdi></label>
+      <div id="__input9" class="sapMInput sapMInputBase"><input id="__input9-inner" class="sapMInputBaseInner" type="text" value=""><span id="__input9-vhi" role="button" aria-label="Kennwort anzeigen" class="sapUiIcon"></span></div></div>
+  </div>
+
+  <div class="sapUiForm">
+    <h3>Fragen</h3>
+    <div class="sapUiFormElement"><label id="__label10" class="sapMLabel"><bdi>Sind Sie bereit, nach Berlin umzuziehen?</bdi></label>
+      <div id="__select1" class="sapMSlt" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="__label10" tabindex="0" data-fixture-options="Ja|Nein"><span class="sapMSltLabel" id="__select1-label"></span><span class="sapMSltArrow"></span></div></div>
+    <div class="sapUiFormElement"><label id="__label11" for="__picker0-inner" class="sapMLabel"><bdi>Ab wann können Sie frühestens bei uns beginnen?</bdi></label>
+      <div id="__picker0" class="sapMDP sapMInputBase"><input id="__picker0-inner" class="sapMInputBaseInner" type="text" placeholder="dd.MM.yyyy" value=""><span id="__picker0-icon" role="button" class="sapUiIcon"></span></div></div>
+    <div class="sapUiFormElement"><label id="__label12" for="__area0-inner" class="sapMLabel"><bdi>Was reizt Sie an dieser Position?</bdi></label>
+      <div id="__area0" class="sapMTextArea sapMInputBase"><textarea id="__area0-inner" class="sapMInputBaseInner"></textarea></div></div>
+  </div>
+
+  <div class="sapUiForm">
+    <h3>Unterlagen</h3>
+    <div class="sapUiFormElement"><label id="__label13" for="__uploader0-fu_input-inner" class="sapMLabel"><bdi>Lebenslauf</bdi></label>
+      <div id="__uploader0" class="sapUiFup"><input id="__uploader0-fu_input-inner" class="sapMInputBaseInner" type="text" readonly value=""><input type="file" id="__uploader0-fu" name="__uploader0" tabindex="-1"></div></div>
+    <div class="sapUiFormElement"><label id="__label14" for="__uploader1-fu_input-inner" class="sapMLabel"><bdi>Anschreiben</bdi></label>
+      <div id="__uploader1" class="sapUiFup"><input id="__uploader1-fu_input-inner" class="sapMInputBaseInner" type="text" readonly value=""><input type="file" id="__uploader1-fu" name="__uploader1" tabindex="-1"></div></div>
+  </div>
+
+  <div class="sapUiForm">
+    <div id="__box1" class="sapMCb" role="checkbox" aria-checked="false" aria-required="true" aria-labelledby="__box1-label" tabindex="0"><div class="sapMCbBg"><input type="checkbox" id="__box1-CB" aria-hidden="true" tabindex="-1"></div><label id="__box1-label" class="sapMCbLabel">Ich habe die Datenschutzerklärung gelesen und willige in die Verarbeitung meiner Daten ein.</label></div>
+    <div id="__box2" class="sapMCb" role="checkbox" aria-checked="false" aria-labelledby="__box2-label" tabindex="0"><div class="sapMCbBg"><input type="checkbox" id="__box2-CB" aria-hidden="true" tabindex="-1"></div><label id="__box2-label" class="sapMCbLabel">Informieren Sie mich per E-Mail über neue Stellenangebote (Job-Benachrichtigung).</label></div>
+  </div>
+
+  <div class="sapMBar">
+    <button type="button" id="__button0">Zurück</button>
+    <button type="button" id="__button1">Weiter</button>
+  </div>
+</div>
+</body>
+</html>

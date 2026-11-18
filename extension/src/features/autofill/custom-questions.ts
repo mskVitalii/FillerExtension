@@ -7,7 +7,9 @@ import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
-import { atsFieldLabel, isAtsIgnored } from "./ats";
+import { activeAtsAdapter, atsFieldLabel, isAtsIgnored } from "./ats";
+import type { AtsAdapter } from "./ats/types";
+import { isRevealedPasswordField } from "./password-fields";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -102,13 +104,15 @@ function isShortLabel(text: string): boolean {
 }
 
 /**
- * The question to ask about `el`, or "" when it isn't one. A label shaped like a question wins;
- * otherwise the ATS's own question title (a Lever card, an Ashby entry); otherwise a *required*
- * field's short label still counts — "Notice Period*" on Greenhouse is a question the form won't
- * submit without, even though two words alone don't read as one.
+ * The question to ask about `el`, or "" when it isn't one. The ATS adapter's own question text
+ * (`questionText`, e.g. one section of Workday's split date widget) replaces the field's label.
+ * A label shaped like a question wins; otherwise the ATS's own question title (a Lever card, an
+ * Ashby entry); otherwise a *required* field's short label still counts — "Notice Period*" on
+ * Greenhouse is a question the form won't submit without, even though two words alone don't
+ * read as one.
  */
-function questionFor(el: HTMLElement): string {
-  const question = fieldQuestionText(el).trim();
+function questionFor(el: HTMLElement, ats: AtsAdapter | null): string {
+  const question = (ats?.questionText?.(el) ?? fieldQuestionText(el)).trim();
   if (isQuestionShaped(question)) return question;
   const atsLabel = atsFieldLabel(el);
   if (isQuestionShaped(atsLabel)) return atsLabel;
@@ -137,13 +141,16 @@ function questionFor(el: HTMLElement): string {
  * but that generic placeholder text, so a field with truly no findable
  * question is skipped here rather than faked into one.
  */
-function scanQuestionFields(): QuestionField[] {
-  const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
+function scanQuestionFields(ats: AtsAdapter | null = activeAtsAdapter()): QuestionField[] {
+  const found = queryFillableDeep(FILLABLE_SELECTOR);
+  for (const el of ats?.extraFillables?.(document) ?? []) if (!found.includes(el)) found.push(el);
+  const elements = found.filter(isFillable);
 
   const fields: QuestionField[] = [];
   for (const el of elements) {
+    if (isRevealedPasswordField(el)) continue;
     if (detectSemanticField(el)) continue;
-    const question = questionFor(el);
+    const question = questionFor(el, ats);
     if (!question) continue;
     fields.push({
       question,
@@ -167,8 +174,13 @@ function scanQuestionFields(): QuestionField[] {
  * other's revealed option list (see `revealComboboxOptions`'s docstring).
  */
 export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
-  const fields = scanQuestionFields();
+  const ats = activeAtsAdapter();
+  const fields = scanQuestionFields(ats);
   for (const field of fields) {
+    // The ATS adapter knows its own widgets (Workday's listbox buttons, UI5 selects, date sections).
+    const hints = await ats?.questionHints?.(field.el).catch(() => undefined);
+    if (hints?.options && !field.options) field.options = hints.options;
+    if (hints?.dateKind && !field.dateKind) field.dateKind = hints.dateKind;
     if (!field.options) field.options = await revealComboboxOptions(field.el);
   }
   return fields.map((field, index) => ({
@@ -216,7 +228,7 @@ export function questionAnswerKey(q: Pick<CustomQuestion, "question" | "locator"
  * selected option — which is exactly what this function exists to protect
  * — is never mistaken for an empty one.
  */
-const COMBOBOX_PLACEHOLDER_RE = /^(select|choose|pick)\b|^-+$/i;
+const COMBOBOX_PLACEHOLDER_RE = /^(select|choose|pick)\b|^-+$|^(bitte\s+)?(aus)?w(ä|ae)hlen\b/i;
 
 function isEmptyField(el: HTMLElement): boolean {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
@@ -224,7 +236,9 @@ function isEmptyField(el: HTMLElement): boolean {
   }
   const text = (el.textContent ?? "").trim();
   if (!text) return true;
-  return el.getAttribute("role") === "combobox" && COMBOBOX_PLACEHOLDER_RE.test(text);
+  // A dropdown trigger — `role="combobox"`, or a `<button aria-haspopup="listbox">` (Workday) — showing its placeholder.
+  const isTrigger = el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox";
+  return isTrigger && COMBOBOX_PLACEHOLDER_RE.test(text);
 }
 
 /**
@@ -250,18 +264,20 @@ export async function fillCustomQuestionAnswers(
   let filled = 0;
   const unfilled: string[] = [];
   const guarded: GuardedFill[] = [];
-  for (const { question, el } of scanQuestionFields()) {
+  const ats = activeAtsAdapter();
+  const write = (target: HTMLElement, answer: string) => ats?.fillAnswer?.(target, answer) ?? fillComboboxAnswer(target, answer);
+  for (const { question, el } of scanQuestionFields(ats)) {
     const answer = answers[question];
     if (!answer || !isEmptyField(el)) continue;
     const before = readValue(el);
-    if (await fillComboboxAnswer(el, answer)) {
+    if (await write(el, answer)) {
       filled++;
       guarded.push({
         el,
         before,
         // Re-found the same way this function found it: by its question text.
         locate: () => scanQuestionFields().find((f) => f.question === question)?.el ?? null,
-        refill: (fresh) => fillComboboxAnswer(fresh, answer),
+        refill: (fresh) => write(fresh, answer),
       });
     } else unfilled.push(question);
   }

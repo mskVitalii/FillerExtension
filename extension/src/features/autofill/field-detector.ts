@@ -97,6 +97,12 @@ interface Signal {
 /** Word count past which a free-text signal reads as a question prompt, not a field label. */
 const PROSE_WORD_COUNT = 10;
 
+/**
+ * Free text long enough to read as a question prompt rather than a field label. A short
+ * question still names its field ("What is your expected yearly salary?"); one that merely
+ * mentions a field word is kept out by the patterns themselves ("…Arbeitserlaubnis für
+ * Deutschland?" doesn't match `country`'s `\bland\b`, see semantic-fields.ts).
+ */
 function isProse(text: string): boolean {
   return text.trim().split(/\s+/).length > PROSE_WORD_COUNT;
 }

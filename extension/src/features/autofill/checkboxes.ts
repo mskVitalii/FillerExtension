@@ -24,7 +24,7 @@ const CONSENT_HINT_RE =
 // is never ticked, even when the AI pass fails to return a decision for it
 // and the generic fallback would otherwise trust the form's `required` flag.
 const NEWSLETTER_HINT_RE =
-  /newsletter|marketing|subscribe|promotion|job\s*alert|career\s*news|werbung|benachrichtigung|abonnier|stellenausschreibung/i;
+  /newsletter|marketing|subscribe|promotion|job\s*alert|career\s*news|werbung|benachrichtigung|abonnier|stellenausschreibung|hear more about|job\s*posting\s*notification|sms\s*(messages|updates|opt)/i;
 
 export function isNewsletterLike(label: string): boolean {
   return NEWSLETTER_HINT_RE.test(label);
@@ -110,7 +110,8 @@ function isRequired(el: HTMLElement): boolean {
 }
 
 function inApplicationForm(el: HTMLElement): boolean {
-  // Some ATSs (Ashby) render no `<form>` element at all; their adapter names the container instead.
+  // Some ATSs (Ashby, Workday, SAPUI5 apps) render no `<form>` element at all; their adapter
+  // names the container instead.
   const form = (el as HTMLInputElement).form ?? el.closest("form") ?? atsAdapterFor(el)?.formRoot?.(el) ?? null;
   if (!form) return false;
   // A real application form also has something to type into — this filters
@@ -123,7 +124,8 @@ function checkboxElements(): HTMLElement[] {
     if (!(el instanceof HTMLElement)) return false;
     if (el instanceof HTMLInputElement && el.disabled) return false;
     if (el.getAttribute("aria-disabled") === "true") return false;
-    // A voluntary EEO / demographic survey (and its "you may store my answers" box) stays unanswered.
+    // A voluntary EEO / demographic survey (and its "you may store my answers" box), a UI5
+    // checkbox's hidden mirror input: never decided on (ats/).
     if (isAtsIgnored(el)) return false;
     return isVisible(el);
   });

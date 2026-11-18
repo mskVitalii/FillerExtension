@@ -3,7 +3,7 @@ import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
 import { fillComboboxAnswer, fillComboboxByPicking, isComboboxLike, isReactSelectLike } from "./combobox";
 import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
-import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
+import { findConfirmPasswordFields, isNewPasswordField, isRevealedPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { salutationCandidates } from "@/lib/salutation";
 import { generatePassword } from "@/lib/generate-password";
@@ -31,6 +31,18 @@ function isFillable(el: Element): el is HTMLElement {
 }
 
 export { queryFillableDeep };
+
+/**
+ * Every fillable element on the page, including the ones an ATS adapter knows are
+ * fields although the generic selector misses them (Workday's listbox buttons).
+ */
+function fillableElements(ats: AtsAdapter | null): HTMLElement[] {
+  const found = queryFillableDeep(FILLABLE_SELECTOR);
+  const extra = ats?.extraFillables?.(document) ?? [];
+  const seen = new Set(found);
+  for (const el of extra) if (!seen.has(el)) found.push(el);
+  return found.filter(isFillable);
+}
 
 /** The ATS adapter's own writer for its widgets, falling back to the generic one. */
 function fillWithAdapter(el: HTMLElement, field: ProfileFieldKey, value: string, profile: Profile, ats: AtsAdapter | null): Promise<boolean> {
@@ -150,7 +162,7 @@ export async function autofillDocument(
   } = {},
 ): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const ats = activeAtsAdapter();
-  const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
+  const elements = fillableElements(ats);
 
   // A phone widget's own dial-code companion (e.g. greenhouse.io's
   // react-select "Country" flag/calling-code picker) is very often labelled
@@ -181,7 +193,10 @@ export async function autofillDocument(
     // happens to match — only fillRegistrationPassword() below is allowed
     // to write into one.
     if (el instanceof HTMLInputElement && el.type === "password") continue;
+    // …nor one whose "Show password" toggle turned it into a text box for now.
+    if (isRevealedPasswordField(el)) continue;
     if (dialCodeFields.has(el)) continue;
+    // The ATS adapter's own mapping (and what it ignores) is part of `detectSemanticField`.
     const field = detectSemanticField(el);
     if (!field) continue;
     const value = profileValue(profile, field);
@@ -209,6 +224,15 @@ export async function autofillDocument(
     for (const i of report.lostIndexes) stats[guardedStat[i]].filler = "lost";
     options.onReport?.(stats);
   });
+
+  // Fields with an obvious answer but no profile key (Workday's "Phone Device Type", its phone-code prompt).
+  if (ats?.afterFill) {
+    try {
+      filled += await ats.afterFill(profile, document);
+    } catch (error) {
+      console.warn(`[Filler] ${ats.id} afterFill failed`, error);
+    }
+  }
 
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);
   filled += passwordFilled;

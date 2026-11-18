@@ -1,4 +1,9 @@
-# ATS form fixtures (Greenhouse, Lever, Ashby)
+# ATS form fixtures
+
+One folder per applicant-tracking system. Each set of fixtures has its own loader and tests,
+described below.
+
+## Greenhouse, Lever, Ashby
 
 Sanitized snapshots of real, public application forms, used by `greenhouse.test.ts`,
 `lever.test.ts` and `ashby.test.ts` (shared checks in `ats-suite.ts`, widget simulators in
@@ -25,7 +30,7 @@ The Ashby fixtures keep the "Autofill from resume" uploader, which must never re
 
 The applicant is always the fictional one from `test/fixtures.ts` (Ada Lovelace).
 
-## Refreshing a snapshot
+### Refreshing a snapshot
 
 ```bash
 PLAYWRIGHT_CORE=~/Projects/FillerAgent/node_modules/playwright-core \
@@ -36,7 +41,35 @@ Ready selectors: Greenhouse `#first_name`, Lever `input[name="name"]`, Ashby `#_
 Postings close; when one does, replace it with another live posting rather than editing the HTML
 by hand, and update the expectations in the matching `*.test.ts`.
 
-## Fill rate
+### Fill rate
 
 `make test` prints one `[fill-rate] <ats>/<fixture>: ok/total` line per fixture: profile fields
 holding the expected value plus files in the right input, out of all expected.
+
+## Workday and SuccessFactors
+
+Pages from specific applicant-tracking systems, loaded into jsdom by `widgets.ts`
+(`loadAtsFixture`), which also replays the vendor widgets' behaviour (dropdown popups,
+search prompts, "Add" buttons, UI5 controls) since a parsed fixture runs no scripts.
+Each file's header says whether it was **captured** from a live public page or is
+**synthetic**, and what it was built from. Attributes named `data-fixture-*` exist only
+for the simulator.
+
+Applicant data is always the fictional one from `test/fixtures.ts`.
+
+| File | Kind | Source |
+|---|---|---|
+| `workday/my-information.html` | captured | Public German Workday tenant, "Apply Manually" step 1 (no sign-in needed there), 2026-11-18 |
+| `workday/my-experience.html` | synthetic | Step 2, behind "Next" (not pressed); same markup conventions + Workday automation ids |
+| `workday/application-questions.html` | synthetic | Steps 3–4 questionnaire, German tenant |
+| `workday/sign-in.html` | synthetic | Start dialog, Create Account, Sign In, posting, Review |
+| `successfactors/create-account.html` | captured | `career5.successfactors.eu/career?company=SAP` → Create an account, 2026-11-18 |
+| `successfactors/sign-in.html` | captured | same tenant, Sign In |
+| `successfactors/apply-classic.html` | synthetic | Classic JSP application page (behind sign-in) |
+| `successfactors/apply-ui5.html` | synthetic | SAPUI5 apply wizard (behind sign-in), German locale |
+
+What was *not* reachable without an account: every SuccessFactors application page, and
+Workday steps 2–5 (they are behind "Next", which wasn't pressed). The synthetic pages
+follow SAP/Workday's documented control markup; re-capture them from a real session
+(the user's own dedicated Chrome profile, the agent's run) when one is available, and
+keep the `data-fixture-*` attributes.
