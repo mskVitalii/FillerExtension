@@ -13,6 +13,10 @@ import { stopFillGuards } from "@/features/autofill/refill-guard";
 Object.defineProperty(HTMLElement.prototype, "offsetParent", {
   configurable: true,
   get(this: HTMLElement) {
+    // The real-ATS snapshots (`test/ats/`) keep controls the live page didn't render (the native
+    // `<select>` behind a jQuery UI selectmenu, a file input behind a styled button) and mark
+    // their topmost hidden box `data-fx-hidden` — those stay invisible here, as in the browser.
+    if (this.closest("[data-fx-hidden]")) return null;
     return this.parentElement;
   },
 });

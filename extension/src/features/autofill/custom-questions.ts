@@ -6,6 +6,12 @@ import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
+import { buildLocator } from "./element-locator";
+import { isHoneypot } from "./honeypot";
+import { backingSelect, repaintFacade } from "./select-facade";
+import { pageRadioQuestions } from "./pick-questions";
+import { looksLikeSalutationOptions } from "./salutation";
+import { fillElement } from "./native-setter";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -59,6 +65,7 @@ function isFillable(el: Element): el is HTMLElement {
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if (isSiteSearchField(el)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isHoneypot(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }
@@ -72,6 +79,8 @@ interface QuestionField {
   numeric?: boolean;
   /** `el`'s required date/time format, e.g. `<input type="date">` — an available-from/start-date question. */
   dateKind?: DateInputKind;
+  /** When `el` is a select2/selectmenu/chosen facade: the native `<select>` it stands for, which takes the answer. */
+  select?: HTMLSelectElement;
 }
 
 /**
@@ -97,21 +106,49 @@ interface QuestionField {
  */
 function scanQuestionFields(): QuestionField[] {
   const elements = queryFillableDeep(FILLABLE_SELECTOR).filter(isFillable);
+  // A select widget's facade and its native <select> are one question, asked once (the facade is
+  // what the user sees; the select holds the options and takes the answer — `select-facade.ts`).
+  const facadeSelect = new Map<HTMLElement, HTMLSelectElement>();
+  for (const el of elements) {
+    const select = backingSelect(el);
+    if (select) facadeSelect.set(el, select);
+  }
+  const selectsWithFacade = new Set<HTMLElement>(facadeSelect.values());
 
   const fields: QuestionField[] = [];
   for (const el of elements) {
-    if (detectSemanticField(el)) continue;
-    const question = fieldQuestionText(el).trim();
-    if (!isQuestionShaped(question)) continue;
+    if (selectsWithFacade.has(el)) continue;
+    const select = facadeSelect.get(el);
+    if (detectSemanticField(el) || (select && detectSemanticField(select))) continue;
+    const question = ((select && fieldQuestionText(select)) || fieldQuestionText(el)).trim();
+    const options = nativeFieldOptions(select ?? el);
+    // A choice field is a question even under a one-word label ("Schulabschluss",
+    // "Deutschkenntnisse:", "Berufserfahrung"): its options say what is being asked.
+    const labelledChoice = options !== undefined && options.length > 1 && /\p{L}{3,}/u.test(question);
+    // So is a required field ("Staatsangehörigkeit:*", "Geburtsdatum*"): the form can't be sent
+    // without an answer, and the answer step decides whether the applicant's data has one.
+    const requiredLabelled = isRequiredField(select ?? el) && /\p{L}{3,}/u.test(question);
+    if (!isQuestionShaped(question) && !labelledChoice && !requiredLabelled) continue;
     fields.push({
       question,
       el,
-      options: nativeFieldOptions(el),
+      options,
       numeric: wantsNumericValue(el) || undefined,
       dateKind: dateInputKind(el) ?? undefined,
+      select,
     });
   }
   return fields;
+}
+
+const REQUIRED_MARK_SELECTOR = ".required-mark, .required, .asterisk, .mustsign, .form_content_label_mustsign, abbr[title*=required i]";
+
+/** `required`/`aria-required`, or a "*" marker in the field's `<label for>` / Umantis' label column. */
+function isRequiredField(el: HTMLElement): boolean {
+  if ((el as HTMLInputElement).required || el.getAttribute("aria-required") === "true") return true;
+  const label = el.id ? el.ownerDocument.querySelector(`label[for="${CSS.escape(el.id)}"]`) : el.closest("label");
+  if (label && (label.querySelector(REQUIRED_MARK_SELECTOR) || /\*\s*:?\s*$/.test(label.textContent ?? ""))) return true;
+  return false;
 }
 
 /**
@@ -129,13 +166,43 @@ export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
   for (const field of fields) {
     if (!field.options) field.options = await revealComboboxOptions(field.el);
   }
-  return fields.map((field, index) => ({
+  const questions: CustomQuestion[] = fields.map((field, index) => ({
     id: `question-${index}`,
     question: field.question,
     options: field.options,
     numeric: field.numeric,
     dateKind: field.dateKind,
   }));
+  return [...questions, ...radioQuestions(questions.length)];
+}
+
+/**
+ * Radio-group questions (Ja/Nein screening questions, a consent asked as Ja/Nein, a start-date
+ * choice). They carry a `locator`, so their answers go back through `fillAnswersByLocator`, like
+ * a picked group. Skipped: a group the page already answered, and a salutation group, which the
+ * autofill engine fills from the profile.
+ */
+function radioQuestions(offset: number): CustomQuestion[] {
+  const out: CustomQuestion[] = [];
+  for (const { groupEl, radios, question, options } of pageRadioQuestions()) {
+    if (radios.some((r) => r.checked) || radios.every((r) => !isVisibleRadio(r))) continue;
+    if (looksLikeSalutationOptions(options) || detectSemanticField(radios[0]) === "salutation") continue;
+    if (!question || options.length < 2) continue;
+    out.push({
+      id: `question-${offset + out.length}`,
+      question,
+      locator: buildLocator(groupEl, question),
+      options,
+    });
+  }
+  return out;
+}
+
+/** A radio counts as visible when it is, or its `<label for>` is (a styled radio hides the input). */
+function isVisibleRadio(r: HTMLInputElement): boolean {
+  if (r.offsetParent !== null) return true;
+  const label = r.id ? r.ownerDocument.querySelector<HTMLElement>(`label[for="${CSS.escape(r.id)}"]`) : null;
+  return label !== null && label.offsetParent !== null;
 }
 
 /** The fields `detectCustomQuestions` found, for the on-page highlight (`field-highlight.ts`). */
@@ -208,9 +275,17 @@ export async function fillCustomQuestionAnswers(
   let filled = 0;
   const unfilled: string[] = [];
   const guarded: GuardedFill[] = [];
-  for (const { question, el } of scanQuestionFields()) {
+  for (const { question, el, select } of scanQuestionFields()) {
     const answer = answers[question];
-    if (!answer || !isEmptyField(el)) continue;
+    if (!answer || !isEmptyField(select ?? el)) continue;
+    if (select) {
+      // A facade: the native select takes the answer, the facade is repainted to show it.
+      if (fillElement(select, answer)) {
+        repaintFacade(el, select);
+        filled++;
+      } else unfilled.push(question);
+      continue;
+    }
     const before = readValue(el);
     if (await fillComboboxAnswer(el, answer)) {
       filled++;

@@ -81,6 +81,10 @@ const ATS_HOSTS: [RegExp, string][] = [
   [/breezy\.hr$/, "breezy"],
   [/softgarden\.(io|de)$/, "softgarden"],
   [/rippling\.com$/, "rippling"],
+  [/dvinci(-hr|-easy)?\.(com|de)$/, "dvinci"],
+  [/rexx-(recruitment|systems)\.com$/, "rexx"],
+  [/umantis\.com$/, "umantis"],
+  [/concludis\.de$/, "concludis"],
 ];
 
 /**
