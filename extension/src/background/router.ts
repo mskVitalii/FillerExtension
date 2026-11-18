@@ -495,8 +495,16 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
               .catch(() => {});
           }
         : undefined;
-      const run = await runJobSearch(message.query, { page: message.page, excludeResults: message.excludeResults, onResults });
-      return { type: "JOB_SEARCH_RESULTS", ...run };
+      // Chrome stops an idle service worker after 30 s, and a web search can go
+      // that long without a single streamed byte — which killed the search
+      // mid-way. Any extension API call resets the idle timer.
+      const keepAlive = setInterval(() => void chrome.runtime.getPlatformInfo().catch(() => {}), 20_000);
+      try {
+        const run = await runJobSearch(message.query, { page: message.page, excludeResults: message.excludeResults, onResults });
+        return { type: "JOB_SEARCH_RESULTS", ...run };
+      } finally {
+        clearInterval(keepAlive);
+      }
     }
 
     case "SUGGEST_SEARCH_QUERY": {

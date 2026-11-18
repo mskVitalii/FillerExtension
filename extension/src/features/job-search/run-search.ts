@@ -12,7 +12,7 @@ export interface JobSearchRun {
   results: JobSearchResult[];
   /** The query as searched — Adzuna fills in `tags` (and `what`/`where`) the next page must reuse. */
   resolvedQuery: JobSearchQuery;
-  /** Adzuna only: one message per tag whose request failed — a partial-results notice. */
+  /** Partial-results notices: an Adzuna tag that failed, a web search that stopped early, an unsorted Tavily list. */
   warnings?: string[];
   totalMs: number;
   stages: JobSearchStageTiming[];
@@ -25,7 +25,7 @@ export interface JobSearchRun {
  */
 export async function runJobSearch(
   query: JobSearchQuery,
-  options: { page?: number; excludeResults?: JobSearchResult[]; onResults?: (partial: JobSearchResult[]) => void } = {},
+  options: { page?: number; excludeResults?: JobSearchResult[]; onResults?: (partial: JobSearchResult[]) => void; signal?: AbortSignal } = {},
 ): Promise<JobSearchRun> {
   const startedAt = performance.now();
   const stages: JobSearchStageTiming[] = [];
@@ -71,6 +71,7 @@ export async function runJobSearch(
         adzunaCountryCode(profile.country),
         options.page ?? 1,
         options.onResults,
+        options.signal,
       ),
     );
     return { results, resolvedQuery: resolved, warnings, ...timing() };
@@ -84,9 +85,11 @@ export async function runJobSearch(
   const background = legend?.content ?? "";
   if (query.provider === "tavily") {
     if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
-    const results = await searchTavilyJobs(query, creds.tavilyApiKey, background, options.excludeResults, stages);
-    return { results, resolvedQuery: query, ...timing() };
+    const { results, warnings } = await searchTavilyJobs(query, creds.tavilyApiKey, background, options.excludeResults, stages, options.signal);
+    // Tavily answers all at once: hand the batch over the same way, so callers need one path.
+    if (results.length > 0) options.onResults?.(results);
+    return { results, resolvedQuery: query, ...(warnings.length ? { warnings } : {}), ...timing() };
   }
-  const results = await searchOpenAiJobs(query, background, options.excludeResults, stages, options.onResults);
-  return { results, resolvedQuery: query, ...timing() };
+  const { results, warnings } = await searchOpenAiJobs(query, background, options.excludeResults, stages, options.onResults, options.signal);
+  return { results, resolvedQuery: query, ...(warnings.length ? { warnings } : {}), ...timing() };
 }

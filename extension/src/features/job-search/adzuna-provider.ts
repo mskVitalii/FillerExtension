@@ -60,6 +60,8 @@ function sleep(ms: number): Promise<void> {
 const REQUEST_GAP_MS = 350;
 /** Upper bound on searches per run (search terms × selected grades). */
 const MAX_ADZUNA_REQUESTS = 12;
+/** One Adzuna request; it normally answers in under 2 s. */
+const ADZUNA_TIMEOUT_MS = 15_000;
 
 export function buildAdzunaUrl(
   tag: string,
@@ -86,8 +88,16 @@ async function searchOneTag(
   credentials: AdzunaCredentials,
   countryCode: string,
   page: number,
+  signal?: AbortSignal,
 ): Promise<JobSearchResult[]> {
-  const res = await fetch(buildAdzunaUrl(tag, query, credentials, countryCode, page));
+  const timeout = AbortSignal.timeout(ADZUNA_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(buildAdzunaUrl(tag, query, credentials, countryCode, page), { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  } catch (err) {
+    if (timeout.aborted) throw new Error(`timed out after ${ADZUNA_TIMEOUT_MS / 1000} s`);
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Adzuna search failed (${res.status}): ${body.slice(0, 300)}`);
@@ -136,6 +146,7 @@ export async function searchAdzunaJobs(
   countryCode: string,
   page = 1,
   onTagResults?: (results: JobSearchResult[]) => void,
+  signal?: AbortSignal,
 ): Promise<AdzunaSearchOutcome> {
   const baseTags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
   // Every grade multiplies the request count (they run sequentially, rate-limited), so cap the total.
@@ -150,19 +161,26 @@ export async function searchAdzunaJobs(
     warnings.push(`Only the first ${maxBase} search terms were used with ${gradeCount} grades selected.`);
   }
 
+  let failed = 0;
+  let firstError: unknown = null;
   for (let i = 0; i < tags.length; i++) {
+    if (signal?.aborted) break;
     const tag = tags[i];
     try {
-      const jobs = await searchOneTag(tag, query, credentials, countryCode, page);
+      const jobs = await searchOneTag(tag, query, credentials, countryCode, page, signal);
       const fresh = jobs.filter((job) => !seen.has(job.url));
       for (const job of fresh) seen.add(job.url);
       merged.push(...fresh);
       if (fresh.length > 0) onTagResults?.(fresh);
     } catch (err) {
+      failed++;
+      firstError ??= err;
       warnings.push(`"${tag}" — ${err instanceof Error ? err.message : "search failed"}`);
     }
     if (i < tags.length - 1) await sleep(REQUEST_GAP_MS);
   }
 
+  // Every request failed (bad key, Adzuna down): that's an error, not "no postings".
+  if (failed === tags.length && firstError) throw firstError;
   return { results: merged, warnings };
 }

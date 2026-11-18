@@ -72,7 +72,7 @@ export async function extractJobListings(
   rawText: string,
   source: "openai" | "tavily",
   candidateBackground?: string,
-  options: { negative?: string; reasoningEffort?: ReasoningEffort } = {},
+  options: { negative?: string; reasoningEffort?: ReasoningEffort; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<JobSearchResult[]> {
   const userPrompt = candidateBackground
     ? `candidate:\n${candidateBackground}\n\n---\n\n${rawText.slice(0, 40000)}`
@@ -86,6 +86,9 @@ export async function extractJobListings(
     systemPrompt: systemPrompt(todayISO(), options.negative),
     userPrompt,
     reasoningEffort: options.reasoningEffort,
+    timeoutMs: options.timeoutMs,
+    signal: options.signal,
+    label: "Parsing search results",
     parse: (raw) => JSON.parse(raw) as { jobs: Omit<JobSearchResult, "source">[] },
   });
   // The model is told to drop old postings itself; this catches the ones it let through anyway.

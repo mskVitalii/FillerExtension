@@ -123,6 +123,11 @@ interface JsonSchemaRequest<T> {
   reasoningEffort?: ReasoningEffort;
   /** Used only to make failures easier to diagnose; never logged in production. */
   parse: (raw: string) => T;
+  /** Hard time budget; past it the call fails with an `OpenAiTimeoutError`. Absent = no limit. */
+  timeoutMs?: number;
+  /** Names the call in a timeout error ("Parsing search results timed out after 30 s."). */
+  label?: string;
+  signal?: AbortSignal;
 }
 
 interface ResponsesApiOutput {
@@ -137,7 +142,7 @@ interface ResponsesApiOutput {
  * `reasoning` parameter (a model picked in Settings that doesn't reason) is
  * retried once without it, so a speed hint can never fail the request.
  */
-async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort): Promise<Response> {
+async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort, signal?: AbortSignal): Promise<Response> {
   const send = (payload: Record<string, unknown>) =>
     fetch(RESPONSES_URL, {
       method: "POST",
@@ -146,12 +151,64 @@ async function postResponses(apiKey: string, body: Record<string, unknown>, reas
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(payload),
+      signal,
     });
   if (!reasoningEffort) return send(body);
   const res = await send({ ...body, reasoning: { effort: reasoningEffort } });
   if (res.status !== 400) return res;
   const error = await res.clone().text().catch(() => "");
   return /reasoning/i.test(error) ? send(body) : res;
+}
+
+/** Thrown when a call ran past its time budget — the message says which call and how long. */
+export class OpenAiTimeoutError extends OpenAiError {
+  constructor(what: string, seconds: number) {
+    super(`${what} timed out after ${seconds} s.`);
+    this.name = "OpenAiTimeoutError";
+  }
+}
+
+/**
+ * One abort signal for a call: the caller's own `signal`, plus a hard `timeoutMs`
+ * budget and (for streams) an `idleMs` gap with no data. `touch()` restarts the idle
+ * timer; `error(err)` turns our own abort into an `OpenAiTimeoutError` naming `what`.
+ */
+export function callDeadline(what: string, options: { signal?: AbortSignal; timeoutMs?: number; idleMs?: number }) {
+  const controller = new AbortController();
+  let reason: OpenAiTimeoutError | null = null;
+  const abort = (err: OpenAiTimeoutError) => {
+    reason ??= err;
+    controller.abort(err);
+  };
+  const { timeoutMs, idleMs } = options;
+  const total = timeoutMs ? setTimeout(() => abort(new OpenAiTimeoutError(what, Math.round(timeoutMs / 1000))), timeoutMs) : undefined;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const touch = () => {
+    if (!idleMs) return;
+    clearTimeout(idle);
+    idle = setTimeout(() => abort(new OpenAiTimeoutError(`${what} (no data)`, Math.round(idleMs / 1000))), idleMs);
+  };
+  const onOuterAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) controller.abort(options.signal.reason);
+  else options.signal?.addEventListener("abort", onOuterAbort, { once: true });
+  touch();
+  return {
+    signal: controller.signal,
+    touch,
+    error: (err: unknown): unknown => reason ?? err,
+    done: () => {
+      clearTimeout(total);
+      clearTimeout(idle);
+      options.signal?.removeEventListener("abort", onOuterAbort);
+    },
+  };
+}
+
+/** Status codes worth one more try: rate limit and OpenAI-side failures. */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -166,6 +223,17 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   if (!apiKey) throw new MissingApiKeyError();
   const model = request.model ?? (await getSupportModel());
 
+  const deadline = callDeadline(request.label ?? "OpenAI request", { signal: request.signal, timeoutMs: request.timeoutMs });
+  try {
+    return await requestStructuredOnce(request, apiKey, model, deadline.signal);
+  } catch (err) {
+    throw deadline.error(err);
+  } finally {
+    deadline.done();
+  }
+}
+
+async function requestStructuredOnce<T>(request: JsonSchemaRequest<T>, apiKey: string, model: string, signal: AbortSignal): Promise<T> {
   const res = await postResponses(
     apiKey,
     {
@@ -184,6 +252,7 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
       },
     },
     request.reasoningEffort,
+    signal,
   );
 
   if (!res.ok) {
@@ -211,7 +280,7 @@ interface StreamEvent {
  * for each chunk as it arrives and returning the fully assembled text once the stream ends.
  * A failure reported mid-stream (`error` / `response.failed`) is thrown.
  */
-async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (delta: string) => void): Promise<string> {
+async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (delta: string) => void, onChunk?: () => void): Promise<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -220,6 +289,7 @@ async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    onChunk?.();
     buffer += decoder.decode(value, { stream: true });
 
     // SSE frames are separated by a blank line; a frame may still be split across two
@@ -264,24 +334,59 @@ async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (
  * `text.format: json_schema`: combining it with `tools` isn't a
  * documented-safe combination, and a partial JSON document can't be read
  * mid-stream anyway. Returns "" when the model wrote nothing.
+ *
+ * Bounded: `timeoutMs`/`idleMs` abort it with an `OpenAiTimeoutError`, and a
+ * 429/5xx or network failure before the stream starts is retried once.
  */
-export async function streamWithWebSearch(prompt: string, onDelta: (delta: string) => void, model?: string): Promise<string> {
+export interface WebSearchStreamOptions {
+  model?: string;
+  /** At the model's default effort web search runs ~10 searches (~50 s); "low" runs 1-3 (~10-20 s). */
+  reasoningEffort?: ReasoningEffort;
+  /** Hard budget for the whole call. */
+  timeoutMs?: number;
+  /** Longest gap with no streamed data (the model searching or thinking). */
+  idleMs?: number;
+  signal?: AbortSignal;
+}
+
+export async function streamWithWebSearch(prompt: string, onDelta: (delta: string) => void, options: WebSearchStreamOptions = {}): Promise<string> {
   const apiKey = await getOpenAiApiKey();
   if (!apiKey) throw new MissingApiKeyError();
-  const resolvedModel = model ?? (await getSupportModel());
-
-  const res = await postResponses(apiKey, {
+  const resolvedModel = options.model ?? (await getSupportModel());
+  const body = {
     model: resolvedModel,
     stream: true,
     tools: [{ type: "web_search" }],
     input: [{ role: "user", content: prompt }],
-  });
+  };
 
-  if (!res.ok || !res.body) {
-    const body = await res.text().catch(() => "");
-    throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+  const deadline = callDeadline("OpenAI web search", options);
+  try {
+    let res: Response | null = null;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        res = await postResponses(apiKey, body, options.reasoningEffort, deadline.signal);
+      } catch (err) {
+        if (deadline.signal.aborted || attempt >= 2) throw err;
+        await sleep(1000);
+        continue;
+      }
+      if (res.ok || !RETRYABLE_STATUS.has(res.status) || attempt >= 2) break;
+      const retryAfter = Number(res.headers.get("retry-after"));
+      await res.body?.cancel().catch(() => {});
+      await sleep(retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 1500);
+    }
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => "");
+      throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${text.slice(0, 300)}`, res.status);
+    }
+    deadline.touch();
+    return await readOutputTextStream(res.body, onDelta, deadline.touch);
+  } catch (err) {
+    throw deadline.error(err);
+  } finally {
+    deadline.done();
   }
-  return readOutputTextStream(res.body, onDelta);
 }
 
 /**

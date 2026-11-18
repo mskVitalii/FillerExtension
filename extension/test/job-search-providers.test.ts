@@ -61,7 +61,7 @@ describe("searchOpenAiJobs", () => {
     const emitted: string[][] = [];
     streams([text.slice(0, 40), text.slice(40, 200), text.slice(200)]);
     const stages: { label: string; ms: number }[] = [];
-    const results = await searchOpenAiJobs(query(), "bg", [], stages, (jobs) => emitted.push(jobs.map((j) => j.title)));
+    const { results } = await searchOpenAiJobs(query(), "bg", [], stages, (jobs) => emitted.push(jobs.map((j) => j.title)));
 
     // The stale and the duplicate posting are dropped.
     expect(results.map((r) => r.title)).toEqual(["Go dev 1", "Go dev 3"]);
@@ -77,7 +77,7 @@ describe("searchOpenAiJobs", () => {
       jobs: [{ title: "Go developer", company: "Acme", location: "", url: "https://acme.dev/jobs/1", salary: "", snippet: "", postedAt: "" }],
     });
     const stages: { label: string; ms: number }[] = [];
-    const results = await searchOpenAiJobs(query({ negative: "no crypto" }), "bg", [], stages);
+    const { results } = await searchOpenAiJobs(query({ negative: "no crypto" }), "bg", [], stages);
     expect(results.map((r) => r.url)).toEqual(["https://acme.dev/jobs/1"]);
     const request = requestStructured.mock.calls[0][0] as { systemPrompt: string; reasoningEffort: string };
     expect(request.systemPrompt).toContain('"no crypto"');
@@ -87,7 +87,7 @@ describe("searchOpenAiJobs", () => {
 
   it("returns nothing, without a parse call, when the model wrote nothing", async () => {
     streams([]);
-    expect(await searchOpenAiJobs(query(), "bg")).toEqual([]);
+    expect(await searchOpenAiJobs(query(), "bg")).toEqual({ results: [], warnings: [] });
     expect(requestStructured).not.toHaveBeenCalled();
   });
 });
@@ -171,5 +171,33 @@ describe("searchAdzunaJobs", () => {
     expect(results.map((r) => r.url)).toEqual(["https://adzuna/a/1", "https://adzuna/shared", "https://adzuna/b/1"]);
     expect(streamed).toEqual([["https://adzuna/a/1", "https://adzuna/shared"], ["https://adzuna/b/1"]]);
     expect(warnings).toEqual([expect.stringContaining('"broken"')]);
+  });
+});
+
+describe("searchOpenAiJobs when the stream fails", () => {
+  beforeEach(() => {
+    streamWithWebSearch.mockReset();
+  });
+  const line = `{"title":"Go dev","company":"Acme","location":"","url":"https://jobs.lever.co/acme/1","salary":"","postedAt":"","snippet":"fits"}\n`;
+
+  it("keeps the postings already streamed and says it stopped early", async () => {
+    streamWithWebSearch.mockImplementation(async (_p: string, onDelta: (d: string) => void) => {
+      onDelta(line);
+      throw new Error("OpenAI web search timed out after 90 s.");
+    });
+    const { results, warnings } = await searchOpenAiJobs(query(), "bg");
+    expect(results.map((r) => r.title)).toEqual(["Go dev"]);
+    expect(warnings[0]).toMatch(/stopped early.*timed out after 90 s/);
+  });
+
+  it("throws when nothing came in", async () => {
+    streamWithWebSearch.mockRejectedValue(new Error("OpenAI web search request failed (500)"));
+    await expect(searchOpenAiJobs(query(), "bg")).rejects.toThrow(/500/);
+  });
+
+  it("searches at low effort, within a time budget", async () => {
+    streamWithWebSearch.mockResolvedValue("");
+    await searchOpenAiJobs(query(), "bg");
+    expect(streamWithWebSearch.mock.calls[0][2]).toMatchObject({ reasoningEffort: "low", timeoutMs: expect.any(Number), idleMs: expect.any(Number) });
   });
 });

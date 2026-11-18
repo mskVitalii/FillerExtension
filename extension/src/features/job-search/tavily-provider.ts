@@ -4,7 +4,7 @@ import { searchRefinements } from "./refinements";
 import { negativeDomains } from "./negative";
 import { extractJobListings } from "@/features/openai/extract-job-listings";
 import { describeExcluded } from "./exclude-list";
-import { ATS_DOMAINS } from "./freshness";
+import { ATS_DOMAINS, dropStalePostings } from "./freshness";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 
@@ -76,30 +76,84 @@ Candidate background: ${candidateBackground || "(none available)"}${describeExcl
   };
 }
 
+/** Tavily's "advanced" search usually answers in 3-8 s; the parse pass in 5-15 s. */
+export const TAVILY_LIMITS = { searchTimeoutMs: 25_000, parseTimeoutMs: 40_000 } as const;
+
+export interface TavilySearchOutcome {
+  results: JobSearchResult[];
+  warnings: string[];
+}
+
+async function fetchTavily(body: Record<string, unknown>, signal?: AbortSignal): Promise<TavilyResponse> {
+  for (let attempt = 1; ; attempt++) {
+    const timeout = AbortSignal.timeout(TAVILY_LIMITS.searchTimeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(TAVILY_SEARCH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+    } catch (err) {
+      if (timeout.aborted) throw new Error(`Tavily search timed out after ${TAVILY_LIMITS.searchTimeoutMs / 1000} s.`);
+      if (signal?.aborted || attempt >= 2) throw err;
+      continue;
+    }
+    if (res.ok) return (await res.json()) as TavilyResponse;
+    const text = await res.text().catch(() => "");
+    // One more try on a rate limit or a Tavily-side failure; a bad key or request won't get better.
+    if (attempt >= 2 || !(res.status === 429 || res.status >= 500)) {
+      throw new Error(`Tavily search failed (${res.status}): ${text.slice(0, 300)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
+
+/** Raw Tavily hits as postings, for when the parse pass fails: unranked, but the links work. */
+function rawTavilyListings(results: TavilyResult[]): JobSearchResult[] {
+  return dropStalePostings(
+    results.map((r) => ({
+      title: r.title,
+      company: "",
+      location: "",
+      url: r.url,
+      salary: "",
+      snippet: r.content.slice(0, 240),
+      postedAt: r.published_date?.slice(0, 10) ?? "",
+      source: "tavily" as const,
+    })),
+  );
+}
+
 export async function searchTavilyJobs(
   query: JobSearchQuery,
   apiKey: string,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
   stages?: JobSearchStageTiming[],
-): Promise<JobSearchResult[]> {
+  signal?: AbortSignal,
+): Promise<TavilySearchOutcome> {
   const body = buildTavilyRequest(query, apiKey, candidateBackground, excludeResults);
-  const res = await timeStage(stages, "Tavily search", () => fetch(TAVILY_SEARCH_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Tavily search failed (${res.status}): ${body.slice(0, 300)}`);
-  }
-
-  const data = (await res.json()) as TavilyResponse;
-  if (data.results.length === 0) return [];
+  const data = await timeStage(stages, "Tavily search", () => fetchTavily(body, signal));
+  if (!data.results?.length) return { results: [], warnings: [] };
 
   const rawText = data.results
     .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${r.content}`)
     .join("\n\n---\n\n");
-  return timeStage(stages, "Parse results", () => extractJobListings(rawText, "tavily", candidateBackground, { negative: query.negative }));
+  try {
+    const results = await timeStage(stages, "Parse results", () =>
+      extractJobListings(rawText, "tavily", candidateBackground, {
+        negative: query.negative,
+        reasoningEffort: "low",
+        timeoutMs: TAVILY_LIMITS.parseTimeoutMs,
+        signal,
+      }),
+    );
+    return { results, warnings: [] };
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const reason = err instanceof Error ? err.message : "parse failed";
+    return { results: rawTavilyListings(data.results), warnings: [`Couldn't sort Tavily's results (${reason}) — showing them unfiltered.`] };
+  }
 }

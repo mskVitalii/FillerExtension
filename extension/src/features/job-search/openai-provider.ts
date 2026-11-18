@@ -65,13 +65,27 @@ citations). Each object has exactly these string keys:
 If you find no fitting posting, output nothing.`;
 }
 
+/**
+ * Time budget for one OpenAI web search. Measured (Nov 2026, gpt-6-luna): at the
+ * default reasoning effort the model ran ~10 searches and wrote its first posting
+ * after 40-70 s; at "low" it runs 1-3 and the first posting arrives after 8-15 s.
+ */
+export const OPENAI_SEARCH_LIMITS = { timeoutMs: 90_000, idleMs: 40_000, parseTimeoutMs: 30_000 } as const;
+
+export interface OpenAiSearchOutcome {
+  results: JobSearchResult[];
+  /** Set when the search stopped early (timeout, dropped stream) but some postings were already in. */
+  warnings: string[];
+}
+
 export async function searchOpenAiJobs(
   query: JobSearchQuery,
   candidateBackground: string,
   excludeResults: JobSearchResult[] = [],
   stages?: JobSearchStageTiming[],
   onResults?: (results: JobSearchResult[]) => void,
-): Promise<JobSearchResult[]> {
+  signal?: AbortSignal,
+): Promise<OpenAiSearchOutcome> {
   const prompt = buildOpenAiSearchPrompt(query, candidateBackground, excludeResults);
   const startedAt = performance.now();
   let firstAt: number | null = null;
@@ -86,13 +100,36 @@ export async function searchOpenAiJobs(
     onResults?.([job]);
   });
 
-  const rawText = await timeStage(stages, "Web search", () => streamWithWebSearch(prompt, parser.push));
+  let rawText: string;
+  try {
+    rawText = await timeStage(stages, "Web search", () =>
+      streamWithWebSearch(prompt, parser.push, {
+        reasoningEffort: "low",
+        timeoutMs: OPENAI_SEARCH_LIMITS.timeoutMs,
+        idleMs: OPENAI_SEARCH_LIMITS.idleMs,
+        signal,
+      }),
+    );
+  } catch (err) {
+    // Postings already shown stay: a search that stops halfway is still useful.
+    parser.end();
+    if (results.length === 0) throw err;
+    const reason = err instanceof Error ? err.message : "the search stopped";
+    return { results, warnings: [`Web search stopped early (${reason}) — showing the ${results.length} postings found so far.`] };
+  } finally {
+    if (firstAt !== null) stages?.push({ label: "First result", ms: firstAt - startedAt });
+  }
   parser.end();
-  if (firstAt !== null) stages?.push({ label: "First result", ms: firstAt - startedAt });
-  if (results.length > 0 || !rawText.trim()) return results;
+  if (results.length > 0 || !rawText.trim()) return { results, warnings: [] };
 
   // The model answered in prose despite the format — structure it the old way.
-  return timeStage(stages, "Parse results", () =>
-    extractJobListings(rawText, "openai", candidateBackground, { negative: query.negative, reasoningEffort: "low" }),
+  const parsed = await timeStage(stages, "Parse results", () =>
+    extractJobListings(rawText, "openai", candidateBackground, {
+      negative: query.negative,
+      reasoningEffort: "low",
+      timeoutMs: OPENAI_SEARCH_LIMITS.parseTimeoutMs,
+      signal,
+    }),
   );
+  return { results: parsed, warnings: [] };
 }
