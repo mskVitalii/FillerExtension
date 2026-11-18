@@ -1,4 +1,5 @@
 import { queryFillableDeep } from "./engine";
+import { atsAdapterFor, atsFieldLabel, isAtsExcluded } from "./ats";
 
 /**
  * Consent / marketing checkboxes on an application form (spec_2 — extends
@@ -53,7 +54,19 @@ function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * What the AI is asked to decide about. A Lever "Acknowledged" box or an Ashby "I agree" box
+ * says nothing on its own — the statement it acknowledges is the ATS's question title above it,
+ * so a short own label is prefixed with that (`ats/index.ts`).
+ */
 function labelText(el: HTMLElement): string {
+  const own = ownLabelText(el);
+  if (own.split(" ").length >= 4) return own;
+  const question = atsFieldLabel(el);
+  return question && question !== own ? collapse(`${question} — ${own}`) : own;
+}
+
+function ownLabelText(el: HTMLElement): string {
   const doc = el.ownerDocument;
   const id = el.getAttribute("id");
   if (id) {
@@ -98,7 +111,8 @@ function isRequired(el: HTMLElement): boolean {
 
 function inApplicationForm(el: HTMLElement): boolean {
   const form = (el as HTMLInputElement).form ?? el.closest("form");
-  if (!form) return false;
+  // Ashby renders its application without a `<form>` element; a recognised ATS page is one.
+  if (!form) return atsAdapterFor(el) !== null;
   // A real application form also has something to type into — this filters
   // out search / job-filter forms that are nothing but checkboxes.
   return Boolean(form.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea'));
@@ -109,9 +123,30 @@ function checkboxElements(): HTMLElement[] {
     if (!(el instanceof HTMLElement)) return false;
     if (el instanceof HTMLInputElement && el.disabled) return false;
     if (el.getAttribute("aria-disabled") === "true") return false;
+    // A voluntary EEO / demographic survey (and its "you may store my answers" box) stays unanswered.
+    if (isAtsExcluded(el)) return false;
     return isVisible(el);
   });
 }
+
+/**
+ * One option of a multiple-choice question ("What is your current location? ☐ Within Germany
+ * ☐ Within the EU"), not a consent statement: several short-labelled checkboxes sharing one `name`
+ * (Greenhouse `question_123[]`, Lever `cards[…][field0]`), or what the ATS adapter knows to be a
+ * checkbox-group option. Those are answered as option questions, never ticked by the consent pass.
+ */
+function isChoiceOption(el: HTMLElement): boolean {
+  if (atsAdapterFor(el)?.isChoiceOption?.(el)) return true;
+  const name = el.getAttribute("name");
+  if (!name || !(el instanceof HTMLInputElement)) return false;
+  const scope: ParentNode = el.form ?? el.ownerDocument;
+  const sameName = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).filter((c) => c.name === name);
+  // Options are short ("Within the EU"); two consent statements that happen to share a
+  // `consents[]` name are sentences, and stay with the consent pass.
+  return sameName.length >= 2 && sameName.every((c) => ownLabelText(c).split(" ").length <= CHOICE_OPTION_MAX_WORDS);
+}
+
+const CHOICE_OPTION_MAX_WORDS = 8;
 
 /**
  * Checkboxes worth asking the AI about: those on an application form whose
@@ -122,6 +157,7 @@ export function detectCheckboxes(): PageCheckbox[] {
   const out: PageCheckbox[] = [];
   checkboxElements().forEach((el, index) => {
     if (!inApplicationForm(el)) return;
+    if (isChoiceOption(el)) return;
     const label = labelText(el).slice(0, 400);
     const required = isRequired(el);
     if (!required && label.split(" ").length < 4 && !CONSENT_HINT_RE.test(label)) return;
@@ -169,6 +205,7 @@ export function applyCheckboxDecisions(decisions: CheckboxDecisionInput[]): numb
 
   for (const el of checkboxElements()) {
     if (!inApplicationForm(el)) continue;
+    if (isChoiceOption(el)) continue;
     const name = el.getAttribute("name") ?? "";
     const label = labelText(el).slice(0, 400);
     const decision =

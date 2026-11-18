@@ -1,5 +1,5 @@
 import { collapse } from "./field-signal";
-import { fillElement } from "./native-setter";
+import { fillElement, typeSearchText } from "./native-setter";
 
 /**
  * Shared react-select-style "flyout" combobox handling (spec_5 section A;
@@ -324,6 +324,51 @@ export async function fillComboboxByPicking(
   pickOption: (optionTexts: string[]) => string | null,
 ): Promise<boolean> {
   return (await attemptComboboxPick(el, pickOption)).picked;
+}
+
+const SEARCH_POLL_MS = 100;
+const SEARCH_TIMEOUT_MS = 3000;
+
+function clickOption(option: HTMLElement): void {
+  mouse(option, "mousedown");
+  mouse(option, "mouseup");
+  mouse(option, "click");
+}
+
+/**
+ * A typeahead whose options only exist once a search term is typed: an async react-select
+ * (Greenhouse "Location (City)"), Ashby's location autocomplete. Tries the already-rendered list
+ * first (a static dropdown), then types `query` (no blur — see `typeSearchText`), waits for the
+ * widget's own result rows and clicks the one `pickOption` chooses. When nothing suitable shows
+ * up the typed text is cleared again, so no half-entered search is left looking like an answer.
+ */
+export async function fillComboboxBySearch(
+  el: HTMLElement,
+  query: string,
+  pickOption: (optionTexts: string[]) => string | null,
+  timeoutMs = SEARCH_TIMEOUT_MS,
+): Promise<boolean> {
+  if (!(el instanceof HTMLInputElement) || !isComboboxLike(el)) return false;
+  if (isFlyoutOnly(el) && (await attemptComboboxPick(el, pickOption)).picked) return true;
+
+  try {
+    typeSearchText(el, query);
+    for (let waited = 0; waited <= timeoutMs; waited += SEARCH_POLL_MS) {
+      await delay(waited === 0 ? 0 : SEARCH_POLL_MS);
+      const options = widgetOptionEls(el, true);
+      if (options.length === 0) continue;
+      const texts = options.map((opt) => collapse(opt.textContent ?? ""));
+      const chosen = pickOption(texts);
+      if (!chosen) continue;
+      clickOption(options[texts.indexOf(chosen)]);
+      await delay(50);
+      return true;
+    }
+    typeSearchText(el, "");
+    return false;
+  } finally {
+    closeFlyout(el);
+  }
 }
 
 /**

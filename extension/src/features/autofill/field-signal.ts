@@ -23,7 +23,7 @@ export function collapse(text: string): string {
 function tidy(text: string): string {
   return collapse(text)
     .replace(/^\d{1,2}[.)]?\s+/, "")
-    .replace(/\s*\*+\s*$/, "")
+    .replace(/\s*[*✱]+\s*$/, "")
     .trim();
 }
 

@@ -246,10 +246,19 @@ function checkboxGroupsIn(container: HTMLElement): { groupEl: HTMLElement; check
     (el): el is HTMLInputElement => el instanceof HTMLInputElement && !el.disabled,
   );
   const byGroup = new Map<HTMLElement, HTMLInputElement[]>();
+  const byName = new Map<string, HTMLInputElement[]>();
   for (const cb of checkboxes) {
     const group = cb.closest("fieldset") ?? cb.closest('[role="group"]');
-    if (!(group instanceof HTMLElement)) continue;
-    byGroup.set(group, [...(byGroup.get(group) ?? []), cb]);
+    if (group instanceof HTMLElement) byGroup.set(group, [...(byGroup.get(group) ?? []), cb]);
+    else if (cb.name) byName.set(cb.name, [...(byName.get(cb.name) ?? []), cb]);
+  }
+  // No fieldset/role="group" (Lever's `<ul data-qa="checkboxes">`): options sharing one `name`
+  // are one question; its group element is their closest common ancestor.
+  for (const group of byName.values()) {
+    if (group.length < 2) continue;
+    let common: HTMLElement | null = group[0].parentElement;
+    while (common && !group.every((cb) => common!.contains(cb))) common = common.parentElement;
+    if (common && container.contains(common)) byGroup.set(common, group);
   }
   return [...byGroup.entries()]
     .filter(([, group]) => group.length >= 2)
