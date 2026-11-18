@@ -272,7 +272,7 @@ function attachmentSlotText(input: HTMLInputElement): string {
 const CV_SLOT_RE = /resume|r[ée]sum[ée]|\bcv\b|lebenslauf|curriculum/i;
 const COVER_SLOT_RE = /cover|anschreiben|motivation/i;
 
-export const successFactorsAdapter: AtsAdapter = {
+export const successfactors: AtsAdapter = {
   id: "successfactors",
 
   detect(url, doc) {

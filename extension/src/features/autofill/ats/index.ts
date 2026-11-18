@@ -6,8 +6,8 @@ import { softgarden } from "./softgarden";
 import { personio } from "./personio";
 import { recruitee } from "./recruitee";
 import { join } from "./join";
-import { workdayAdapter } from "./workday";
-import { successFactorsAdapter } from "./successfactors";
+import { workday } from "./workday";
+import { successfactors } from "./successfactors";
 import { smartrecruiters } from "./smartrecruiters";
 import { dvinci } from "./dvinci";
 import { rexx } from "./rexx";
@@ -40,8 +40,8 @@ export const ATS_ADAPTERS: AtsAdapter[] = [
   personio,
   recruitee,
   join,
-  workdayAdapter,
-  successFactorsAdapter,
+  workday,
+  successfactors,
   smartrecruiters,
   dvinci,
   rexx,

@@ -377,7 +377,7 @@ function fileSlotText(input: HTMLInputElement): string {
 const CV_SLOT_RE = /resume|\bcv\b|lebenslauf|curriculum/i;
 const COVER_SLOT_RE = /cover|anschreiben|motivation/i;
 
-export const workdayAdapter: AtsAdapter = {
+export const workday: AtsAdapter = {
   id: "workday",
 
   detect(url, doc) {

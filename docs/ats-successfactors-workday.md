@@ -59,8 +59,10 @@ SuccessFactors
   wizard step model (current step, Weiter/Zurück, submit on the last step).
 
 Generic engine fixes (made because the cause was generic, each with a test)
-- A label that is a question ("…Arbeitserlaubnis für Deutschland?") is not a field name:
-  `field-detector.ts` no longer reads it as `country` (`land\b`).
+- A label that is a question ("…Arbeitserlaubnis für Deutschland?") is not a country field:
+  `semantic-fields.ts`'s country pattern only takes "Land" as a word or a compound's head
+  (Wohnsitzland), not inside "Deutschland" (the same fix the Greenhouse/Lever work made, kept
+  instead of treating every short "?" label as prose).
 - A password box revealed as `type="text"` is never filled from the profile
   (`password-fields.ts#isRevealedPasswordField`).
 - A `<button aria-haspopup="listbox">` only takes a value by picking an option, never typing
