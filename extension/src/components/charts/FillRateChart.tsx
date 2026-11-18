@@ -4,7 +4,7 @@ import { percent } from "@/features/fill-stats/stats";
 export type FillSeries = "extension" | "fillerInAgent" | "agentFinal";
 
 /** Fixed hues, readable on both the light and the dark theme. */
-export const FILL_SERIES_COLORS: Record<FillSeries, string> = {
+const FILL_SERIES_COLORS: Record<FillSeries, string> = {
   extension: "hsl(217 91% 60%)",
   fillerInAgent: "hsl(262 83% 62%)",
   agentFinal: "hsl(142 64% 42%)",
