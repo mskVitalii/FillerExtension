@@ -19,3 +19,13 @@ export function queryFillableDeep(selector: string, root: ParentNode = document)
   walk(root);
   return found;
 }
+
+/**
+ * A form library's invisible stand-in for a custom widget, not a field anyone fills: react-select
+ * renders `<input required tabindex="-1" aria-hidden="true">` next to every required dropdown
+ * (Greenhouse) only so the browser's own validation sees the selection. It takes layout space,
+ * so a visibility check alone doesn't skip it — typing into it does nothing useful.
+ */
+export function isHiddenMirrorInput(el: Element): boolean {
+  return el instanceof HTMLInputElement && el.getAttribute("aria-hidden") === "true" && el.getAttribute("tabindex") === "-1";
+}

@@ -6,6 +6,8 @@ import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
+import { isHiddenMirrorInput } from "./dom-query";
+import { atsFieldLabel, isAtsExcluded } from "./ats";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -59,6 +61,9 @@ function isFillable(el: Element): el is HTMLElement {
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if (isSiteSearchField(el)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isHiddenMirrorInput(el)) return false;
+  // Voluntary EEO / demographic surveys stay unanswered (ats/index.ts).
+  if (isAtsExcluded(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }
@@ -72,6 +77,32 @@ interface QuestionField {
   numeric?: boolean;
   /** `el`'s required date/time format, e.g. `<input type="date">` — an available-from/start-date question. */
   dateKind?: DateInputKind;
+}
+
+function isRequiredField(el: HTMLElement): boolean {
+  return (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true";
+}
+
+/** A short field name ("Notice Period", "Current company") rather than an instruction to type. */
+const INSTRUCTION_RE = /^(type|enter|write|select|choose|pick|start typing|search)\b/i;
+
+function isShortLabel(text: string): boolean {
+  return /\p{L}{2}/u.test(text) && !INSTRUCTION_RE.test(text) && text.split(/\s+/).length <= 10;
+}
+
+/**
+ * The question to ask about `el`, or "" when it isn't one. A label shaped like a question wins;
+ * otherwise the ATS's own question title (a Lever card, an Ashby entry); otherwise a *required*
+ * field's short label still counts — "Notice Period*" on Greenhouse is a question the form won't
+ * submit without, even though two words alone don't read as one.
+ */
+function questionFor(el: HTMLElement): string {
+  const question = fieldQuestionText(el).trim();
+  if (isQuestionShaped(question)) return question;
+  const atsLabel = atsFieldLabel(el);
+  if (isQuestionShaped(atsLabel)) return atsLabel;
+  const label = question || atsLabel;
+  return isRequiredField(el) && isShortLabel(label) ? label.replace(/[\s*✱]+$/, "") : "";
 }
 
 /**
@@ -101,8 +132,8 @@ function scanQuestionFields(): QuestionField[] {
   const fields: QuestionField[] = [];
   for (const el of elements) {
     if (detectSemanticField(el)) continue;
-    const question = fieldQuestionText(el).trim();
-    if (!isQuestionShaped(question)) continue;
+    const question = questionFor(el);
+    if (!question) continue;
     fields.push({
       question,
       el,

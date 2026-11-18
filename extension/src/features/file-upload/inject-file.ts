@@ -1,5 +1,6 @@
 import { resolveLocator, type ElementLocator } from "@/features/autofill/element-locator";
 import { elementSignalParts } from "@/features/autofill/field-detector";
+import { activeAtsAdapter, isAtsExcluded } from "@/features/autofill/ats";
 
 /**
  * Pushes a File into whatever upload mechanism the page exposes (spec
@@ -45,11 +46,19 @@ function textMatchesKind(text: string, kind: FileKind): boolean {
  * unambiguous target — but never blind-fills when there's more than one and
  * none look like a match.
  */
-function matchingTargets<T>(candidates: T[], kind: FileKind | null, matches: (candidate: T) => boolean): T[] {
+function matchingTargets<T>(
+  candidates: T[],
+  kind: FileKind | null,
+  matches: (candidate: T, kind: FileKind) => boolean,
+): T[] {
   if (!kind) return candidates;
-  const matched = candidates.filter(matches);
+  const matched = candidates.filter((c) => matches(c, kind));
   if (matched.length > 0) return matched;
-  return candidates.length === 1 ? candidates : [];
+  // The lone-input fallback must not hand a cover letter to the form's only upload when that
+  // upload is labelled for the CV (Greenhouse/Lever forms with no cover-letter field) — the
+  // cover letter would replace the CV the same run just attached.
+  const other: FileKind = kind === "cv" ? "coverLetter" : "cv";
+  return candidates.length === 1 && !matches(candidates[0], other) ? candidates : [];
 }
 
 function buildDataTransfer(file: File): DataTransfer {
@@ -67,8 +76,10 @@ function setFileInput(input: HTMLInputElement, file: File): boolean {
 }
 
 function fillNativeFileInputs(file: File, kind: FileKind | null): number {
-  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
-  const targets = matchingTargets(all, kind, (input) => elementMatchesKind(input, kind!));
+  // The ATS knows its own CV / cover-letter slots (and which uploader would parse the file and
+  // overwrite the form) — see ats/index.ts.
+  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]')).filter((input) => !isAtsExcluded(input));
+  const targets = matchingTargets(all, kind, elementMatchesKind);
   let count = 0;
   for (const input of targets) {
     if (setFileInput(input, file)) count++;
@@ -92,8 +103,8 @@ function dispatchDropOn(zone: HTMLElement, file: File): void {
 }
 
 function dispatchDropEvents(file: File, kind: FileKind | null): number {
-  const all = Array.from(document.querySelectorAll<HTMLElement>(DROPZONE_SELECTOR));
-  const targets = matchingTargets(all, kind, (zone) => textMatchesKind(zone.textContent ?? "", kind!));
+  const all = Array.from(document.querySelectorAll<HTMLElement>(DROPZONE_SELECTOR)).filter((zone) => !isAtsExcluded(zone));
+  const targets = matchingTargets(all, kind, (zone, k) => textMatchesKind(zone.textContent ?? "", k));
   let count = 0;
   for (const zone of targets) {
     dispatchDropOn(zone, file);
@@ -123,6 +134,10 @@ export function injectFileIntoPage(
   kind: FileKind | null = null,
 ): { nativeInputs: number; dropZones: number } {
   if (targetLocator) return injectAtTarget(file, targetLocator);
+  // The ATS knows its own CV / cover-letter slots (and which uploader would parse the file and
+  // overwrite the form) — see ats/index.ts. Its answer is final: no drop-zone guessing on top.
+  const ats = kind ? activeAtsAdapter(document)?.fileInput?.(kind, document) : undefined;
+  if (ats !== undefined) return { nativeInputs: ats && setFileInput(ats, file) ? 1 : 0, dropZones: 0 };
   return {
     nativeInputs: fillNativeFileInputs(file, kind),
     dropZones: dispatchDropEvents(file, kind),

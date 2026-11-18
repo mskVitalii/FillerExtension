@@ -1,5 +1,6 @@
 import type { ProfileFieldKey } from "@/types/profile";
 import { FIELD_ORDER, FIELD_PATTERNS } from "./semantic-fields";
+import { atsAdapterFor, atsFieldLabel } from "./ats";
 
 type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
 
@@ -120,6 +121,9 @@ function signalParts(el: FillableElement): Signal[] {
       [el.getAttribute("aria-label"), true],
       [el.getAttribute("data-testid"), true],
       [labelForElement(el), false],
+      // The ATS's own question title, when it isn't wired to the field as a `<label for>`
+      // (a Lever card question, an Ashby field entry) — see `ats/index.ts`.
+      [atsFieldLabel(el as HTMLElement), false],
       [el.getAttribute("placeholder"), false],
       [nearbyText(el), false],
     ] as [string | null, boolean][]
@@ -144,6 +148,10 @@ function matchField(signal: string): ProfileFieldKey | null {
  * override a strong one.
  */
 export function detectSemanticField(el: FillableElement): ProfileFieldKey | null {
+  const ats = atsAdapterFor(el);
+  if (ats?.isExcluded?.(el)) return null;
+  if (ats?.isLocationField?.(el)) return "city";
+
   const autocomplete = el.getAttribute("autocomplete")?.toLowerCase().trim();
   if (autocomplete && AUTOCOMPLETE_MAP[autocomplete]) {
     return AUTOCOMPLETE_MAP[autocomplete];
@@ -154,5 +162,7 @@ export function detectSemanticField(el: FillableElement): ProfileFieldKey | null
     const field = matchField(text);
     if (field) return field;
   }
+  // `type="tel"` is a phone number whatever its label says ("Number", "Kontakt").
+  if (el instanceof HTMLInputElement && el.type === "tel") return "phone";
   return null;
 }

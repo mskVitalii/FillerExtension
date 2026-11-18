@@ -11,6 +11,9 @@ import { describeField, findByKey } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 import { fieldQuestionText } from "./field-signal";
 import { fieldKind } from "@/features/fill-stats/dom";
+import { fillLocationField } from "./location";
+import { atsAdapterFor } from "./ats";
+import { isHiddenMirrorInput } from "./dom-query";
 import type { FillFieldStat } from "@/features/fill-stats/stats";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
@@ -21,6 +24,7 @@ function isFillable(el: Element): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isHiddenMirrorInput(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }
@@ -49,6 +53,14 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
 
   if (field === "expectedSalary") {
     return fillSalaryField(el, value);
+  }
+
+  // A location typeahead takes only a geocoder result, chosen by city *and* country (location.ts);
+  // an ATS with its own non-ARIA dropdown (Lever) fills it its own way.
+  if (field === "city") {
+    const ats = atsAdapterFor(el);
+    if (ats?.fillLocation && ats.isLocationField?.(el)) return ats.fillLocation(el, profile);
+    return fillLocationField(el, value, profile.country);
   }
 
   if (field === "country" && el instanceof HTMLSelectElement) {

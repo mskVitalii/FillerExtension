@@ -180,6 +180,24 @@ function typedCoercer(type: string): ((raw: string) => string | null) | null {
   return dateKind ? (raw: string) => coerceDateInputValue(dateKind, raw) : null;
 }
 
+/**
+ * Types `value` into a search box the way a user's keystrokes would reach it — value set through
+ * the native setter, then `input`, `keydown` and `keyup` — but with no `change`/`blur`: a typeahead (location
+ * search, async react-select) treats blur as "done" and drops text that wasn't picked from its
+ * results. Used to start a search whose result is then clicked (`combobox.ts`).
+ */
+export function typeSearchText(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  el.focus?.();
+  setNativeInputValue(el, value);
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
+  // jQuery typeaheads (Lever's location search) listen for the key events, and look at `keyCode`.
+  const key = value.slice(-1) || "Backspace";
+  const keyCode = key === "Backspace" ? 8 : key.toUpperCase().charCodeAt(0);
+  for (const type of ["keydown", "keyup"] as const) {
+    el.dispatchEvent(new KeyboardEvent(type, { key, keyCode, which: keyCode, bubbles: true } as KeyboardEventInit));
+  }
+}
+
 /** Fills a single detected element and fires the events controlled forms rely on. */
 export function fillElement(el: HTMLElement, value: string): boolean {
   if (!value) return false;
