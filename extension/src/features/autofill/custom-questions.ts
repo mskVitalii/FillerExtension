@@ -1,13 +1,13 @@
 import { detectSemanticField } from "./field-detector";
 import { queryFillableDeep } from "./engine";
+import { isGhostField } from "./dom-query";
 import { fieldQuestionText, isQuestionShaped, nativeFieldOptions } from "./field-signal";
 import { wantsNumericValue, dateInputKind } from "./field-format";
 import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
 import type { DateInputKind } from "@/lib/date-format";
 import type { ElementLocator } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
-import { isHiddenMirrorInput } from "./dom-query";
-import { atsFieldLabel, isAtsExcluded } from "./ats";
+import { atsFieldLabel, isAtsIgnored } from "./ats";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -51,9 +51,20 @@ export interface CustomQuestion {
  */
 const SEARCH_CONTAINER_SELECTOR = '[role="search"], search, nav, [role="navigation"]';
 
+/**
+ * The page's own header and footer: Personio's language switcher ("Select language, current:
+ * English", a `role="combobox"` button) sits in `<header role="banner">`. A form that lives
+ * inside the header itself (a newsletter sign-up, say) still counts.
+ */
+const PAGE_CHROME_SELECTOR = 'header, footer, [role="banner"], [role="contentinfo"]';
+
 function isSiteSearchField(el: HTMLElement): boolean {
   if (el instanceof HTMLInputElement && el.type === "search") return true;
-  return el.closest(SEARCH_CONTAINER_SELECTOR) !== null;
+  if (el.closest(SEARCH_CONTAINER_SELECTOR) !== null) return true;
+  const chrome = el.closest(PAGE_CHROME_SELECTOR);
+  if (!chrome) return false;
+  const form = el.closest("form");
+  return !(form && chrome.contains(form));
 }
 
 function isFillable(el: Element): el is HTMLElement {
@@ -61,9 +72,9 @@ function isFillable(el: Element): el is HTMLElement {
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if (isSiteSearchField(el)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
-  if (isHiddenMirrorInput(el)) return false;
+  if (isGhostField(el)) return false;
   // Voluntary EEO / demographic surveys stay unanswered (ats/index.ts).
-  if (isAtsExcluded(el)) return false;
+  if (isAtsIgnored(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }

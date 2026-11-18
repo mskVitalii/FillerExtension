@@ -97,8 +97,14 @@ function writeTextValue(el: HTMLInputElement | HTMLTextAreaElement, value: strin
  * text-node insert for the rare case `execCommand` is unsupported/no-ops.
  */
 function insertTextAtCaret(el: HTMLElement, value: string): void {
-  const inserted = document.execCommand("insertText", false, value);
-  if (inserted && (el.textContent ?? "").includes(value)) return;
+  // `execCommand` types into whatever has focus. When `el` didn't take focus (a widget that
+  // moves it elsewhere on focus), that is another field — confirmed live on Recruitee, where
+  // the phone's dial-code text landed at the end of the email. Only type when `el` has it.
+  const focused = el.ownerDocument.activeElement;
+  if (focused === el || (focused && el.contains(focused))) {
+    const inserted = document.execCommand("insertText", false, value);
+    if (inserted && (el.textContent ?? "").includes(value)) return;
+  }
 
   const selection = window.getSelection();
   const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
@@ -236,7 +242,9 @@ export function fillElement(el: HTMLElement, value: string): boolean {
       return true;
     }
 
-    if (el.getAttribute("role") === "combobox") {
+    // A `<button role="combobox">` (Radix / Recruitee pickers) opens a list; it never takes
+    // typed text, and "typing" would only overwrite its label. Picking is `combobox.ts`'s job.
+    if (el.getAttribute("role") === "combobox" && !(el instanceof HTMLButtonElement)) {
       el.focus();
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.textContent = "";

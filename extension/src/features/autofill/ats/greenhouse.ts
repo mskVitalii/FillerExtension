@@ -1,5 +1,4 @@
-import type { AtsAdapter } from "./index";
-import { hostOf } from "./util";
+import type { AtsAdapter } from "./types";
 
 /**
  * Greenhouse: job-boards.greenhouse.io (and the EU instance job-boards.eu.greenhouse.io), the
@@ -33,20 +32,20 @@ function fileSlot(doc: Document, id: string, legacyName: string): HTMLInputEleme
 }
 
 export const greenhouse: AtsAdapter = {
-  name: "greenhouse",
+  id: "greenhouse",
 
   detect(url, doc) {
-    if (/(^|\.)greenhouse\.io$/.test(hostOf(url))) return true;
+    if (/(^|\.)greenhouse\.io$/.test(url.hostname)) return true;
     return doc.querySelector("form#application-form.application--form, form#application_form") !== null;
   },
 
-  isExcluded: inDemographicBlock,
+  isIgnored: inDemographicBlock,
 
-  fileInput(kind, doc) {
+  fileInputs(doc, kind) {
     const cv = fileSlot(doc, "resume", "resume");
-    if (kind === "cv") return cv ?? undefined;
+    if (kind === "cv") return cv ? [cv] : undefined;
     const letter = fileSlot(doc, "cover_letter", "cover_letter");
-    if (letter) return letter;
-    return cv ? null : undefined;
+    if (letter) return [letter];
+    return cv ? [] : undefined;
   },
 };

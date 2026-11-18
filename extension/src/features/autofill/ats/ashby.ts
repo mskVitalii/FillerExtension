@@ -1,6 +1,5 @@
-import type { AtsAdapter } from "./index";
-import { inSectionHeaded } from "./index";
-import { hostOf, textOf } from "./util";
+import type { AtsAdapter } from "./types";
+import { inSectionHeaded, textOf } from "./shared";
 
 /**
  * Ashby (jobs.ashbyhq.com/<org>/<id>/application, also embedded). A React form of
@@ -26,10 +25,10 @@ function entryOf(el: Element): HTMLElement | null {
 }
 
 export const ashby: AtsAdapter = {
-  name: "ashby",
+  id: "ashby",
 
   detect(url, doc) {
-    if (/(^|\.)ashbyhq\.com$/.test(hostOf(url))) return true;
+    if (/(^|\.)ashbyhq\.com$/.test(url.hostname)) return true;
     return doc.querySelector(".ashby-application-form-field-entry, .ashby-application-form-container") !== null;
   },
 
@@ -41,7 +40,7 @@ export const ashby: AtsAdapter = {
     return textOf(entry.querySelector(".ashby-application-form-question-description")).slice(0, 300) || null;
   },
 
-  isExcluded(el) {
+  isIgnored(el) {
     if (el.closest(".ashby-application-form-autofill-uploader, .ashby-application-form-autofill-input-root")) return true;
     return inSectionHeaded(el, ".ashby-application-form-section-container", ".ashby-application-form-section-header-title");
   },
@@ -52,12 +51,19 @@ export const ashby: AtsAdapter = {
     return (group?.querySelectorAll('input[type="checkbox"]').length ?? 0) >= 2;
   },
 
-  isLocationField(el) {
-    return el instanceof HTMLInputElement && el.closest('[data-field-path="_systemfield_location"]') !== null;
+  mapField(el) {
+    return el instanceof HTMLInputElement && el.closest('[data-field-path="_systemfield_location"]') !== null ? "city" : undefined;
   },
 
-  fileInput(kind, doc) {
+  // Ashby renders its application without a `<form>` element — and the data-consent box sits in a
+  // container of its own, apart from the fields — so the whole page is the form.
+  formRoot(el) {
+    return el.ownerDocument.body;
+  },
+
+  fileInputs(doc, kind) {
     if (kind !== "cv") return undefined;
-    return doc.querySelector<HTMLInputElement>('input[type="file"]#_systemfield_resume') ?? undefined;
+    const resume = doc.querySelector<HTMLInputElement>('input[type="file"]#_systemfield_resume');
+    return resume ? [resume] : undefined;
   },
 };

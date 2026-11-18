@@ -56,7 +56,7 @@ export const FIELD_PATTERNS: Record<ProfileFieldKey, RegExp[]> = {
     /(?<!w)ort\b/i,
     /^(?:current|your|home|candidate)?[\s_-]*location(?:[\s_-]*\(city\))?[\s*✱:]*$/i,
   ],
-  postalCode: [/postal[\s_-]?code/i, /zip/i, /plz/i],
+  postalCode: [/postal[\s_-]?code/i, /zip/i, /plz/i, /postleitzahl/i],
   // "Land" on its own or as the head of a compound ("Wohnsitzland", "Aufenthaltsland") — not any
   // word ending in -land: "Hast du eine Arbeitserlaubnis für Deutschland?" is a yes/no question.
   country: [/country/i, /\bland\b/i, /(?:wohnsitz|wohn|aufenthalts)land\b/i, /nation/i],

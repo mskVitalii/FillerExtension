@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  RECONSTRUCTED, not a live snapshot. join.com's application wizard sits behind an
+  email gate (apply/authentication, snapshot in softgate-de-authentication.html)
+  that creates or logs into a candidate account, so it was not walked live.
+  Built from: the Chakra UI v3 field markup of that real gate step
+  (data-scope="field" root/label/input, chakra-button, ContinueButton test id),
+  the wizard's own German UI strings shipped in that page's __NEXT_DATA__
+  (applicationWizard.personalInformation.*, applicationWizard.cv.*), and the
+  posting's applicationFormConfig ({countryOfResidence: REQUIRED, phone: REQUIRED})
+  and documentsConfig ([CV REQUIRED, COVER_LETTER OPTIONAL]).
+  Source posting: https://join.com/companies/softgate/16938354-junior-technical-consultant-digital-business-m-w-d
+-->
+<html><head><meta charset="utf-8"><title>join personal information</title></head><body>
+<div id="__next"><div class="css-1eoodx6"><div class="chakra-stack css-xjrqwy">
+<div class="chakra-stack css-1cihsba">
+  <p class="css-1gs54jx">softgate</p>
+  <h2 class="chakra-heading css-u881l">(Junior) Technical Consultant Digital Business (m/w/d)</h2>
+</div>
+<form method="POST">
+  <h3 class="chakra-heading css-wizard-title">Persönliche Informationen</h3>
+  <div class="chakra-stack css-3kyjg6">
+    <div data-scope="field" data-part="root" id="position-firstName" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::firstName::label" for="firstName" class="chakra-field__label css-1mq23c">Vorname<span aria-hidden="true" class="chakra-field__requiredIndicator">*</span></label>
+      <input id="firstName" data-scope="field" data-part="input" type="text" required="" aria-required="true" class="chakra-input css-5oxtgl" name="firstName" />
+    </div>
+    <div data-scope="field" data-part="root" id="position-lastName" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::lastName::label" for="lastName" class="chakra-field__label css-1mq23c">Nachname<span aria-hidden="true" class="chakra-field__requiredIndicator">*</span></label>
+      <input id="lastName" data-scope="field" data-part="input" type="text" required="" aria-required="true" class="chakra-input css-5oxtgl" name="lastName" />
+    </div>
+    <div data-scope="field" data-part="root" id="position-email" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::email::label" for="email" class="chakra-field__label css-1mq23c">E-Mail</label>
+      <input id="email" data-scope="field" data-part="input" type="email" data-testid="CandidateEmail" readonly="" autocomplete="email" class="chakra-input css-5oxtgl" name="email" value="" />
+    </div>
+    <div data-scope="field" data-part="root" id="position-countryOfResidence" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::countryOfResidence::label" for="countryOfResidence" class="chakra-field__label css-1mq23c">Wohnsitzland<span aria-hidden="true" class="chakra-field__requiredIndicator">*</span></label>
+      <select id="countryOfResidence" data-scope="field" data-part="select" required="" class="chakra-native-select__field css-native" name="countryOfResidence">
+        <option value="">Land auswählen</option>
+        <option value="AT">Österreich</option>
+        <option value="DE">Deutschland</option>
+        <option value="CH">Schweiz</option>
+        <option value="FR">Frankreich</option>
+      </select>
+    </div>
+    <div data-scope="field" data-part="root" id="position-city" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::city::label" for="city" class="chakra-field__label css-1mq23c">Stadt</label>
+      <input id="city" data-scope="combobox" data-part="input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Stadt auswählen" class="chakra-combobox__input css-combo" name="city" />
+    </div>
+    <div data-scope="field" data-part="root" id="position-phone" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::phone::label" for="phone" class="chakra-field__label css-1mq23c">Telefonnummer<span aria-hidden="true" class="chakra-field__requiredIndicator">*</span></label>
+      <div class="chakra-group css-1in9vqt">
+        <select aria-label="Ländervorwahl" class="chakra-native-select__field css-dial" name="phoneCountryCode">
+          <option value="+43">AT +43</option>
+          <option value="+49" selected="">DE +49</option>
+          <option value="+41">CH +41</option>
+        </select>
+        <input id="phone" data-scope="field" data-part="input" type="tel" required="" autocomplete="tel" class="chakra-input css-5oxtgl" name="phone" />
+      </div>
+    </div>
+    <div data-scope="field" data-part="root" id="position-cv" role="group" class="chakra-field__root css-tvh8o1">
+      <label data-scope="field" data-part="label" id="field::cv::label" for="cv" class="chakra-field__label css-1mq23c">CV<span aria-hidden="true" class="chakra-field__requiredIndicator">*</span></label>
+      <div data-scope="file-upload" data-part="dropzone" class="chakra-file-upload__dropzone css-drop">
+        <input id="cv" type="file" data-part="hidden-input" accept=".pdf,.doc,.docx" name="cv" />
+        <p>Laden Sie Ihren CV hoch</p>
+        <p>Wählen Sie eine Datei aus oder ziehen Sie sie hierher.</p>
+        <p>Die Dateigröße ist auf 10 MB begrenzt.</p>
+      </div>
+    </div>
+    <label class="chakra-checkbox__root css-cb">
+      <input type="checkbox" name="useAsDefaultCv" class="chakra-checkbox__hiddenInput" />
+      <span class="chakra-checkbox__label">Diesen CV standardmäßig für künftige Bewerbungen verwenden</span>
+    </label>
+    <button type="button" data-testid="ContinueButton" class="chakra-button css-1nwrsen"><span data-button-label="true">Weiter</span></button>
+  </div>
+</form>
+</div></div></div>
+</body></html>

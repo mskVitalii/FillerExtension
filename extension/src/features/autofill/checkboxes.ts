@@ -1,5 +1,5 @@
 import { queryFillableDeep } from "./engine";
-import { atsAdapterFor, atsFieldLabel, isAtsExcluded } from "./ats";
+import { atsAdapterFor, atsFieldLabel, isAtsIgnored } from "./ats";
 
 /**
  * Consent / marketing checkboxes on an application form (spec_2 — extends
@@ -110,9 +110,9 @@ function isRequired(el: HTMLElement): boolean {
 }
 
 function inApplicationForm(el: HTMLElement): boolean {
-  const form = (el as HTMLInputElement).form ?? el.closest("form");
-  // Ashby renders its application without a `<form>` element; a recognised ATS page is one.
-  if (!form) return atsAdapterFor(el) !== null;
+  // Some ATSs (Ashby) render no `<form>` element at all; their adapter names the container instead.
+  const form = (el as HTMLInputElement).form ?? el.closest("form") ?? atsAdapterFor(el)?.formRoot?.(el) ?? null;
+  if (!form) return false;
   // A real application form also has something to type into — this filters
   // out search / job-filter forms that are nothing but checkboxes.
   return Boolean(form.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea'));
@@ -124,25 +124,30 @@ function checkboxElements(): HTMLElement[] {
     if (el instanceof HTMLInputElement && el.disabled) return false;
     if (el.getAttribute("aria-disabled") === "true") return false;
     // A voluntary EEO / demographic survey (and its "you may store my answers" box) stays unanswered.
-    if (isAtsExcluded(el)) return false;
+    if (isAtsIgnored(el)) return false;
     return isVisible(el);
   });
 }
 
 /**
  * One option of a multiple-choice question ("What is your current location? ☐ Within Germany
- * ☐ Within the EU"), not a consent statement: several short-labelled checkboxes sharing one `name`
- * (Greenhouse `question_123[]`, Lever `cards[…][field0]`), or what the ATS adapter knows to be a
- * checkbox-group option. Those are answered as option questions, never ticked by the consent pass.
+ * ☐ Within the EU"; Recruitee's "select all that apply" `…multiContent`), not a consent
+ * statement: several short-labelled checkboxes sharing one `name` within their fieldset / group
+ * (or form), or what the ATS adapter knows to be a checkbox-group option. Those are answered as
+ * option questions, never ticked by the consent pass.
  */
 function isChoiceOption(el: HTMLElement): boolean {
   if (atsAdapterFor(el)?.isChoiceOption?.(el)) return true;
   const name = el.getAttribute("name");
-  if (!name || !(el instanceof HTMLInputElement)) return false;
-  const scope: ParentNode = el.form ?? el.ownerDocument;
-  const sameName = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).filter((c) => c.name === name);
-  // Options are short ("Within the EU"); two consent statements that happen to share a
-  // `consents[]` name are sentences, and stay with the consent pass.
+  if (!name) return false;
+  const sameNameIn = (scope: ParentNode) =>
+    Array.from(scope.querySelectorAll<HTMLElement>(CHECKBOX_SELECTOR)).filter((c) => c.getAttribute("name") === name);
+  // Same-named boxes under one question fieldset / group are its options, whatever their length.
+  const group = el.closest("fieldset, [role='group']");
+  if (group && sameNameIn(group).length >= 2) return true;
+  // Elsewhere in the form, options are short ("Within the EU"); two consent statements that
+  // happen to share a `consents[]` name are sentences, and stay with the consent pass.
+  const sameName = sameNameIn((el as HTMLInputElement).form ?? el.ownerDocument);
   return sameName.length >= 2 && sameName.every((c) => ownLabelText(c).split(" ").length <= CHOICE_OPTION_MAX_WORDS);
 }
 

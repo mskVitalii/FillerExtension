@@ -1,6 +1,6 @@
-import type { AtsAdapter } from "./index";
-import { inSectionHeaded } from "./index";
-import { hostOf, textOf, withoutRequiredMarker } from "./util";
+import type { Profile } from "@/types/profile";
+import type { AtsAdapter } from "./types";
+import { clickLikeUser, inSectionHeaded, isShown, sleep, textOf, withoutRequiredMarker } from "./shared";
 import { typeSearchText, fillElement } from "../native-setter";
 import { pickLocationOption } from "../location";
 
@@ -39,25 +39,34 @@ function isLocationInput(el: HTMLElement): boolean {
   return el instanceof HTMLInputElement && (el.id === "location-input" || el.name === "location");
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isShown(el: HTMLElement): boolean {
-  return el.offsetParent !== null || getComputedStyle(el).position === "fixed";
-}
-
-function click(el: HTMLElement): void {
-  for (const type of ["mousedown", "mouseup", "click"] as const) {
-    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+/**
+ * Lever's "Current location" typeahead: types the city, waits for its `.dropdown-location` rows
+ * and clicks the one in the applicant's country.
+ */
+async function fillLocation(el: HTMLInputElement, profile: Profile): Promise<boolean> {
+  if (!profile.city) return false;
+  typeSearchText(el, profile.city);
+  const scope = el.closest(".application-field") ?? el.ownerDocument;
+  for (let waited = 0; waited <= LOCATION_TIMEOUT_MS; waited += LOCATION_POLL_MS) {
+    await sleep(waited === 0 ? 0 : LOCATION_POLL_MS);
+    const rows = Array.from(scope.querySelectorAll<HTMLElement>(".dropdown-location")).filter(isShown);
+    if (rows.length === 0) continue;
+    const texts = rows.map((r) => textOf(r));
+    const chosen = pickLocationOption(texts, profile.city, profile.country);
+    if (!chosen) continue;
+    clickLikeUser(rows[texts.indexOf(chosen)]);
+    return true;
   }
+  // No suggestion in the applicant's country: keep the city as typed text (the visible field
+  // is a plain text input, `selectedLocation` just stays empty).
+  return fillElement(el, profile.city);
 }
 
 export const lever: AtsAdapter = {
-  name: "lever",
+  id: "lever",
 
   detect(url, doc) {
-    if (/(^|\.)lever\.co$/.test(hostOf(url))) return true;
+    if (/(^|\.)lever\.co$/.test(url.hostname)) return true;
     return doc.querySelector('form#application-form [data-qa="btn-submit"], form#application-form input#resume-upload-input') !== null;
   },
 
@@ -70,42 +79,29 @@ export const lever: AtsAdapter = {
     return row ? questionTitle(row) || null : null;
   },
 
-  isExcluded(el) {
+  isIgnored(el) {
     if (DEMOGRAPHIC_NAME_RE.test(el.getAttribute("name") ?? "")) return true;
     return inSectionHeaded(el, ".section", "h4");
   },
 
-  isLocationField: isLocationInput,
-
-  async fillLocation(el, profile) {
-    if (!(el instanceof HTMLInputElement) || !profile.city) return false;
-    typeSearchText(el, profile.city);
-    const scope = el.closest(".application-field") ?? el.ownerDocument;
-    for (let waited = 0; waited <= LOCATION_TIMEOUT_MS; waited += LOCATION_POLL_MS) {
-      await delay(waited === 0 ? 0 : LOCATION_POLL_MS);
-      const rows = Array.from(scope.querySelectorAll<HTMLElement>(".dropdown-location")).filter(isShown);
-      if (rows.length === 0) continue;
-      const texts = rows.map((r) => textOf(r));
-      const chosen = pickLocationOption(texts, profile.city, profile.country);
-      if (!chosen) continue;
-      click(rows[texts.indexOf(chosen)]);
-      return true;
-    }
-    // No suggestion in the applicant's country: keep the city as typed text (the visible field
-    // is a plain text input, `selectedLocation` just stays empty).
-    return fillElement(el, profile.city);
+  mapField(el) {
+    return isLocationInput(el) ? "city" : undefined;
   },
 
-  fileInput(kind, doc) {
+  fillField(el, field, _value, profile) {
+    return field === "city" && isLocationInput(el) ? fillLocation(el as HTMLInputElement, profile) : undefined;
+  },
+
+  fileInputs(doc, kind) {
     const cv = doc.querySelector<HTMLInputElement>('input[type="file"]#resume-upload-input, input[type="file"][name="resume"]');
-    if (kind === "cv") return cv ?? undefined;
+    if (kind === "cv") return cv ? [cv] : undefined;
     const card = Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="file"]')).find((input) => {
       if (input === cv) return false;
       const row = questionRow(input);
       const cardName = input.closest('[data-qa="additional-cards"]')?.querySelector('[data-qa="card-name"]');
       return COVER_LETTER_RE.test(row ? questionTitle(row) : "") || COVER_LETTER_RE.test(textOf(cardName));
     });
-    if (card) return card;
-    return cv ? null : undefined;
+    if (card) return [card];
+    return cv ? [] : undefined;
   },
 };

@@ -140,6 +140,15 @@ export function fieldQuestionText(el: HTMLElement, container: HTMLElement | null
 }
 
 /**
+ * Application questions that German and English ATS label in one or two words, with no "?":
+ * Personio's "Verfügbar ab" / "Available from", "Eintrittstermin", "Kündigungsfrist",
+ * "Notice period", "Start date". Too short for the word-count rule below, yet exactly what the
+ * AI should answer from the applicant's notes.
+ */
+const SHORT_QUESTION_LABEL_RE =
+  /^(verfügbar\s+ab|available\s+from|availability|verfügbarkeit|(frühest(?:er|möglicher)\s+)?eintritts(termin|datum)|starttermin|start\s*date|earliest\s+start(\s+date)?|kündigungsfrist|notice\s+period)\b/i;
+
+/**
  * A prompt reads like a real question if it has a "?" or is more than a
  * two-word field name — but never when the text is nothing but a generic
  * "type here" instruction (spec: a field whose only findable signal is its
@@ -155,6 +164,7 @@ export function isQuestionShaped(text: string): boolean {
   if (!trimmed) return false;
   if (GENERIC_PLACEHOLDER_RE.test(trimmed)) return false;
   if (trimmed.includes("?")) return true;
+  if (SHORT_QUESTION_LABEL_RE.test(trimmed)) return true;
   return trimmed.split(/\s+/).length >= 3;
 }
 

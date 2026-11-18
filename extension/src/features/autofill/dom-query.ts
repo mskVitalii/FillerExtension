@@ -21,11 +21,14 @@ export function queryFillableDeep(selector: string, root: ParentNode = document)
 }
 
 /**
- * A form library's invisible stand-in for a custom widget, not a field anyone fills: react-select
- * renders `<input required tabindex="-1" aria-hidden="true">` next to every required dropdown
- * (Greenhouse) only so the browser's own validation sees the selection. It takes layout space,
- * so a visibility check alone doesn't skip it — typing into it does nothing useful.
+ * A field no applicant can type into, so autofill must neither fill it nor ask a question
+ * about it: an input marked `aria-hidden="true"` itself (a form library's hidden mirror, e.g.
+ * softgarden's `resumeUploaded`/`allowApplied` ghost inputs), or a read-only text box a widget
+ * writes for itself (softgarden's pick lists keep their choice in one). A read-only
+ * `role="combobox"` is excluded: react-select marks its own input that way.
  */
-export function isHiddenMirrorInput(el: Element): boolean {
-  return el instanceof HTMLInputElement && el.getAttribute("aria-hidden") === "true" && el.getAttribute("tabindex") === "-1";
+export function isGhostField(el: HTMLElement): boolean {
+  if (el.getAttribute("aria-hidden") === "true") return true;
+  const readOnly = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly;
+  return readOnly && el.getAttribute("role") !== "combobox";
 }

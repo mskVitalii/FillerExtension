@@ -85,7 +85,7 @@ describe("Lever 'Additional information'", () => {
         <ul><li class="application-question"><label><div class="application-label">Additional information</div>
           <div class="application-field"><textarea name="comments" placeholder="Add a cover letter or anything else you want to share."></textarea></div></label></li></ul>
       </form>`;
-    expect(activeAtsAdapter()?.name).toBe("lever");
+    expect(activeAtsAdapter()?.id).toBe("lever");
     const questions = await detectCustomQuestions();
     expect(questions).toHaveLength(1);
     expect(questions[0].question).toMatch(/Additional information/);

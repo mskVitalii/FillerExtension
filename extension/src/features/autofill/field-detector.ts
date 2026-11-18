@@ -145,12 +145,14 @@ function matchField(signal: string): ProfileFieldKey | null {
  * each signal (name, id, aria-label, label, placeholder, nearby text) is
  * tested independently in priority order and the first confident match
  * wins — signals are never concatenated, so a weak/noisy signal can never
- * override a strong one.
+ * override a strong one. An ATS adapter that knows the field (`ats/`) is asked first.
  */
 export function detectSemanticField(el: FillableElement): ProfileFieldKey | null {
+  // The ATS's own field naming beats a label guess (`ats/`): Personio's `location` is the city.
   const ats = atsAdapterFor(el);
-  if (ats?.isExcluded?.(el)) return null;
-  if (ats?.isLocationField?.(el)) return "city";
+  if (ats?.isIgnored?.(el)) return null;
+  const mapped = ats?.mapField?.(el);
+  if (mapped !== undefined) return mapped;
 
   const autocomplete = el.getAttribute("autocomplete")?.toLowerCase().trim();
   if (autocomplete && AUTOCOMPLETE_MAP[autocomplete]) {

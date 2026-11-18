@@ -1,4 +1,5 @@
 import { fieldQuestionText } from "./field-signal";
+import { optionButtonsIn } from "./option-buttons";
 import { queryFillableDeep } from "./dom-query";
 
 /**
@@ -100,7 +101,7 @@ function groupInputs(el: HTMLElement): HTMLInputElement[] {
 function fieldKind(el: HTMLElement): string {
   const inputs = groupInputs(el);
   if (inputs.length > 0) return `group:${inputs[0].type}`;
-  if (el.querySelector('button[aria-pressed], [role="button"][aria-pressed]')) return "group:button";
+  if (optionButtonsIn(el).length > 0) return "group:button";
   const tag = el.tagName.toLowerCase();
   if (el instanceof HTMLInputElement) return `input:${el.type}`;
   if (tag === "input" || tag === "textarea" || tag === "select") return tag;
@@ -212,15 +213,13 @@ function deepQuerySelector(selector: string): HTMLElement | null {
 const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 const loose = (a: string, b: string) => Boolean(a) && Boolean(b) && (a === b || a.startsWith(b) || b.startsWith(a));
 
-/** Toggle-button group containers anywhere in the document (Ashby/Greenhouse-style Yes/No widgets — see `pick-questions.ts`). */
+/** Option-button group containers anywhere in the document (Ashby/Greenhouse Yes/No widgets, softgarden pick lists — see `option-buttons.ts`). */
 function buttonGroupContainers(): HTMLElement[] {
   const parents = new Set<HTMLElement>();
-  for (const btn of document.querySelectorAll<HTMLElement>('button[aria-pressed], [role="button"][aria-pressed]')) {
+  for (const btn of optionButtonsIn(document)) {
     if (btn.parentElement) parents.add(btn.parentElement);
   }
-  return [...parents].filter(
-    (el) => el.querySelectorAll('button[aria-pressed], [role="button"][aria-pressed]').length >= 2,
-  );
+  return [...parents].filter((el) => optionButtonsIn(el).length >= 2);
 }
 
 /** The group's own prompt — first legend/label that isn't one of its option labels. */
