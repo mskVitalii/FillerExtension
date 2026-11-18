@@ -71,6 +71,24 @@ export function isReactSelectLike(el: HTMLElement): boolean {
   return /^react-select-/.test(el.id) || findSelectControl(el) !== null;
 }
 
+/**
+ * What a react-select-style widget shows as chosen: its single value, or its
+ * multi-value chips joined with ", ". Its `<input>` holds only the search
+ * text, which react-select clears right after a pick — reading that reports
+ * every real selection as empty. Null when `el` isn't such a widget.
+ */
+export function comboboxShownValue(el: HTMLElement): string | null {
+  if (!isComboboxLike(el)) return null;
+  const control = el.closest<HTMLElement>('[class*="__control"], [class*="-control"]');
+  if (!control || control === el) return null;
+  const single = control.querySelector('[class*="singleValue"], [class*="single-value"]');
+  if (single) return collapse(single.textContent ?? "");
+  const chips = Array.from(control.querySelectorAll('[class*="multiValue__label"], [class*="multi-value__label"]'))
+    .map((n) => collapse(n.textContent ?? ""))
+    .filter(Boolean);
+  return chips.join(", ");
+}
+
 /** react-select's own option-id prefix for this widget, `react-select-<instanceId>-option-`. */
 function reactSelectOptionPrefix(el: HTMLElement): string | null {
   const own = el.id.match(/^react-select-(.+)-input$/);

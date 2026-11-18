@@ -145,7 +145,35 @@ function comboboxDialCodeValue(el: HTMLElement): string | null {
   if (el.getAttribute("role") !== "combobox") return null;
   const control = el.closest('[class*="control" i]') ?? el.parentElement;
   const shown = control ? collapse(control.querySelector('[class*="single-value" i]')?.textContent ?? "") : "";
-  return /^\+?\d{1,4}$/.test(shown) ? shown : null;
+  if (/^\+?\d{1,4}$/.test(shown)) return shown;
+  // "Germany +49" — Greenhouse's newer boards show the country with its code.
+  return shown.match(/\s(\+\d{1,4})$/)?.[1] ?? null;
+}
+
+/** Class names and ids of `el` and a few wrappers — where react-select pickers say what they are. */
+function wrapperSignal(el: HTMLElement, levels: number): string {
+  const parts: string[] = [];
+  let node: HTMLElement | null = el;
+  for (let i = 0; node && i < levels; i++, node = node.parentElement) parts.push(String(node.className), node.id);
+  return parts.join(" ");
+}
+
+const PHONE_GROUP_RE = /phone|tel(?![a-z])|mobile|telefon/i;
+const PICKER_SIGNAL_RE = /country|dial|calling|code|vorwahl|land/i;
+
+/**
+ * An empty react-select "Country" picker in the phone's own row (greenhouse.io:
+ * `.phone-input` > `.phone-input__country` next to `.phone-input__phone`) is
+ * the number's dial-code picker, not the address country — its options read
+ * "Germany +49". Recognized by the row itself saying "phone" and the picker
+ * saying "country"/"code", since nothing is shown in it yet.
+ */
+function isPhoneCountryPicker(el: HTMLElement, group: HTMLElement): boolean {
+  if (el.getAttribute("role") !== "combobox") return false;
+  if (!PHONE_GROUP_RE.test(`${String(group.className)} ${group.id}`) && !PHONE_GROUP_RE.test(wrapperSignal(el, 4))) return false;
+  const labelledBy = el.getAttribute("aria-labelledby");
+  const label = labelledBy ? (document.getElementById(labelledBy)?.textContent ?? "") : "";
+  return PICKER_SIGNAL_RE.test(`${signalText(el)} ${label} ${wrapperSignal(el, 4)}`);
 }
 
 const MAX_GROUP_LEVELS = 6;
@@ -186,6 +214,9 @@ export function findDialCodeField(phoneEl: HTMLElement): HTMLElement | null {
     const byComboboxShape = candidates.find((el) => comboboxDialCodeValue(el) !== null);
     if (byComboboxShape) return byComboboxShape;
 
+    const byPicker = candidates.find((el) => isPhoneCountryPicker(el, node!));
+    if (byPicker) return byPicker;
+
     if (node.tagName === "FORM") break;
   }
 
@@ -207,14 +238,35 @@ function fillSelectFromCandidates(select: HTMLSelectElement, candidates: string[
   return true;
 }
 
+/**
+ * The option of a dial-code picker for `phone`: the one whose "+49" matches,
+ * and among several sharing a code (+1: United States, Canada, …) the one
+ * naming the number's own country.
+ */
+export function pickDialCodeOption(texts: string[], phone: ResolvedPhone): string | null {
+  const matching = texts.filter((t) => t.match(/\+\s?(\d{1,4})\b/)?.[1] === phone.callingCode || t.trim() === phone.callingCode);
+  if (matching.length <= 1) return matching[0] ?? null;
+  if (phone.iso2) {
+    let name = "";
+    try {
+      name = new Intl.DisplayNames(["en"], { type: "region" }).of(phone.iso2.toUpperCase()) ?? "";
+    } catch {
+      /* no Intl region names — fall through to the first match */
+    }
+    const own = matching.find((t) => (name && t.toLowerCase().includes(name.toLowerCase())) || new RegExp(`\\b${phone.iso2}\\b`, "i").test(t));
+    if (own) return own;
+  }
+  return matching[0];
+}
+
 /** Fills a detected dial-code companion field. Returns whether it took. */
-export function fillDialCodeField(el: HTMLElement, phone: ResolvedPhone): boolean {
-  // A `role="combobox"` companion only ever reaches here already showing
-  // this number's own calling code (`dialCodeCompanionIsUsable` gates that
-  // in `resolvePhoneFill`) — there's nothing to set, and typing into it
-  // would just overwrite react-select's *search* text without actually
-  // committing a selection, corrupting the display for no reason.
-  if (el.getAttribute("role") === "combobox") return true;
+export async function fillDialCodeField(el: HTMLElement, phone: ResolvedPhone): Promise<boolean> {
+  if (el.getAttribute("role") === "combobox") {
+    const shown = comboboxDialCodeValue(el);
+    if (shown === `+${phone.callingCode}` || shown === phone.callingCode) return true;
+    // Never typed into: react-select takes a value only by clicking one of its rows.
+    return fillComboboxByPicking(el, (texts) => pickDialCodeOption(texts, phone));
+  }
 
   const cc = phone.callingCode;
   const candidates = [`+${cc}`, cc, `00${cc}`, `+ ${cc}`];
@@ -231,19 +283,19 @@ export function fillDialCodeField(el: HTMLElement, phone: ResolvedPhone): boolea
 }
 
 /**
- * A native `<select>` (or a plainly-labelled dial-code `<input>`) is always
- * trusted — `fillDialCodeField` can reliably drive it to the right option
- * afterward regardless of what it currently shows. A `role="combobox"`
- * widget (greenhouse.io's react-select "Country" flag picker) can't be
- * reliably opened/re-selected from here, so it's only trusted when it
- * *already* shows this exact number's calling code — otherwise the safe
- * fallback is the complete number in one field, not a bare national number
- * left next to a flag/dial-code that doesn't actually match it.
+ * Fills a phone field the way `resolvePhoneFill` decided: with a dial-code
+ * field beside it, the code goes there and the phone field gets the number
+ * without it — the rule everywhere, since a page that asks for the code
+ * separately would otherwise end up with it twice. Only when the code
+ * couldn't be set (no matching option) does the phone field get the full
+ * international number, so the code is never lost.
  */
-function dialCodeCompanionIsUsable(field: HTMLElement, phone: ResolvedPhone): boolean {
-  if (field.getAttribute("role") !== "combobox") return true;
-  const shown = comboboxDialCodeValue(field);
-  return shown === `+${phone.callingCode}` || shown === phone.callingCode;
+export async function fillPhoneField(el: HTMLElement, fill: PhoneFill): Promise<boolean> {
+  if (fill.dialCodeField && !(await fillDialCodeField(fill.dialCodeField, fill.phone))) {
+    const placeholder = el.getAttribute("placeholder") ?? "";
+    return fillElement(el, /\s/.test(placeholder) ? fill.phone.international : fill.phone.e164);
+  }
+  return fillElement(el, fill.value);
 }
 
 export interface PhoneFill {
@@ -273,7 +325,7 @@ export function resolvePhoneFill(el: HTMLElement, raw: string, regionHint?: stri
   if (!phone) return null;
 
   const dialCodeField = findDialCodeField(el);
-  if (dialCodeField && dialCodeCompanionIsUsable(dialCodeField, phone)) {
+  if (dialCodeField) {
     // The country code lives in its own box — this field takes just the
     // national significant number (no leading 0, no country code).
     return { value: phone.significant, dialCodeField, phone };

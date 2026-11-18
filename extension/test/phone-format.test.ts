@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolvePhoneFill } from "@/features/autofill/field-format";
+import { pickDialCodeOption, resolvePhoneFill } from "@/features/autofill/field-format";
+import { resolvePhone } from "@/lib/phone";
 
 /**
  * Direct regression test for the "1745624691 typed raw into every phone
@@ -140,10 +141,35 @@ describe("resolvePhoneFill", () => {
     expect(fill!.value).toBe("1745624691");
   });
 
-  it("falls back to the full number when the combobox shows a different calling code — never strands a bare national number next to a mismatched flag", () => {
-    const { phone } = greenhousePhoneFixture("+1");
+  it("pairs with the row's picker even when it shows another code — the code is picked there, the number goes in without it", () => {
+    const { combobox, phone } = greenhousePhoneFixture("+1");
     const fill = resolvePhoneFill(phone, RAW_PHONE, COUNTRY);
-    expect(fill!.dialCodeField).toBeNull();
-    expect(fill!.value.replace(/\s/g, "")).toMatch(/^\+49/);
+    expect(fill!.dialCodeField).toBe(combobox);
+    expect(fill!.value).toBe("1745624691");
+  });
+
+  it("pairs with an empty Greenhouse country picker in the phone row (options read \"Germany +49\")", () => {
+    const { combobox, phone } = greenhousePhoneFixture("");
+    const fill = resolvePhoneFill(phone, RAW_PHONE, COUNTRY);
+    expect(fill!.dialCodeField).toBe(combobox);
+    expect(fill!.value).toBe("1745624691");
+  });
+
+  it("recognizes \"Germany +49\" as already showing the right code", () => {
+    const { combobox, phone } = greenhousePhoneFixture("Germany +49");
+    expect(resolvePhoneFill(phone, RAW_PHONE, COUNTRY)!.dialCodeField).toBe(combobox);
+  });
+});
+
+describe("pickDialCodeOption", () => {
+  const options = ["United States +1", "Canada +1", "Afghanistan +93", "Germany +49", "Guernsey +44"];
+  it("picks the option with the number's calling code", () => {
+    expect(pickDialCodeOption(options, resolvePhone("+49 174 5624691", "Germany")!)).toBe("Germany +49");
+  });
+  it("prefers the number's own country among options sharing a code", () => {
+    expect(pickDialCodeOption(options, resolvePhone("+1 416 555 0199", "Canada")!)).toBe("Canada +1");
+  });
+  it("returns null when no option has the code", () => {
+    expect(pickDialCodeOption(options, resolvePhone("+33 6 12 34 56 78", "France")!)).toBeNull();
   });
 });

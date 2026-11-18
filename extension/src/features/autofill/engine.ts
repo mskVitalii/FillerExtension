@@ -1,7 +1,7 @@
 import type { Profile, ProfileFieldKey } from "@/types/profile";
 import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
-import { fillDialCodeField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
+import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { generatePassword } from "@/lib/generate-password";
@@ -40,8 +40,7 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
   if (field === "phone") {
     const fill = resolvePhoneFill(el, value, profile.country);
     if (!fill) return fillElement(el, value);
-    if (fill.dialCodeField) fillDialCodeField(fill.dialCodeField, fill.phone);
-    return fillElement(el, fill.value);
+    return fillPhoneField(el, fill);
   }
 
   if (field === "expectedSalary") {

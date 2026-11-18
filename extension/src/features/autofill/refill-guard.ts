@@ -1,4 +1,5 @@
 import { isOverlayHostNode, isOverlayNode } from "./overlay-host";
+import { comboboxShownValue } from "./combobox";
 
 /**
  * Keeps freshly written values in place while a React/SPA form settles.
@@ -55,6 +56,8 @@ export interface GuardReport {
   refills: number;
   /** Fields still empty/reverted when the guard stopped. */
   lost: number;
+  /** Which of the given fills those were (indexes into the `fills` argument). */
+  lostIndexes: number[];
 }
 
 const DEFAULTS: Required<GuardOptions> = {
@@ -67,6 +70,8 @@ const DEFAULTS: Required<GuardOptions> = {
 
 /** The field's current value, normalized for comparison. */
 export function readValue(el: HTMLElement): string {
+  const shown = comboboxShownValue(el);
+  if (shown) return shown;
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
     return el.value.trim();
   }
@@ -88,7 +93,7 @@ export function stopFillGuards(): void {
 export function guardFills(fills: GuardedFill[], options: GuardOptions = {}): Promise<GuardReport> {
   const opts = { ...DEFAULTS, ...options };
   const tracked: Tracked[] = fills.map((f) => ({ ...f, retries: 0, userOwned: false }));
-  if (tracked.length === 0) return Promise.resolve({ refills: 0, lost: 0 });
+  if (tracked.length === 0) return Promise.resolve({ refills: 0, lost: 0, lostIndexes: [] });
 
   return new Promise<GuardReport>((resolve) => {
     const startUrl = location.href;
@@ -125,13 +130,13 @@ export function guardFills(fills: GuardedFill[], options: GuardOptions = {}): Pr
       for (const timer of timers) clearTimeout(timer);
       if (debounce) clearTimeout(debounce);
       if (settle) clearTimeout(settle);
-      let lost = 0;
-      for (const t of tracked) {
-        if (t.userOwned) continue;
+      const lostIndexes: number[] = [];
+      tracked.forEach((t, i) => {
+        if (t.userOwned) return;
         const el = current(t);
-        if (!el || isLost(t, el)) lost++;
-      }
-      resolve({ refills, lost });
+        if (!el || isLost(t, el)) lostIndexes.push(i);
+      });
+      resolve({ refills, lost: lostIndexes.length, lostIndexes });
     };
 
     const check = async () => {

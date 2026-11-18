@@ -3,7 +3,7 @@ import { extractJob, isExtractionSufficient } from "@/features/job-extraction/ex
 import { pageMainText } from "@/features/job-extraction/dom-heuristics";
 import { autofillDocument } from "@/features/autofill/engine";
 import { fillElement } from "@/features/autofill/native-setter";
-import { fillDialCodeField, fillSalaryField, resolvePhoneFill } from "@/features/autofill/field-format";
+import { fillPhoneField, fillSalaryField, resolvePhoneFill } from "@/features/autofill/field-format";
 import { findConfirmPasswordFields } from "@/features/autofill/password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { getInsertTarget, initFocusTracker } from "@/features/autofill/focus-tracker";
@@ -34,8 +34,7 @@ async function insertFieldValue(target: HTMLElement, field: string, value: strin
   if (field === "phone") {
     const fill = resolvePhoneFill(target, value);
     if (!fill) return fillElement(target, value);
-    if (fill.dialCodeField) fillDialCodeField(fill.dialCodeField, fill.phone);
-    return fillElement(target, fill.value);
+    return fillPhoneField(target, fill);
   }
   if (field === "expectedSalary") {
     return fillSalaryField(target, value);

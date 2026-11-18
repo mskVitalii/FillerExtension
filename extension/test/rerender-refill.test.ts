@@ -194,7 +194,7 @@ describe("refill guard never loops", () => {
     );
     pageObserver.disconnect();
     expect(refills).toBe(0);
-    expect(report).toEqual({ refills: 0, lost: 0 });
+    expect(report).toEqual({ refills: 0, lost: 0, lostIndexes: [] });
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
