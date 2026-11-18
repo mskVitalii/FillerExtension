@@ -187,6 +187,22 @@ function radioGroupsIn(container: HTMLElement): { groupEl: HTMLElement; radios: 
     .map((group) => ({ groupEl: groupContainerOf(group), radios: group }));
 }
 
+/**
+ * Every radio-group question on the page, for the automatic question scan
+ * (`custom-questions.ts#detectCustomQuestions`): d.vinci asks its screening questions
+ * ("Liegt eine EU-Arbeitserlaubnis vor?") and even its privacy consent as Ja/Nein radios, which
+ * the free-text scan never sees. Same grouping and question text as a pick.
+ */
+export function pageRadioQuestions(): { groupEl: HTMLElement; radios: HTMLInputElement[]; question: string; options: string[] }[] {
+  const body = document.body;
+  return radioGroupsIn(body).map(({ groupEl, radios }) => ({
+    groupEl,
+    radios,
+    question: radioGroupQuestion(groupEl, radios, body),
+    options: radios.map(radioOptionLabel).filter(Boolean),
+  }));
+}
+
 // --- Toggle-button groups -------------------------------------------------
 
 /**

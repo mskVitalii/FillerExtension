@@ -5,6 +5,17 @@ import type { DateInputKind } from "@/lib/date-format";
 export type UploadKind = "cv" | "coverLetter";
 
 /**
+ * What an upload slot is for (`file-upload/inject-file.ts#fileSlotsOf`). German forms offer
+ * several, and each document belongs in one: "Lebenslauf" (cv), "Anschreiben" (coverLetter),
+ * "Bewerbungsunterlagen" / "Komplette Unterlagen" / "Application file" (documents: the whole
+ * application, CV included), "Zeugnisse" / "Zertifikate" (references), "Foto" (photo), and a CV
+ * *parser* upload that only reads the CV to prefill the form (rexx `#cvparser`, d.vinci's
+ * Textkernel "Lebenslauf hochladen") — never an attachment. One slot can be several at once:
+ * rexx's "Anschreiben / Komplette Unterlagen".
+ */
+export type FileSlot = UploadKind | "documents" | "references" | "photo" | "parser";
+
+/**
  * Per-ATS knowledge the generic autofill engine can't derive from labels alone: which widget a
  * vendor uses for a dropdown or a date, which ids are profile fields, which fields must never be
  * touched, where the CV slot is, and where in a multi-step flow the page is. Every hook is
@@ -73,11 +84,25 @@ export interface AtsAdapter {
    * `undefined` defers to the generic label match.
    */
   fileInputs?(doc: Document, kind: UploadKind): HTMLInputElement[] | undefined;
+  /** Slots of one upload input, overriding the generic label reading (`fileSlotsOf`); `undefined` = generic. */
+  fileSlots?(input: HTMLInputElement): FileSlot[] | undefined;
+  /**
+   * True when choosing a file in `input` *adds* an upload (the widget sends each file at once
+   * and lists it) rather than replacing the input's file, so a second document may follow the
+   * first into the same slot.
+   */
+  appendsUploads?(input: HTMLInputElement): boolean;
   /** Where a document goes when no upload slot is labelled for it (softgarden's "further attachments"). */
   fallbackFileInput?(kind: UploadKind, doc: Document): HTMLInputElement | null;
 
   // --- Multi-step flows ---------------------------------------------------------------------
 
+  /**
+   * When the page is a step before the application form (a posting, a "how do you want to
+   * apply" chooser), where the form is: a URL to open, or the element a user would click.
+   * `null` on the form itself.
+   */
+  formEntry?(url: URL, doc: Document): { url?: string; click?: HTMLElement } | null;
   /** Where in a multi-step flow the page is (`atsStep`). */
   step?(doc: Document): AtsStep;
   /**

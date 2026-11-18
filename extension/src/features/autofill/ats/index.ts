@@ -8,8 +8,23 @@ import { recruitee } from "./recruitee";
 import { join } from "./join";
 import { workdayAdapter } from "./workday";
 import { successFactorsAdapter } from "./successfactors";
+import { smartrecruiters } from "./smartrecruiters";
+import { dvinci } from "./dvinci";
+import { rexx } from "./rexx";
+import { umantis } from "./umantis";
+import { concludis } from "./concludis";
 
-export type { AtsAdapter, AtsStep, AtsStepKind, CvHistory, EducationEntry, QuestionHints, UploadKind, WorkEntry } from "./types";
+export type {
+  AtsAdapter,
+  AtsStep,
+  AtsStepKind,
+  CvHistory,
+  EducationEntry,
+  FileSlot,
+  QuestionHints,
+  UploadKind,
+  WorkEntry,
+} from "./types";
 export { fillWorkdayExperience } from "./workday";
 
 /**
@@ -27,6 +42,11 @@ export const ATS_ADAPTERS: AtsAdapter[] = [
   join,
   workdayAdapter,
   successFactorsAdapter,
+  smartrecruiters,
+  dvinci,
+  rexx,
+  umantis,
+  concludis,
 ];
 
 function urlOf(doc: Document): string {
@@ -84,4 +104,11 @@ export function atsFieldLabel(el: HTMLElement): string {
 export function atsStep(doc: Document = document, url: string = urlOf(doc)): AtsStep | null {
   const adapter = detectAts(url, doc);
   return adapter?.step ? adapter.step(doc) : null;
+}
+
+/** Where the application form is when the current page is a step before it (see `AtsAdapter.formEntry`). */
+export function atsFormEntry(doc: Document = document): { ats: string; url?: string; click?: HTMLElement } | null {
+  const adapter = activeAtsAdapter(doc);
+  const entry = adapter?.formEntry?.(parseUrl(urlOf(doc)), doc) ?? null;
+  return adapter && entry ? { ats: adapter.id, ...entry } : null;
 }

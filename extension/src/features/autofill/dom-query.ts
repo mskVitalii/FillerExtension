@@ -20,15 +20,29 @@ export function queryFillableDeep(selector: string, root: ParentNode = document)
   return found;
 }
 
+const HONEYPOT_NAME_RE = /honeypot|hpot|\bhp[_-]|bot[_-]?trap|leave[_-]?(this[_-]?)?(blank|empty)|do[_-]?not[_-]?fill/i;
+
 /**
  * A field no applicant can type into, so autofill must neither fill it nor ask a question
- * about it: an input marked `aria-hidden="true"` itself (a form library's hidden mirror, e.g.
- * softgarden's `resumeUploaded`/`allowApplied` ghost inputs), or a read-only text box a widget
- * writes for itself (softgarden's pick lists keep their choice in one). A read-only
- * `role="combobox"` is excluded: react-select marks its own input that way.
+ * about it:
+ *  - one marked `aria-hidden="true"` itself — a form library's hidden mirror: react-select's
+ *    `<input required tabindex="-1" aria-hidden>` beside every required dropdown (Greenhouse),
+ *    softgarden's `resumeUploaded`/`allowApplied` ghost inputs;
+ *  - an anti-spam honeypot: a text field inside an `aria-hidden` box real users never see or
+ *    reach, which bots fill and the server then rejects the submission for (rexx's
+ *    `<div aria-hidden="true" tabindex="-1"><label for="website">Website</label><input
+ *    name="website">` at the end of every form — its "Website" label matched the profile's
+ *    website), or one named like a honeypot;
+ *  - a read-only text box a widget writes for itself (softgarden's pick lists keep their choice
+ *    in one). A read-only `role="combobox"` is excluded: react-select marks its own input that way.
+ * A native `<select>` merely *inside* an `aria-hidden` box (under a select2 facade) is a real
+ * field, filled through that facade (`select-facade.ts`).
  */
 export function isGhostField(el: HTMLElement): boolean {
   if (el.getAttribute("aria-hidden") === "true") return true;
+  const textLike = el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && el.type !== "file");
+  if (textLike && el.closest('[aria-hidden="true"]')) return true;
+  if (textLike && HONEYPOT_NAME_RE.test(`${el.getAttribute("name") ?? ""} ${el.id} ${el.className}`)) return true;
   const readOnly = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly;
   return readOnly && el.getAttribute("role") !== "combobox";
 }

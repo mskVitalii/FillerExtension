@@ -5,7 +5,7 @@ import { detectCheckboxes } from "@/features/autofill/checkboxes";
 import { decomposeContainer, fillAnswersByLocator } from "@/features/autofill/pick-questions";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
 import { testProfile } from "../fixtures";
-import { loadAtsFixture, pdf, scoreFields, shownValue, textControls, type Ats, type FieldExpectation } from "./harness";
+import { loadAtsFixture, pdf, scoreFields, shownValue, textControls, type Ats, type FieldExpectation } from "./snapshot-harness";
 
 /**
  * One real ATS form snapshot and everything the extension should do on it with the fictional

@@ -73,7 +73,8 @@ describe("Workday: My Information (captured live)", () => {
   it("asks only the real questions, with the dropdown's own options, and picks the answer", async () => {
     loadAtsFixture("workday/my-information.html");
     await autofillDocument(testProfile());
-    const questions = await detectCustomQuestions();
+    // Radio groups come back too, with a locator (answered through `fillAnswersByLocator`).
+    const questions = (await detectCustomQuestions()).filter((q) => !q.locator);
     const texts = questions.map((q) => q.question);
 
     expect(texts).toHaveLength(1);

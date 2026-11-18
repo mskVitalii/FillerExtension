@@ -1,5 +1,5 @@
 import type { ProfileFieldKey } from "@/types/profile";
-import { FIELD_ORDER, FIELD_PATTERNS } from "./semantic-fields";
+import { CHOICE_ONLY_PATTERNS, FIELD_ORDER, FIELD_PATTERNS, FIELD_VETO_PATTERNS, OTHER_PERSON_RE } from "./semantic-fields";
 import { atsAdapterFor, atsFieldLabel } from "./ats";
 
 type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
@@ -71,12 +71,19 @@ function labelForElement(el: FillableElement): string {
 function nearbyText(el: FillableElement): string {
   let node: ChildNode | null = el.previousSibling;
   while (node) {
-    const text = node.textContent?.trim();
+    // Another control's text is not this field's label: a `<select>` sibling's textContent is its
+    // option list (rexx puts the hidden native select right before its jQuery UI selectmenu
+    // button, and "…LinkedIn…" among the "Wie haben Sie uns gefunden?" options matched `linkedin`).
+    const isControl =
+      node instanceof Element && (node.matches(CONTROL_SELECTOR) || node.querySelector(CONTROL_SELECTOR) !== null);
+    const text = isControl ? "" : node.textContent?.trim();
     if (text) return text;
     node = node.previousSibling;
   }
   return "";
 }
+
+const CONTROL_SELECTOR = "input, select, textarea, [role=listbox], [role=combobox]";
 
 interface Signal {
   text: string;
@@ -138,11 +145,28 @@ function signalParts(el: FillableElement): Signal[] {
     .map(([text, identifier]) => ({ text, identifier }));
 }
 
-function matchField(signal: string): ProfileFieldKey | null {
+/** A `<select>`, a radio, or a widget standing in for one — where "Title" means Mr/Ms. */
+function isChoiceField(el: FillableElement): boolean {
+  if (el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLInputElement) return el.type === "radio";
+  return el.getAttribute("role") === "combobox" || el.getAttribute("role") === "radiogroup";
+}
+
+function matchField(signal: string, choice: boolean): ProfileFieldKey | null {
   for (const field of FIELD_ORDER) {
-    if (FIELD_PATTERNS[field].some((pattern) => pattern.test(signal))) return field;
+    const choiceOnly = CHOICE_ONLY_PATTERNS[field] ?? [];
+    const matched = FIELD_PATTERNS[field].some(
+      (pattern) => pattern.test(signal) && (choice || !choiceOnly.some((only) => only.test(signal))),
+    );
+    if (matched) return field;
   }
   return null;
+}
+
+/** True when some signal says the field isn't the applicant's own `field` (see `FIELD_VETO_PATTERNS`). */
+function vetoed(field: ProfileFieldKey, parts: Signal[]): boolean {
+  const vetoes = FIELD_VETO_PATTERNS[field] ?? [];
+  return parts.some(({ text }) => OTHER_PERSON_RE.test(text) || vetoes.some((veto) => veto.test(text)));
 }
 
 /**
@@ -165,10 +189,12 @@ export function detectSemanticField(el: FillableElement): ProfileFieldKey | null
     return AUTOCOMPLETE_MAP[autocomplete];
   }
 
-  for (const { text, identifier } of signalParts(el)) {
+  const parts = signalParts(el);
+  const choice = isChoiceField(el);
+  for (const { text, identifier } of parts) {
     if (!identifier && isProse(text)) continue;
-    const field = matchField(text);
-    if (field) return field;
+    const field = matchField(text, choice);
+    if (field) return vetoed(field, parts) ? null : field;
   }
   // `type="tel"` is a phone number whatever its label says ("Number", "Kontakt").
   if (el instanceof HTMLInputElement && el.type === "tel") return "phone";

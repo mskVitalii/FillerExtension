@@ -5,7 +5,7 @@ import { fillComboboxAnswer, fillComboboxByPicking, isComboboxLike, isReactSelec
 import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField, isRevealedPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
-import { salutationCandidates } from "@/lib/salutation";
+import { looksLikeSalutationOptions, salutationCandidates, salutationMatches } from "@/lib/salutation";
 import { generatePassword } from "@/lib/generate-password";
 import { isGhostField, queryFillableDeep } from "./dom-query";
 import { describeField, findByKey } from "./element-locator";
@@ -13,9 +13,12 @@ import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 import { fieldQuestionText } from "./field-signal";
 import { fieldKind } from "@/features/fill-stats/dom";
 import { fillLocationField } from "./location";
-import { activeAtsAdapter } from "./ats";
+import { activeAtsAdapter, isAtsIgnored } from "./ats";
 import type { AtsAdapter } from "./ats/types";
 import type { FillFieldStat } from "@/features/fill-stats/stats";
+import { backingSelect, repaintFacade } from "./select-facade";
+import { radioOptionLabel } from "./pick-questions";
+import { setChecked } from "./checkboxes";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 
@@ -90,14 +93,7 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
     const candidates = salutationCandidates(value);
     if (el instanceof HTMLSelectElement) return candidates.some((candidate) => fillElement(el, candidate));
     if (isComboboxLike(el) && isReactSelectLike(el)) {
-      const wanted = candidates.map((c) => c.toLowerCase());
-      return fillComboboxByPicking(el, (texts) => {
-        for (const w of wanted) {
-          const hit = texts.find((t) => t.trim().toLowerCase() === w);
-          if (hit) return hit;
-        }
-        return null;
-      });
+      return fillComboboxByPicking(el, (texts) => texts.find((t) => salutationMatches(t, value)) ?? null);
     }
   }
 
@@ -181,6 +177,15 @@ export async function autofillDocument(
     }
   }
 
+  // A select2 / selectmenu / chosen facade and its native <select> are one field: it is filled
+  // through the select (which submits the value) and found by either one's label.
+  const facadeSelect = new Map<HTMLElement, HTMLSelectElement>();
+  for (const el of elements) {
+    const select = backingSelect(el);
+    if (select) facadeSelect.set(el, select);
+  }
+  const selectsWithFacade = new Set(facadeSelect.values());
+
   let filled = 0;
   const guarded: GuardedFill[] = [];
   const stats: FillFieldStat[] = [];
@@ -196,22 +201,29 @@ export async function autofillDocument(
     // …nor one whose "Show password" toggle turned it into a text box for now.
     if (isRevealedPasswordField(el)) continue;
     if (dialCodeFields.has(el)) continue;
+    if (selectsWithFacade.has(el as HTMLSelectElement)) continue;
+    const facade = facadeSelect.has(el) ? el : null;
+    const target: HTMLElement = facadeSelect.get(el) ?? el;
     // The ATS adapter's own mapping (and what it ignores) is part of `detectSemanticField`.
-    const field = detectSemanticField(el);
+    const field = facade ? (detectSemanticField(target) ?? detectSemanticField(facade)) : detectSemanticField(el);
     if (!field) continue;
+    // A salary <select> that only picks the currency or the period ("EUR", "pro Jahr" — concludis
+    // puts both right after the amount, under the same label) is not the amount.
+    if (field === "expectedSalary" && target instanceof HTMLSelectElement && !hasNumericOption(target)) continue;
     const value = profileValue(profile, field);
     const stat: FillFieldStat = { kind: fieldKind(el), field, label: fieldQuestionText(el).slice(0, 120), filler: "no-value" };
     stats.push(stat);
     if (!value) continue;
-    const before = readValue(el);
-    const key = describeField(el);
+    const before = readValue(target);
+    const key = describeField(target);
     stat.filler = "failed";
-    if (await fillWithAdapter(el, field, value, profile, ats)) {
+    if (await fillWithAdapter(target, field, value, profile, ats)) {
+      if (facade) repaintFacade(facade, target as HTMLSelectElement);
       filled++;
       stat.filler = "filled";
       guardedStat.push(stats.length - 1);
       guarded.push({
-        el,
+        el: target,
         before,
         locate: () => findByKey(key),
         refill: (fresh) => fillWithAdapter(fresh, field, value, profile, ats),
@@ -234,8 +246,46 @@ export async function autofillDocument(
     }
   }
 
+  filled += fillSalutationRadios(profile.salutation, stats);
+
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);
   filled += passwordFilled;
 
   return { filled, total: elements.length, generatedPassword };
+}
+
+function hasNumericOption(select: HTMLSelectElement): boolean {
+  return Array.from(select.options).some((opt) => /\d/.test(opt.textContent ?? ""));
+}
+
+/**
+ * Salutation asked as radios ("Frau / Herr / Divers" — Umantis, many custom portals): the
+ * semantic pass above skips radios, so a group whose options are all salutation words, or whose
+ * label reads as one, gets the option matching the profile's salutation. A group the page
+ * already answered is left alone.
+ */
+function fillSalutationRadios(salutation: string, stats: FillFieldStat[]): number {
+  if (!salutation) return 0;
+  const groups = new Map<string, HTMLInputElement[]>();
+  for (const el of queryFillableDeep('input[type="radio"]')) {
+    if (!(el instanceof HTMLInputElement) || el.disabled || !el.name) continue;
+    // A voluntary EEO / demographic survey's gender question stays unanswered (ats/).
+    if (isAtsIgnored(el)) continue;
+    groups.set(el.name, [...(groups.get(el.name) ?? []), el]);
+  }
+  let filled = 0;
+  for (const radios of groups.values()) {
+    if (radios.some((r) => r.checked)) continue;
+    const labels = radios.map(radioOptionLabel);
+    const isSalutation = looksLikeSalutationOptions(labels) || detectSemanticField(radios[0]) === "salutation";
+    if (!isSalutation) continue;
+    const match = radios.find((r, i) => salutationMatches(labels[i], salutation) || salutationMatches(r.value, salutation));
+    const stat: FillFieldStat = { kind: "radio", field: "salutation", label: labels.join(" / ").slice(0, 120), filler: "failed" };
+    stats.push(stat);
+    if (match && setChecked(match, true)) {
+      stat.filler = "filled";
+      filled++;
+    }
+  }
+  return filled;
 }

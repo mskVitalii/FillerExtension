@@ -119,6 +119,18 @@ function inApplicationForm(el: HTMLElement): boolean {
   return Boolean(form.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea'));
 }
 
+/**
+ * A custom-styled checkbox hides the native input (`display: none`) and draws its box in the
+ * `<label for>` instead (rexx's "Ich akzeptiere die elektronische Speicherung meiner Daten…"
+ * consent): the input counts as visible when its label is. Clicking the hidden input still
+ * toggles it.
+ */
+function hasVisibleLabel(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLInputElement) || !el.id) return false;
+  const label = el.ownerDocument.querySelector<HTMLElement>(`label[for="${CSS.escape(el.id)}"]`);
+  return label !== null && isVisible(label);
+}
+
 function checkboxElements(): HTMLElement[] {
   return queryFillableDeep(CHECKBOX_SELECTOR).filter((el): el is HTMLElement => {
     if (!(el instanceof HTMLElement)) return false;
@@ -127,7 +139,7 @@ function checkboxElements(): HTMLElement[] {
     // A voluntary EEO / demographic survey (and its "you may store my answers" box), a UI5
     // checkbox's hidden mirror input: never decided on (ats/).
     if (isAtsIgnored(el)) return false;
-    return isVisible(el);
+    return isVisible(el) || hasVisibleLabel(el);
   });
 }
 

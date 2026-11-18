@@ -10,6 +10,11 @@ import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 import { activeAtsAdapter, atsFieldLabel, isAtsIgnored } from "./ats";
 import type { AtsAdapter } from "./ats/types";
 import { isRevealedPasswordField } from "./password-fields";
+import { buildLocator } from "./element-locator";
+import { backingSelect, repaintFacade } from "./select-facade";
+import { pageRadioQuestions } from "./pick-questions";
+import { looksLikeSalutationOptions } from "@/lib/salutation";
+import { fillElement } from "./native-setter";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -90,10 +95,17 @@ interface QuestionField {
   numeric?: boolean;
   /** `el`'s required date/time format, e.g. `<input type="date">` — an available-from/start-date question. */
   dateKind?: DateInputKind;
+  /** When `el` is a select2/selectmenu/chosen facade: the native `<select>` it stands for, which takes the answer. */
+  select?: HTMLSelectElement;
 }
 
+const REQUIRED_MARK_SELECTOR = ".required-mark, .required, .asterisk, .mustsign, .form_content_label_mustsign, abbr[title*=required i]";
+
+/** `required`/`aria-required`, or a "*" marker in the field's `<label for>` / Umantis' label column. */
 function isRequiredField(el: HTMLElement): boolean {
-  return (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true";
+  if ((el as HTMLInputElement).required || el.getAttribute("aria-required") === "true") return true;
+  const label = el.id ? el.ownerDocument.querySelector(`label[for="${CSS.escape(el.id)}"]`) : el.closest("label");
+  return Boolean(label && (label.querySelector(REQUIRED_MARK_SELECTOR) || /\*\s*:?\s*$/.test(label.textContent ?? "")));
 }
 
 /** A short field name ("Notice Period", "Current company") rather than an instruction to type. */
@@ -105,19 +117,24 @@ function isShortLabel(text: string): boolean {
 
 /**
  * The question to ask about `el`, or "" when it isn't one. The ATS adapter's own question text
- * (`questionText`, e.g. one section of Workday's split date widget) replaces the field's label.
- * A label shaped like a question wins; otherwise the ATS's own question title (a Lever card, an
- * Ashby entry); otherwise a *required* field's short label still counts — "Notice Period*" on
- * Greenhouse is a question the form won't submit without, even though two words alone don't
- * read as one.
+ * (`questionText`, e.g. one section of Workday's split date widget) replaces the field's label,
+ * and a select facade is asked by its native `<select>`'s label. A label shaped like a question
+ * wins; otherwise the ATS's own question title (a Lever card, an Ashby entry). A shorter label
+ * still counts when
+ *  - the field is a choice: its options say what is being asked ("Schulabschluss",
+ *    "Deutschkenntnisse:", "Berufserfahrung");
+ *  - the field is required: "Notice Period*" on Greenhouse, "Staatsangehörigkeit:*" — the form
+ *    can't be sent without an answer, and the answer step decides whether the applicant's data
+ *    has one.
  */
-function questionFor(el: HTMLElement, ats: AtsAdapter | null): string {
-  const question = (ats?.questionText?.(el) ?? fieldQuestionText(el)).trim();
+function questionFor(el: HTMLElement, ats: AtsAdapter | null, select: HTMLSelectElement | undefined, options: string[] | undefined): string {
+  const question = (ats?.questionText?.(el) ?? ((select && fieldQuestionText(select)) || fieldQuestionText(el))).trim();
   if (isQuestionShaped(question)) return question;
   const atsLabel = atsFieldLabel(el);
   if (isQuestionShaped(atsLabel)) return atsLabel;
   const label = question || atsLabel;
-  return isRequiredField(el) && isShortLabel(label) ? label.replace(/[\s*✱]+$/, "") : "";
+  if (options !== undefined && options.length > 1 && /\p{L}{3,}/u.test(label)) return label;
+  return isRequiredField(select ?? el) && isShortLabel(label) ? label.replace(/[\s*✱]+$/, "") : "";
 }
 
 /**
@@ -145,19 +162,31 @@ function scanQuestionFields(ats: AtsAdapter | null = activeAtsAdapter()): Questi
   const found = queryFillableDeep(FILLABLE_SELECTOR);
   for (const el of ats?.extraFillables?.(document) ?? []) if (!found.includes(el)) found.push(el);
   const elements = found.filter(isFillable);
+  // A select widget's facade and its native <select> are one question, asked once (the facade is
+  // what the user sees; the select holds the options and takes the answer — `select-facade.ts`).
+  const facadeSelect = new Map<HTMLElement, HTMLSelectElement>();
+  for (const el of elements) {
+    const select = backingSelect(el);
+    if (select) facadeSelect.set(el, select);
+  }
+  const selectsWithFacade = new Set<HTMLElement>(facadeSelect.values());
 
   const fields: QuestionField[] = [];
   for (const el of elements) {
+    if (selectsWithFacade.has(el)) continue;
     if (isRevealedPasswordField(el)) continue;
-    if (detectSemanticField(el)) continue;
-    const question = questionFor(el, ats);
+    const select = facadeSelect.get(el);
+    if (detectSemanticField(el) || (select && detectSemanticField(select))) continue;
+    const options = nativeFieldOptions(select ?? el);
+    const question = questionFor(el, ats, select, options);
     if (!question) continue;
     fields.push({
       question,
       el,
-      options: nativeFieldOptions(el),
+      options,
       numeric: wantsNumericValue(el) || undefined,
       dateKind: dateInputKind(el) ?? undefined,
+      select,
     });
   }
   return fields;
@@ -183,13 +212,45 @@ export async function detectCustomQuestions(): Promise<CustomQuestion[]> {
     if (hints?.dateKind && !field.dateKind) field.dateKind = hints.dateKind;
     if (!field.options) field.options = await revealComboboxOptions(field.el);
   }
-  return fields.map((field, index) => ({
+  const questions: CustomQuestion[] = fields.map((field, index) => ({
     id: `question-${index}`,
     question: field.question,
     options: field.options,
     numeric: field.numeric,
     dateKind: field.dateKind,
   }));
+  return [...questions, ...radioQuestions(questions.length)];
+}
+
+/**
+ * Radio-group questions (Ja/Nein screening questions, a consent asked as Ja/Nein, a start-date
+ * choice). They carry a `locator`, so their answers go back through `fillAnswersByLocator`, like
+ * a picked group. Skipped: a group the page already answered, and a salutation group, which the
+ * autofill engine fills from the profile.
+ */
+function radioQuestions(offset: number): CustomQuestion[] {
+  const out: CustomQuestion[] = [];
+  for (const { groupEl, radios, question, options } of pageRadioQuestions()) {
+    if (radios.some((r) => r.checked) || radios.every((r) => !isVisibleRadio(r))) continue;
+    // A voluntary EEO / demographic survey stays unanswered (ats/).
+    if (radios.some(isAtsIgnored)) continue;
+    if (looksLikeSalutationOptions(options) || detectSemanticField(radios[0]) === "salutation") continue;
+    if (!question || options.length < 2) continue;
+    out.push({
+      id: `question-${offset + out.length}`,
+      question,
+      locator: buildLocator(groupEl, question),
+      options,
+    });
+  }
+  return out;
+}
+
+/** A radio counts as visible when it is, or its `<label for>` is (a styled radio hides the input). */
+function isVisibleRadio(r: HTMLInputElement): boolean {
+  if (r.offsetParent !== null) return true;
+  const label = r.id ? r.ownerDocument.querySelector<HTMLElement>(`label[for="${CSS.escape(r.id)}"]`) : null;
+  return label !== null && label.offsetParent !== null;
 }
 
 /** The fields `detectCustomQuestions` found, for the on-page highlight (`field-highlight.ts`). */
@@ -266,9 +327,17 @@ export async function fillCustomQuestionAnswers(
   const guarded: GuardedFill[] = [];
   const ats = activeAtsAdapter();
   const write = (target: HTMLElement, answer: string) => ats?.fillAnswer?.(target, answer) ?? fillComboboxAnswer(target, answer);
-  for (const { question, el } of scanQuestionFields(ats)) {
+  for (const { question, el, select } of scanQuestionFields(ats)) {
     const answer = answers[question];
-    if (!answer || !isEmptyField(el)) continue;
+    if (!answer || !isEmptyField(select ?? el)) continue;
+    if (select) {
+      // A facade: the native select takes the answer, the facade is repainted to show it.
+      if (fillElement(select, answer)) {
+        repaintFacade(el, select);
+        filled++;
+      } else unfilled.push(question);
+      continue;
+    }
     const before = readValue(el);
     if (await write(el, answer)) {
       filled++;

@@ -1,6 +1,7 @@
 import { resolveLocator, type ElementLocator } from "@/features/autofill/element-locator";
 import { elementSignalParts } from "@/features/autofill/field-detector";
-import { activeAtsAdapter, isAtsIgnored, type UploadKind } from "@/features/autofill/ats";
+import { fieldQuestionText } from "@/features/autofill/field-signal";
+import { activeAtsAdapter, isAtsIgnored, type FileSlot, type UploadKind } from "@/features/autofill/ats";
 
 /**
  * Pushes a File into whatever upload mechanism the page exposes (spec
@@ -30,10 +31,6 @@ const LABEL_PATTERNS: Record<FileKind, RegExp[]> = {
   ],
 };
 
-function elementMatchesKind(el: HTMLElement, kind: FileKind): boolean {
-  return elementSignalParts(el).some((part) => LABEL_PATTERNS[kind].some((pattern) => pattern.test(part)));
-}
-
 /** `name`/`id` only — the ATS's own naming (`candidate.coverLetterFile`, `documents.cv`). */
 function identifierMatchesKind(el: HTMLElement, kind: FileKind): boolean {
   return [el.getAttribute("name"), el.getAttribute("id")].some(
@@ -43,38 +40,6 @@ function identifierMatchesKind(el: HTMLElement, kind: FileKind): boolean {
 
 function textMatchesKind(text: string, kind: FileKind): boolean {
   return LABEL_PATTERNS[kind].some((pattern) => pattern.test(text));
-}
-
-function matchesAnotherKind(el: HTMLElement, kind: FileKind): boolean {
-  return (Object.keys(LABEL_PATTERNS) as FileKind[]).some((other) => other !== kind && elementMatchesKind(el, other));
-}
-
-/**
- * Narrows a page-wide candidate list to the ones actually labelled for
- * `kind` (spec: "Upload your CV" must not also catch "Upload a photo" or
- * "Upload references"). In order:
- *  1. inputs whose own `name`/`id` say so — Recruitee has a `candidate.coverLetterFile` slot
- *     *and* an employer question "Hier können Sie ein Anschreiben hochladen"; the cover
- *     letter belongs in the first only;
- *  2. inputs whose label says so;
- *  3. the slot the ATS adapter names for it (softgarden's "Weitere Anhänge", Personio's
- *     "Andere") when the form has no slot of its own for this document;
- *  4. the single file input on the page, an unambiguous target even unlabelled — unless it is
- *     labelled for the *other* document (join.com's step with only the CV slot must not get
- *     the cover letter, which would replace the CV).
- * Never blind-fills when there's more than one and none look like a match.
- */
-function nativeTargets(kind: FileKind | null): HTMLInputElement[] {
-  // An uploader the ATS adapter rules out (a "parse my resume" box that would overwrite the form).
-  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]')).filter((input) => !isAtsIgnored(input));
-  if (!kind) return all;
-  const byIdentifier = all.filter((input) => identifierMatchesKind(input, kind));
-  if (byIdentifier.length > 0) return byIdentifier;
-  const byLabel = all.filter((input) => elementMatchesKind(input, kind));
-  if (byLabel.length > 0) return byLabel;
-  const fromAts = activeAtsAdapter()?.fallbackFileInput?.(kind, document);
-  if (fromAts) return [fromAts];
-  return all.length === 1 && !matchesAnotherKind(all[0], kind) ? all : [];
 }
 
 /**
@@ -103,9 +68,96 @@ function setFileInput(input: HTMLInputElement, file: File): boolean {
   return true;
 }
 
+export type { FileSlot };
+
+const SLOT_PATTERNS: Record<Exclude<FileSlot, "cv" | "coverLetter" | "parser">, RegExp> = {
+  photo: /\bfoto\b|photo|bewerbungsbild|\bbild\b|picture|avatar|profilbild/i,
+  references: /zeugnis|zertifikat|certificate|referenz|\breferences?\b|nachweis|diplom|transcript|abschl[üu]ss|qualifikation/i,
+  documents: /unterlagen|dokument|document|anlage|attachment|application\s*file|\bbewerbung\b/i,
+};
+
+const PARSER_RE = /cv[_-]?parser|resume[_-]?parser|parse|textkernel|prefill|autofill|import[_-]?profile/i;
+
+function isParserUpload(input: HTMLInputElement): boolean {
+  for (let el: HTMLElement | null = input; el && el !== document.body; el = el.parentElement) {
+    if (PARSER_RE.test(`${el.id} ${el.getAttribute("name") ?? ""} ${el.getAttribute("class") ?? ""}`)) return true;
+  }
+  const action = input.form?.getAttribute("action") ?? "";
+  return PARSER_RE.test(action);
+}
+
+/** Every slot `input` is labelled for (see `FileSlot`); empty when its label says nothing. */
+export function fileSlotsOf(input: HTMLInputElement): Set<FileSlot> {
+  const override = activeAtsAdapter()?.fileSlots?.(input);
+  if (override) return new Set(override);
+  if (isParserUpload(input)) return new Set(["parser"]);
+  const parts = [...elementSignalParts(input), fieldQuestionText(input)];
+  const slots = new Set<FileSlot>();
+  for (const kind of ["cv", "coverLetter"] as const) {
+    if (parts.some((part) => textMatchesKind(part, kind))) slots.add(kind);
+  }
+  for (const [slot, re] of Object.entries(SLOT_PATTERNS) as [FileSlot, RegExp][]) {
+    if (parts.some((part) => re.test(part))) slots.add(slot);
+  }
+  return slots;
+}
+
+/**
+ * The file inputs `kind` goes into (spec: "Upload your CV" must not also catch "Upload a photo"
+ * or "Upload references"), best first:
+ *  1. its own slot — the one whose `name`/`id` says so when several labels do;
+ *  2. for a CV with no slot of its own, the one "complete documents" slot (never a
+ *     references/photo/parser slot);
+ *  3. the slot the ATS adapter names for it (`fallbackFileInput`);
+ *  4. an unlabelled lone upload.
+ * A cover letter never replaces a file already in a shared slot (rexx's "Anschreiben / Komplette
+ * Unterlagen", where the CV went first). Never blind-fills when there's more than one upload and
+ * none look like a match.
+ */
+function fileTargets(all: HTMLInputElement[], kind: FileKind): HTMLInputElement[] {
+  const slotted = all.map((input) => ({ input, slots: fileSlotsOf(input) }));
+  const usable = slotted.filter(({ slots }) => !slots.has("parser") && !slots.has("photo"));
+  let own = usable.filter(({ slots }) => slots.has(kind) && !(kind === "cv" && slots.has("references") && !slots.has("documents")));
+  // The ATS's own naming beats a label: Recruitee has a `candidate.coverLetterFile` slot *and* an
+  // employer question "Hier können Sie ein Anschreiben hochladen"; the letter belongs in the first.
+  const byIdentifier = own.filter(({ input }) => identifierMatchesKind(input, kind));
+  if (byIdentifier.length > 0) own = byIdentifier;
+  if (own.length > 0) {
+    if (kind === "cv") return own.map((s) => s.input);
+    const appends = activeAtsAdapter()?.appendsUploads?.bind(null);
+    return own
+      .filter(({ input, slots }) => !(input.files?.length && hasOtherSlot(slots) && !appends?.(input)))
+      .map((s) => s.input);
+  }
+  if (kind === "cv") {
+    const documents = usable.filter(({ slots }) => slots.has("documents") && !(slots.has("references") && !slots.has("coverLetter")));
+    if (documents.length > 0) return [documents[0].input];
+  }
+  // The slot the ATS names for a document the form has no slot of its own for (softgarden's
+  // "Weitere Anhänge", Personio's "Andere").
+  const fromAts = activeAtsAdapter()?.fallbackFileInput?.(kind, document);
+  if (fromAts && !fromAts.disabled) return [fromAts];
+  // The page's only upload, saying nothing about what it wants, is unambiguous (a photo slot next
+  // to it is not: then nothing is filled rather than a guess) — but a cover letter never replaces
+  // the file already in it (the CV the same run just attached).
+  const uploads = slotted.filter(({ slots }) => !slots.has("parser"));
+  const lone = uploads.length === 1 && uploads[0].slots.size === 0 ? uploads[0].input : null;
+  return lone && !(kind === "coverLetter" && lone.files?.length) ? [lone] : [];
+}
+
+/** A cover-letter slot that is also the documents slot — shared with the CV. */
+function hasOtherSlot(slots: Set<FileSlot>): boolean {
+  return slots.has("documents") || slots.has("cv");
+}
+
 function fillNativeFileInputs(file: File, kind: FileKind | null): number {
+  // An uploader the ATS adapter rules out (a "parse my resume" box that would overwrite the form).
+  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]')).filter(
+    (input) => !input.disabled && !isAtsIgnored(input),
+  );
+  const targets = kind ? fileTargets(all, kind) : all;
   let count = 0;
-  for (const input of nativeTargets(kind)) {
+  for (const input of targets) {
     if (setFileInput(input, file)) count++;
   }
   return count;

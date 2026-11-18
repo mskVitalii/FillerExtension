@@ -69,7 +69,8 @@ describe("join.com", () => {
 
   it("application details step: the screening number question is a question; start date and yes/no are option questions", async () => {
     loadAtsFixture("join", "wizard-application-details.reconstructed");
-    const questions = await detectCustomQuestions();
+    // Radio groups come back too, with a locator (answered through `fillAnswersByLocator`).
+    const questions = (await detectCustomQuestions()).filter((q) => !q.locator);
     expect(questions.map((q) => q.question)).toEqual(["Wie viele Jahre Berufserfahrung haben Sie als Consultant?"]);
     expect(questions[0].numeric).toBe(true);
 

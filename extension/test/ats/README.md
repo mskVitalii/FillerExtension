@@ -1,13 +1,22 @@
 # ATS form fixtures
 
-One folder per applicant-tracking system. Each set of fixtures has its own loader and tests,
-described below.
+One folder per applicant-tracking system. Each set of fixtures has its own loader and tests:
+
+| ATS | Tests | Loader | Sources |
+| --- | --- | --- | --- |
+| Greenhouse, Lever, Ashby | `greenhouse/lever/ashby.test.ts`, `engine-fixes.test.ts` | `snapshot-harness.ts` (via `ats-suite.ts`) | below |
+| softgarden, join, Personio, Recruitee | `softgarden/join/personio/recruitee.test.ts` | `helpers.ts` | each fixture's header comment |
+| Workday, SuccessFactors | `workday/successfactors.test.ts`, `generic-fixes.test.ts` | `widgets.ts` | below |
+| d.vinci, rexx, Umantis, concludis, SmartRecruiters | `adapters/answers/fill-rate/generic-rules.test.ts` | `load-ats-fixture.ts`, `harness.ts` | `SOURCES.md` |
+
+The adapters themselves are in `src/features/autofill/ats/` (one `AtsAdapter` per ATS, registered
+in `ats/index.ts`).
 
 ## Greenhouse, Lever, Ashby
 
 Sanitized snapshots of real, public application forms, used by `greenhouse.test.ts`,
 `lever.test.ts` and `ashby.test.ts` (shared checks in `ats-suite.ts`, widget simulators in
-`harness.ts`). Taken 2026-11-18 with `tools/snapshot.cjs`, which loads the form in Chrome, opens
+`snapshot-harness.ts`). Taken 2026-11-18 with `tools/snapshot.cjs`, which loads the form in Chrome, opens
 each custom dropdown once to record its options (`data-fixture-options`), then strips scripts,
 styles, images, tracking, cookie banners, the job description and everything hidden on the live
 page. Nothing is ever submitted.

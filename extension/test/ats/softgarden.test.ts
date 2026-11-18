@@ -71,7 +71,8 @@ describe("softgarden (aerofit, German, all three steps)", () => {
 
   it("detects the free-text screening question, and not the ghost inputs", async () => {
     loadAtsFixture("softgarden", "aerofit-de-all-steps");
-    const questions = (await detectCustomQuestions()).map((q) => q.question);
+    // Radio groups come back too, with a locator (answered through `fillAnswersByLocator`).
+    const questions = (await detectCustomQuestions()).filter((q) => !q.locator).map((q) => q.question);
     expect(questions).toContain("Qualifikation als Bilanzbuchhalter vorhanden");
     expect(questions.some((q) => /Lebenslauf hochladen|Option wählen/.test(q))).toBe(false);
     expect(questions).toHaveLength(1);

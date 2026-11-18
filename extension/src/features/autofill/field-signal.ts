@@ -99,6 +99,9 @@ function fromLabelElement(el: HTMLElement): string {
  * relies on that unrestricted climb, calling this with no container). Only
  * a container that is a genuine wider ancestor acts as a hard stop.
  */
+const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6, legend";
+const FIELD_SELECTOR = 'input:not([type="hidden"]), textarea, select';
+
 function fromPrecedingText(el: HTMLElement, container: HTMLElement | null): string {
   let node: HTMLElement | null = el;
   const boundary = container && container !== el ? container : el.ownerDocument.body;
@@ -107,6 +110,16 @@ function fromPrecedingText(el: HTMLElement, container: HTMLElement | null): stri
     while (sibling) {
       if (sibling instanceof HTMLElement && !sibling.matches("input, textarea, select, script, style")) {
         const text = tidy(sibling.textContent ?? "");
+        // A section heading names what follows even as one word ("Verfügbarkeit" above
+        // concludis' start-date radios); any other block needs two words to read as a label.
+        if (text && sibling.matches(HEADING_SELECTOR)) return text;
+        // So does a label-shaped "Datenfreigabe*:" (Umantis' left-column label, a plain <div>).
+        if (text && /[:*]\s*$/.test(collapse(sibling.textContent ?? "")) && !sibling.querySelector(FIELD_SELECTOR)) {
+          return text.replace(/\s*\*?\s*:?\s*\*?$/, "").trim();
+        }
+        // A block holding another field (its label, input and options) is that field's, not
+        // this one's: reading past it is how a radio group picked up the salary row above it.
+        if (sibling.querySelector(FIELD_SELECTOR)) return "";
         if (text.split(" ").length >= 2) return text;
       }
       sibling = sibling.previousElementSibling;
@@ -136,7 +149,9 @@ export function fieldQuestionText(el: HTMLElement, container: HTMLElement | null
   if (preceding && (isQuestionShaped(preceding) || !placeholder || GENERIC_PLACEHOLDER_RE.test(placeholder))) {
     return preceding;
   }
-  return placeholder || preceding || "";
+  // Last resort: a tooltip. concludis labels some selects only by `title` ("Diese Stelle wurde mir
+  // durch eine Mitarbeiterin oder einen Mitarbeiter empfohlen").
+  return placeholder || preceding || el.getAttribute("title")?.trim() || "";
 }
 
 /**

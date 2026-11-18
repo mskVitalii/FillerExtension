@@ -81,7 +81,8 @@ describe("Recruitee", () => {
 
     it("detects every free-text open question", async () => {
       loadAtsFixture("recruitee", "crazygames-en");
-      const questions = (await detectCustomQuestions()).map((q) => q.question.replace(/\s*\*$/, ""));
+      // Radio groups come back too, with a locator (answered through `fillAnswersByLocator`).
+      const questions = (await detectCustomQuestions()).filter((q) => !q.locator).map((q) => q.question.replace(/\s*\*$/, ""));
       expect(questions).toEqual([
         "Where are you located?",
         "Link one live mobile game you worked on, then tell us your role and the update cadence you ran on it. Three sentences maximum.",

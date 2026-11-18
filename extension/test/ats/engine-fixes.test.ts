@@ -4,7 +4,7 @@ import { detectCustomQuestions } from "@/features/autofill/custom-questions";
 import { pickLocationOption } from "@/features/autofill/location";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
 import { activeAtsAdapter } from "@/features/autofill/ats";
-import { pdf } from "./harness";
+import { pdf } from "./snapshot-harness";
 
 /** Small, synthetic regressions for the generic fixes the ATS fixtures surfaced. */
 
