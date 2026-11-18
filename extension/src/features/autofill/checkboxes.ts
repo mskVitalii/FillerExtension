@@ -1,4 +1,5 @@
 import { queryFillableDeep } from "./engine";
+import { detectAts } from "./ats";
 
 /**
  * Consent / marketing checkboxes on an application form (spec_2 — extends
@@ -23,7 +24,7 @@ const CONSENT_HINT_RE =
 // is never ticked, even when the AI pass fails to return a decision for it
 // and the generic fallback would otherwise trust the form's `required` flag.
 const NEWSLETTER_HINT_RE =
-  /newsletter|marketing|subscribe|promotion|job\s*alert|career\s*news|werbung|benachrichtigung|abonnier|stellenausschreibung/i;
+  /newsletter|marketing|subscribe|promotion|job\s*alert|career\s*news|werbung|benachrichtigung|abonnier|stellenausschreibung|hear more about|job\s*posting\s*notification|sms\s*(messages|updates|opt)/i;
 
 export function isNewsletterLike(label: string): boolean {
   return NEWSLETTER_HINT_RE.test(label);
@@ -97,7 +98,8 @@ function isRequired(el: HTMLElement): boolean {
 }
 
 function inApplicationForm(el: HTMLElement): boolean {
-  const form = (el as HTMLInputElement).form ?? el.closest("form");
+  // Workday and SAPUI5 apps render no `<form>` at all; their ATS adapter names the container instead.
+  const form = (el as HTMLInputElement).form ?? el.closest("form") ?? detectAts()?.formRoot?.(el) ?? null;
   if (!form) return false;
   // A real application form also has something to type into — this filters
   // out search / job-filter forms that are nothing but checkboxes.
@@ -105,8 +107,10 @@ function inApplicationForm(el: HTMLElement): boolean {
 }
 
 function checkboxElements(): HTMLElement[] {
+  const ats = detectAts();
   return queryFillableDeep(CHECKBOX_SELECTOR).filter((el): el is HTMLElement => {
     if (!(el instanceof HTMLElement)) return false;
+    if (ats?.isIgnored?.(el)) return false;
     if (el instanceof HTMLInputElement && el.disabled) return false;
     if (el.getAttribute("aria-disabled") === "true") return false;
     return isVisible(el);

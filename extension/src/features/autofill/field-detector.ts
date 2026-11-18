@@ -96,8 +96,16 @@ interface Signal {
 /** Word count past which a free-text signal reads as a question prompt, not a field label. */
 const PROSE_WORD_COUNT = 10;
 
+/**
+ * Free text that reads as a question prompt rather than a field label: long, or a
+ * sentence ending in "?" ("Benötigen Sie eine Arbeitserlaubnis für Deutschland?" is
+ * not a country field, though "Deutsch*land*" matches the country pattern). A
+ * one- or two-word label with a "?" ("E-Mail?") still counts as a label.
+ */
 function isProse(text: string): boolean {
-  return text.trim().split(/\s+/).length > PROSE_WORD_COUNT;
+  const words = text.trim().split(/\s+/).length;
+  if (words > PROSE_WORD_COUNT) return true;
+  return words >= 3 && /\?\s*\*?\s*$/.test(text.trim());
 }
 
 /**

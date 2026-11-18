@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  SYNTHETIC: the classic (JSP) SuccessFactors application page reached after signing in
+  (`/career?career_ns=job_application&career_job_req_id=…`). Not captured — it needs an
+  account. Built from the conventions of the captured login/registration pages on the
+  same host (`#careerform`, `#career_company`, `*_error` message slots, label/for pairs)
+  and SAP's documented candidate-profile / application fields: salutation, contact
+  data, country as a <select>, date fields typed in the locale pattern
+  ("dd.MM.yyyy" placeholder), job-specific questions, attachment rows labelled through the
+  row rather than the input, a data-privacy consent and a job-alert opt-in. Field ids use
+  SF's generated "NN:" shape on purpose (needs CSS.escape everywhere).
+  One page: its "Apply" button submits.
+-->
+<html lang="en">
+<body>
+<form id="careerform" name="careerform" action="/career" method="POST" autocomplete="off">
+  <input type="hidden" id="career_company" name="career_company" value="ACME">
+  <input type="hidden" id="career_ns" name="career_ns" value="job_application">
+  <h1>Apply: Software Developer (m/f/d) – Berlin</h1>
+
+  <h2>Personal Information</h2>
+  <table role="presentation"><tbody>
+    <tr class="rcmFormField"><td><span id="31:_lbl" class="rcmFieldLabel">Salutation</span></td>
+      <td><select id="31:" aria-labelledby="31:_lbl"><option value="">No Selection</option><option value="101">Mr.</option><option value="102">Ms.</option><option value="103">Mx.</option></select><div id="31:_error"></div></td></tr>
+    <tr class="rcmFormField"><td><label for="32:">First Name:<span>*</span></label></td><td><input type="text" id="32:" aria-required="true" value=""><div id="32:_error"></div></td></tr>
+    <tr class="rcmFormField"><td><label for="33:">Last Name:<span>*</span></label></td><td><input type="text" id="33:" aria-required="true" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="34:">Email:<span>*</span></label></td><td><input type="text" id="34:" aria-required="true" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="35:">Cell Phone:</label></td><td><input type="text" id="35:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="36:">Address:</label></td><td><input type="text" id="36:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="37:">City:</label></td><td><input type="text" id="37:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="38:">Zip/Postal Code:</label></td><td><input type="text" id="38:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="39:">Country/Region:<span>*</span></label></td>
+      <td><select id="39:" aria-required="true"><option value="">No Selection</option><option value="1001">Austria</option><option value="1002">Germany</option><option value="1003">Switzerland</option></select></td></tr>
+  </tbody></table>
+
+  <h2>Job-Specific Questions</h2>
+  <table role="presentation"><tbody>
+    <tr class="rcmFormField"><td><label for="51:">Earliest possible start date:</label></td><td><input type="text" id="51:" placeholder="dd.MM.yyyy" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="52:">Are you willing to relocate to Berlin?</label></td>
+      <td><select id="52:"><option value="">No Selection</option><option value="y">Yes</option><option value="n">No</option></select></td></tr>
+    <tr class="rcmFormField"><td><label for="53:">Salary expectations (EUR gross per year):</label></td><td><input type="text" id="53:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="54:">What is your notice period?</label></td><td><input type="text" id="54:" value=""></td></tr>
+    <tr class="rcmFormField"><td><label for="55:">Why are you interested in this position?</label></td><td><textarea id="55:"></textarea></td></tr>
+  </tbody></table>
+
+  <h2>Attachments</h2>
+  <table role="presentation"><tbody>
+    <tr class="rcmFormField"><td><span class="rcmFieldLabel">Resume</span></td><td><input type="file" id="61:_file" name="attachment"><div id="61:_error"></div></td></tr>
+    <tr class="rcmFormField"><td><span class="rcmFieldLabel">Cover Letter</span></td><td><input type="file" id="62:_file" name="attachment"></td></tr>
+    <tr class="rcmFormField"><td><span class="rcmFieldLabel">Additional Attachments</span></td><td><input type="file" id="63:_file" name="attachment"></td></tr>
+  </tbody></table>
+
+  <h2>Data Privacy</h2>
+  <div><input type="checkbox" id="71:" aria-required="true"><label for="71:">I have read the data privacy statement and agree to the processing of my personal data for this application.</label></div>
+  <div><input type="checkbox" id="72:"><label for="72:">Yes, send me job alerts for similar positions by email.</label></div>
+
+  <div>
+    <button type="button" id="saveDraftBtn">Save Draft</button>
+    <button type="submit" id="applyBtn">Apply</button>
+    <button type="button" id="cancelBtn">Cancel</button>
+  </div>
+</form>
+</body>
+</html>

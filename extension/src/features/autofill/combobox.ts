@@ -194,9 +194,12 @@ async function openFlyout(el: HTMLElement): Promise<HTMLElement[]> {
   return [];
 }
 
-/** A widget whose value only changes by clicking an option row — typing into it is never a real selection. */
+/**
+ * A widget whose value only changes by clicking an option row — typing into it is never a real selection.
+ * A `<button aria-haspopup="listbox">` (Workday, Headless UI's Listbox) can't take text at all.
+ */
 function isFlyoutOnly(el: HTMLElement): boolean {
-  return isReactSelectLike(el) || findFlyoutToggle(el) !== null;
+  return el instanceof HTMLButtonElement || isReactSelectLike(el) || findFlyoutToggle(el) !== null;
 }
 
 function closeFlyout(el: HTMLElement): void {

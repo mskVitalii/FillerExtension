@@ -1,0 +1,60 @@
+<!doctype html>
+<!--
+  CAPTURED, then trimmed: SAP SuccessFactors Recruiting "Career Opportunities: Create an
+  Account" (public page, career5.successfactors.eu/career?company=SAP → Sign In → Create an
+  account, 2026-11-18). Nothing was submitted. Kept: ids, names, types, labels, aria-*,
+  inline handlers, the password-policy markup. Dropped: styles, hidden navigation inputs,
+  the encrypted requestParams, most of the 240 country options (a handful kept, values as
+  live: ISO codes).
+-->
+<html lang="en">
+<body>
+<form id="careerform" name="careerform" action="/career" method="POST" accept-charset="UTF-8" autocomplete="off">
+  <input type="hidden" id="career_company" name="career_company" value="SAP">
+  <input type="hidden" id="login_ns" name="login_ns" value="register">
+  <div role="region" aria-label="Career Opportunities:Create an Account">
+    <h1>Career Opportunities: Create an Account</h1>
+    <div><span>Already a registered user?</span> <a>Please sign in</a> <span id="loginHelpText">Login credentials are case sensitive</span></div>
+    <div id="otpContainer"></div>
+    <table id="fieldsContainer" role="presentation"><tbody>
+      <tr><td><label for="fbclc_userName" title="Required"> Email Address: <span>*</span></label></td>
+        <td><input type="text" size="30" maxlength="99" autocomplete="off" id="fbclc_userName" name="fbclc_userName" value="" aria-describedby="fbclc_userName_error" aria-required="true"><div id="fbclc_userName_error"></div></td></tr>
+      <tr><td><label for="fbclc_emailConf" title="Required"> Retype Email Address: <span>*</span></label></td>
+        <td><input type="text" size="30" maxlength="99" autocomplete="off" id="fbclc_emailConf" name="fbclc_emailConf" title="Retype Email Address:" value="" aria-describedby="fbclc_emailConf_error" aria-required="true"><div id="fbclc_emailConf_error"></div></td></tr>
+      <tr><td><label for="fbclc_pwd" title="Required"> Choose Password: <span>*</span></label></td>
+        <td><div><input id="fbclc_pwd" type="password" size="30" autocomplete="off" maxlength="99" name="fbclc_pwd" value="" onkeyup="checkPasswordPolicy(event,fbclc_pwdConf,true);" aria-describedby="fbclc_pwd_error rcmPwdPolicyProgressBar rcmPwdPolicyAnchor" aria-required="true">
+          <input type="button" value="Show" name="show_button" title="Show Password" id="show_button" onclick="togglePassword('fbclc_pwd','show_button');"></div>
+          <div id="rcmPwdPolicyProgressBar" class="mobileApplyPwdPolicyProgressbar rcmValidationMsgArea"></div>
+          <div id="rcmPwdPolicyAnchor" class="alert alert-info mobileApplyPwdPolicy"><ul id="6:_list"><li>Password must be at least 8 characters long.</li><li>Password must not be longer than 20 characters.</li><li>Password must contain at least one upper case and one lower case letter.</li><li>Password must contain at least one number or punctuation character.</li><li>Password must not contain space or unicode characters.</li></ul></div>
+          <div id="fbclc_pwd_error"></div></td></tr>
+      <tr><td><label for="fbclc_pwdConf" title="Required"> Retype Password: <span>*</span></label></td>
+        <td><div><input type="password" size="30" maxlength="99" autocomplete="off" id="fbclc_pwdConf" name="fbclc_pwdConf" value="" onkeyup="checkResetPasswordPolicy(event,fbclc_pwd,true);" aria-describedby="fbclc_pwdConf_error pwdMatchOrMismatch" aria-required="true">
+          <input type="button" value="Show" name="show_conf_button" title="Show Password" id="show_conf_button" onclick="togglePassword('fbclc_pwdConf','show_conf_button');"></div>
+          <div id="fbclc_pwdConf_error"></div></td></tr>
+      <tr><td><label for="fbclc_fName" title="Required"> First Name: <span>*</span></label></td>
+        <td><input type="text" size="30" maxlength="40" autocomplete="off" id="fbclc_fName" name="fbclc_fName" value="" aria-describedby="fbclc_fName_error" aria-required="true"><div id="fbclc_fName_error"></div></td></tr>
+      <tr><td><label for="fbclc_lName" title="Required"> Last Name: <span>*</span></label></td>
+        <td><input type="text" size="30" maxlength="40" autocomplete="off" id="fbclc_lName" name="fbclc_lName" value="" aria-describedby="fbclc_lName_error" aria-required="true"><div id="fbclc_lName_error"></div></td></tr>
+      <tr><td><label for="fbclc_country"><span title="Required"> Country/Region of Residence:<span>*</span></span></label></td>
+        <td><select aria-required="true" aria-label="Country/Region of Residence" autocomplete="off" id="fbclc_country" name="fbclc_country" aria-describedby="fbclc_country_error" onchange="clearDpcsInfo()">
+          <option value="">- Select -</option><option value="AF">Afghanistan</option><option value="AT">Austria</option><option value="FR">France</option><option value="DE">Germany</option><option value="CH">Switzerland</option><option value="GB">United Kingdom</option>
+        </select><div id="fbclc_country_error"></div></td></tr>
+      <tr><td><label id="makeProfileVisibleLabel"> Make My Profile Visible to:<span>*</span></label></td>
+        <td><div aria-required="true" role="radiogroup" aria-labelledby="makeProfileVisibleLabel">
+          <div><input onclick="validateCrossBorderSearchPreference()" role="radio" type="radio" autocomplete="off" aria-label="Any company recruiter worldwide. All recruiters within SAP can potentially see your profile and approach you for other job opportunities." name="fbclc_searPref" value="1"><label>Any company recruiter worldwide.</label></div>
+          <div><input onclick="validateCrossBorderSearchPreference()" role="radio" type="radio" autocomplete="off" aria-label="Any company recruiter in my country only." name="fbclc_searPref" value="0"><label>Any company recruiter in my country only.</label></div>
+          <div><input onclick="validateCrossBorderSearchPreference()" role="radio" type="radio" autocomplete="off" aria-label="Only recruiters managing jobs I apply to." name="fbclc_searPref" value="2"><label>Only recruiters managing jobs I apply to.</label></div>
+        </div><div id="visibility_options_error"></div></td></tr>
+      <tr><td><label for="fbclc_emailEnabled">Notification:</label></td>
+        <td><input role="checkbox" type="checkbox" id="fbclc_emailEnabled" aria-describedby="fbclc_emailEnabled_described" name="fbclc_emailEnabled"><span id="fbclc_emailEnabled_described"> Receive new job posting notifications </span></td></tr>
+      <tr><td></td><td><input role="checkbox" type="checkbox" id="fbclc_campaignEmailEnabled" name="fbclc_campaignEmailEnabled"><label for="fbclc_campaignEmailEnabled">Hear more about career opportunities</label></td></tr>
+      <tr><td><label for="dataPrivacyId"> Terms of Use:<span>*</span></label></td>
+        <td><a aria-label="Terms of Use Read and acknowledge the data privacy statement. Required" id="dataPrivacyId" aria-haspopup="dialog" role="button" onclick="validateAndOpenDpcsDialog(true);return false;"> Read and acknowledge the data privacy statement. </a>
+          <div id="fbclc_dpcsId_error" aria-live="assertive"></div><input type="hidden" id="fbclc_dpcsId" name="fbclc_dpcsId" value=""></td></tr>
+      <tr><td></td><td><button id="fbclc_createAccountButton" name="fbclc_createAccountButton" onclick="setField('userMsgReq','false');return submitCreateAccount();"> Create Account </button></td></tr>
+    </tbody></table>
+  </div>
+  <input type="hidden" id="company" name="company" value="SAP">
+</form>
+</body>
+</html>

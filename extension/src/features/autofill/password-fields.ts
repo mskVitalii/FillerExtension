@@ -90,10 +90,34 @@ function shortDescribe(el: HTMLInputElement): string {
   return [el.name, el.id, el.getAttribute("aria-label") ?? "", el.getAttribute("placeholder") ?? ""].join(" ");
 }
 
+/**
+ * The password boxes of `el`'s form. A page built without a `<form>` element
+ * (Workday, SAPUI5 apps) gets the nearest ancestor that holds more than one —
+ * the "password + verify password" pair of a create-account panel.
+ */
 function formPasswords(el: HTMLInputElement): HTMLInputElement[] {
   const form = el.form ?? el.closest("form");
-  if (!form) return [];
-  return Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isPasswordInput);
+  if (form) return Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isPasswordInput);
+  let node: HTMLElement | null = el.parentElement;
+  for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+    const found = Array.from(node.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isPasswordInput);
+    if (found.length > 1) return found;
+  }
+  return [];
+}
+
+const PASSWORD_NAME_RE = /pass\s?w(or)?d|kennwort|passwort|(^|[^a-z])pwd/i;
+
+/**
+ * A password box shown as plain text right now: SuccessFactors' "Show" button
+ * (`togglePassword('fbclc_pwd', …)`) and most "eye" toggles switch
+ * `type="password"` to `type="text"`, after which nothing but its name and
+ * label says it's a password. Never a target for a profile value.
+ */
+export function isRevealedPasswordField(el: Element): boolean {
+  if (!(el instanceof HTMLInputElement) || el.type !== "text") return false;
+  if (autocompleteToken(el) === "new-password" || autocompleteToken(el) === "current-password") return true;
+  return PASSWORD_NAME_RE.test(`${el.name} ${el.id}`) || PASSWORD_NAME_RE.test(labelText(el).slice(0, 80));
 }
 
 /**

@@ -1,5 +1,6 @@
 import { resolveLocator, type ElementLocator } from "@/features/autofill/element-locator";
 import { elementSignalParts } from "@/features/autofill/field-detector";
+import { detectAts } from "@/features/autofill/ats";
 
 /**
  * Pushes a File into whatever upload mechanism the page exposes (spec
@@ -123,6 +124,13 @@ export function injectFileIntoPage(
   kind: FileKind | null = null,
 ): { nativeInputs: number; dropZones: number } {
   if (targetLocator) return injectAtTarget(file, targetLocator);
+  // An ATS adapter knows its own CV / cover-letter slots (labelled through a row or a
+  // section heading, not the input). Its answer is final, even when it's "no slot":
+  // a cover letter must never land in the CV's only uploader.
+  const slots = kind ? detectAts()?.fileInputs?.(document, kind) : undefined;
+  if (slots) {
+    return { nativeInputs: slots.filter((input) => setFileInput(input, file)).length, dropZones: 0 };
+  }
   return {
     nativeInputs: fillNativeFileInputs(file, kind),
     dropZones: dispatchDropEvents(file, kind),
