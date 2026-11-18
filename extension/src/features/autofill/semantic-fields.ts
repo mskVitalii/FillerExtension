@@ -31,7 +31,7 @@ export const FIELD_PATTERNS: Record<ProfileFieldKey, RegExp[]> = {
   // real SAP SuccessFactors form) was stuffing the profile's city into
   // password fields.
   city: [/\bcity\b/i, /town/i, /stadt/i, /(?<!w)ort\b/i],
-  postalCode: [/postal[\s_-]?code/i, /zip/i, /plz/i],
+  postalCode: [/postal[\s_-]?code/i, /zip/i, /plz/i, /postleitzahl/i],
   country: [/country/i, /land\b/i, /nation/i],
   linkedin: [/linkedin/i],
   github: [/github/i],

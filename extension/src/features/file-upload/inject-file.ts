@@ -1,5 +1,6 @@
 import { resolveLocator, type ElementLocator } from "@/features/autofill/element-locator";
 import { elementSignalParts } from "@/features/autofill/field-detector";
+import { currentAts } from "@/features/autofill/ats";
 
 /**
  * Pushes a File into whatever upload mechanism the page exposes (spec
@@ -33,18 +34,49 @@ function elementMatchesKind(el: HTMLElement, kind: FileKind): boolean {
   return elementSignalParts(el).some((part) => LABEL_PATTERNS[kind].some((pattern) => pattern.test(part)));
 }
 
+/** `name`/`id` only — the ATS's own naming (`candidate.coverLetterFile`, `documents.cv`). */
+function identifierMatchesKind(el: HTMLElement, kind: FileKind): boolean {
+  return [el.getAttribute("name"), el.getAttribute("id")].some(
+    (part) => part && LABEL_PATTERNS[kind].some((pattern) => pattern.test(part)),
+  );
+}
+
 function textMatchesKind(text: string, kind: FileKind): boolean {
   return LABEL_PATTERNS[kind].some((pattern) => pattern.test(text));
+}
+
+function matchesAnotherKind(el: HTMLElement, kind: FileKind): boolean {
+  return (Object.keys(LABEL_PATTERNS) as FileKind[]).some((other) => other !== kind && elementMatchesKind(el, other));
 }
 
 /**
  * Narrows a page-wide candidate list to the ones actually labelled for
  * `kind` (spec: "Upload your CV" must not also catch "Upload a photo" or
- * "Upload references"). Falls back to the single candidate on the page when
- * none match the label patterns — an unlabelled lone file field is still an
- * unambiguous target — but never blind-fills when there's more than one and
- * none look like a match.
+ * "Upload references"). In order:
+ *  1. inputs whose own `name`/`id` say so — Recruitee has a `candidate.coverLetterFile` slot
+ *     *and* an employer question "Hier können Sie ein Anschreiben hochladen"; the cover
+ *     letter belongs in the first only;
+ *  2. inputs whose label says so;
+ *  3. the slot the ATS adapter names for it (softgarden's "Weitere Anhänge", Personio's
+ *     "Andere") when the form has no slot of its own for this document;
+ *  4. the single file input on the page, an unambiguous target even unlabelled — unless it is
+ *     labelled for the *other* document (join.com's step with only the CV slot must not get
+ *     the cover letter, which would replace the CV).
+ * Never blind-fills when there's more than one and none look like a match.
  */
+function nativeTargets(kind: FileKind | null): HTMLInputElement[] {
+  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  if (!kind) return all;
+  const byIdentifier = all.filter((input) => identifierMatchesKind(input, kind));
+  if (byIdentifier.length > 0) return byIdentifier;
+  const byLabel = all.filter((input) => elementMatchesKind(input, kind));
+  if (byLabel.length > 0) return byLabel;
+  const fromAts = currentAts()?.fallbackFileInput?.(kind, document);
+  if (fromAts) return [fromAts];
+  return all.length === 1 && !matchesAnotherKind(all[0], kind) ? all : [];
+}
+
+/** Dropzones: the ones whose text names `kind`, else the single zone on the page. */
 function matchingTargets<T>(candidates: T[], kind: FileKind | null, matches: (candidate: T) => boolean): T[] {
   if (!kind) return candidates;
   const matched = candidates.filter(matches);
@@ -67,10 +99,8 @@ function setFileInput(input: HTMLInputElement, file: File): boolean {
 }
 
 function fillNativeFileInputs(file: File, kind: FileKind | null): number {
-  const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
-  const targets = matchingTargets(all, kind, (input) => elementMatchesKind(input, kind!));
   let count = 0;
-  for (const input of targets) {
+  for (const input of nativeTargets(kind)) {
     if (setFileInput(input, file)) count++;
   }
   return count;
@@ -92,7 +122,12 @@ function dispatchDropOn(zone: HTMLElement, file: File): void {
 }
 
 function dispatchDropEvents(file: File, kind: FileKind | null): number {
-  const all = Array.from(document.querySelectorAll<HTMLElement>(DROPZONE_SELECTOR));
+  // A zone wrapping its own `<input type="file">` is served through that input above
+  // (softgarden's tiles, join.com's Chakra dropzones): dropping on it too would upload twice,
+  // or put this file into the zone of the *other* document when it's the only zone left.
+  const all = Array.from(document.querySelectorAll<HTMLElement>(DROPZONE_SELECTOR)).filter(
+    (zone) => !zone.querySelector('input[type="file"]'),
+  );
   const targets = matchingTargets(all, kind, (zone) => textMatchesKind(zone.textContent ?? "", kind!));
   let count = 0;
   for (const zone of targets) {

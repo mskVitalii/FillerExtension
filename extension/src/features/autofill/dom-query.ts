@@ -19,3 +19,16 @@ export function queryFillableDeep(selector: string, root: ParentNode = document)
   walk(root);
   return found;
 }
+
+/**
+ * A field no applicant can type into, so autofill must neither fill it nor ask a question
+ * about it: an input marked `aria-hidden="true"` itself (a form library's hidden mirror, e.g.
+ * softgarden's `resumeUploaded`/`allowApplied` ghost inputs), or a read-only text box a widget
+ * writes for itself (softgarden's pick lists keep their choice in one). A read-only
+ * `role="combobox"` is excluded: react-select marks its own input that way.
+ */
+export function isGhostField(el: HTMLElement): boolean {
+  if (el.getAttribute("aria-hidden") === "true") return true;
+  const readOnly = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly;
+  return readOnly && el.getAttribute("role") !== "combobox";
+}

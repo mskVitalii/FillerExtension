@@ -1,4 +1,6 @@
 import { queryFillableDeep } from "./engine";
+import { isGhostField } from "./dom-query";
+import { OPTION_BUTTON_CANDIDATES, isOptionButton, optionButtonsIn } from "./option-buttons";
 import { fillElement } from "./native-setter";
 import { fillComboboxAnswer } from "./combobox";
 import { detectSemanticField } from "./field-detector";
@@ -64,6 +66,7 @@ function isFillable(el: Element): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isGhostField(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }
@@ -153,10 +156,15 @@ function radioGroupsIn(container: HTMLElement): { groupEl: HTMLElement; radios: 
     );
 
   let radios = radiosOf(container);
-  if (radios.length < 2) {
-    // The user often lands on a node *inside* one option (the styled circle,
-    // the label) rather than the whole group — widen to the enclosing
-    // radio-group / fieldset so the group is still detected.
+  // The user often lands on a node *inside* one option (the label around one
+  // radio, or the styled circle beside it with no control at all) rather than
+  // the whole group — widen to the enclosing radio-group / fieldset so the
+  // group is still detected. Never from a pick that holds controls of its own
+  // but no radio group (a checkbox question): the enclosing fieldset may be a
+  // whole "Questions" section (Recruitee), and widening would pull in every
+  // radio question of the form.
+  const insideOneOption = radios.length === 1 || (radios.length === 0 && !container.querySelector("input, select, textarea, button"));
+  if (insideOneOption) {
     const wider = container.closest('fieldset, [role="radiogroup"], [role="group"]');
     if (wider instanceof HTMLElement && wider !== container) radios = radiosOf(wider);
   }
@@ -185,12 +193,12 @@ function radioGroupsIn(container: HTMLElement): { groupEl: HTMLElement; radios: 
  * Some ATS forms (Ashby's "Will you be able to work on-site?" Yes/No
  * widget, Greenhouse's equivalent) render a boolean/choice question as a
  * pair of `<button aria-pressed>` elements wired to a hidden, unlabeled
- * `<input type="checkbox">` rather than as native radios — invisible to
+ * `<input type="checkbox">`, softgarden as a "pick list" of plain buttons
+ * beside a read-only input (`option-buttons.ts`), rather than as native radios — invisible to
  * `radioGroupsIn` and excluded from `fillableFieldsIn` (button/checkbox
  * types). Detected the same way as a radio group: 2+ pressed-state buttons
  * sharing an immediate parent.
  */
-const BUTTON_GROUP_SELECTOR = 'button[aria-pressed], [role="button"][aria-pressed]';
 
 /** Visible label of one toggle-button option. */
 export function buttonOptionLabel(btn: HTMLElement): string {
@@ -199,8 +207,8 @@ export function buttonOptionLabel(btn: HTMLElement): string {
 
 /** Toggle-button groups inside `container`, grouped by immediate parent (mirrors `radioGroupsIn`). */
 function buttonGroupsIn(container: HTMLElement): { groupEl: HTMLElement; buttons: HTMLElement[] }[] {
-  const buttons = queryFillableDeep(BUTTON_GROUP_SELECTOR, container).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement && !(el as HTMLButtonElement).disabled,
+  const buttons = queryFillableDeep(OPTION_BUTTON_CANDIDATES, container).filter(
+    (el): el is HTMLElement => isOptionButton(el) && !(el as HTMLButtonElement).disabled,
   );
   const byParent = new Map<HTMLElement, HTMLElement[]>();
   for (const btn of buttons) {
@@ -473,11 +481,11 @@ function selectRadioOption(radios: HTMLInputElement[], answer: string): boolean 
 
 /** Toggle buttons belonging to the group `el` represents (a group container, or one button of the group). */
 function buttonsForGroup(el: HTMLElement): HTMLElement[] {
-  if (el.matches(BUTTON_GROUP_SELECTOR)) {
+  if (isOptionButton(el)) {
     const parent = el.parentElement;
-    return parent ? Array.from(parent.querySelectorAll<HTMLElement>(BUTTON_GROUP_SELECTOR)) : [el];
+    return parent ? optionButtonsIn(parent) : [el];
   }
-  return Array.from(el.querySelectorAll<HTMLElement>(BUTTON_GROUP_SELECTOR));
+  return optionButtonsIn(el);
 }
 
 export function buttonOptionMatches(b: HTMLElement, answer: string): number {

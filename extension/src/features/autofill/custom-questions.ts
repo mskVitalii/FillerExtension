@@ -1,5 +1,6 @@
 import { detectSemanticField } from "./field-detector";
 import { queryFillableDeep } from "./engine";
+import { isGhostField } from "./dom-query";
 import { fieldQuestionText, isQuestionShaped, nativeFieldOptions } from "./field-signal";
 import { wantsNumericValue, dateInputKind } from "./field-format";
 import { fillComboboxAnswer, revealComboboxOptions } from "./combobox";
@@ -49,9 +50,20 @@ export interface CustomQuestion {
  */
 const SEARCH_CONTAINER_SELECTOR = '[role="search"], search, nav, [role="navigation"]';
 
+/**
+ * The page's own header and footer: Personio's language switcher ("Select language, current:
+ * English", a `role="combobox"` button) sits in `<header role="banner">`. A form that lives
+ * inside the header itself (a newsletter sign-up, say) still counts.
+ */
+const PAGE_CHROME_SELECTOR = 'header, footer, [role="banner"], [role="contentinfo"]';
+
 function isSiteSearchField(el: HTMLElement): boolean {
   if (el instanceof HTMLInputElement && el.type === "search") return true;
-  return el.closest(SEARCH_CONTAINER_SELECTOR) !== null;
+  if (el.closest(SEARCH_CONTAINER_SELECTOR) !== null) return true;
+  const chrome = el.closest(PAGE_CHROME_SELECTOR);
+  if (!chrome) return false;
+  const form = el.closest("form");
+  return !(form && chrome.contains(form));
 }
 
 function isFillable(el: Element): el is HTMLElement {
@@ -59,6 +71,7 @@ function isFillable(el: Element): el is HTMLElement {
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if (isSiteSearchField(el)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isGhostField(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }

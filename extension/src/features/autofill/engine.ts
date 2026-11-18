@@ -1,12 +1,13 @@
 import type { Profile, ProfileFieldKey } from "@/types/profile";
 import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
-import { fillComboboxAnswer, isComboboxLike, isReactSelectLike } from "./combobox";
+import { fillComboboxAnswer, fillComboboxByPicking, isComboboxLike, isReactSelectLike } from "./combobox";
 import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
+import { salutationCandidates } from "@/lib/salutation";
 import { generatePassword } from "@/lib/generate-password";
-import { queryFillableDeep } from "./dom-query";
+import { isGhostField, queryFillableDeep } from "./dom-query";
 import { describeField, findByKey } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
 import { fieldQuestionText } from "./field-signal";
@@ -21,6 +22,7 @@ function isFillable(el: Element): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLInputElement && EXCLUDED_INPUT_TYPES.has(el.type)) return false;
   if ((el as HTMLInputElement | HTMLTextAreaElement).disabled) return false;
+  if (isGhostField(el)) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
   return true;
 }
@@ -56,6 +58,23 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
       if (fillElement(el, candidate)) return true;
     }
     return false;
+  }
+
+  // "Ms" on a German form is "Frau", on Personio's gender select "Female": try every spelling
+  // of the same salutation against the options. Typed verbatim only into a free-text field.
+  if (field === "salutation") {
+    const candidates = salutationCandidates(value);
+    if (el instanceof HTMLSelectElement) return candidates.some((candidate) => fillElement(el, candidate));
+    if (isComboboxLike(el) && isReactSelectLike(el)) {
+      const wanted = candidates.map((c) => c.toLowerCase());
+      return fillComboboxByPicking(el, (texts) => {
+        for (const w of wanted) {
+          const hit = texts.find((t) => t.trim().toLowerCase() === w);
+          if (hit) return hit;
+        }
+        return null;
+      });
+    }
   }
 
   // A react-select dropdown (Greenhouse's "My pronouns are", "Country", …) takes a value only by

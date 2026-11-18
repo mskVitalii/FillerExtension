@@ -114,6 +114,20 @@ function checkboxElements(): HTMLElement[] {
 }
 
 /**
+ * One option of a "select all that apply" question (Recruitee's `…multiContent` options, a
+ * fieldset of same-named checkboxes under a question legend) — an answer the option-question
+ * pass gives, never a consent to decide on its own label. Requires a shared `name`, so two
+ * separate consents that merely share a fieldset are still consents.
+ */
+function isAnswerOption(el: HTMLElement): boolean {
+  const name = el.getAttribute("name");
+  const group = el.closest("fieldset, [role='group']");
+  if (!name || !group) return false;
+  const sameName = Array.from(group.querySelectorAll(CHECKBOX_SELECTOR)).filter((cb) => cb.getAttribute("name") === name);
+  return sameName.length >= 2;
+}
+
+/**
  * Checkboxes worth asking the AI about: those on an application form whose
  * label reads like a consent/marketing statement, or that the form marks
  * required. Plain one-word toggles are left alone.
@@ -122,6 +136,7 @@ export function detectCheckboxes(): PageCheckbox[] {
   const out: PageCheckbox[] = [];
   checkboxElements().forEach((el, index) => {
     if (!inApplicationForm(el)) return;
+    if (isAnswerOption(el)) return;
     const label = labelText(el).slice(0, 400);
     const required = isRequired(el);
     if (!required && label.split(" ").length < 4 && !CONSENT_HINT_RE.test(label)) return;
