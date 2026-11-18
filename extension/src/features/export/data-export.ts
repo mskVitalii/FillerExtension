@@ -170,6 +170,35 @@ export interface ExportResult {
   zip: Uint8Array;
   manifest: ExportManifest;
   fileName: string;
+  /** SHA-256 (hex) of every file except `manifest.json` and `applications/` — equal when the user's data didn't change. */
+  contentHash: string;
+}
+
+export interface ExportOptions {
+  /**
+   * "full" (default, Settings → Export): records plus each posting and adapted CV from Drive.
+   * "records": `application.json` + index only. "none": no `applications/` at all.
+   */
+  applications?: "full" | "records" | "none";
+}
+
+async function hashEntries(entries: Zippable): Promise<string> {
+  const parts: Uint8Array[] = [];
+  for (const path of Object.keys(entries).sort()) {
+    if (path === "manifest.json" || path.startsWith("applications/")) continue;
+    const value = entries[path];
+    // `[data, options]` for stored entries; checked with isArray, not instanceof (cross-realm under jsdom).
+    const data = (Array.isArray(value) ? value[0] : value) as Uint8Array;
+    parts.push(strToU8(`${path}\n${data.byteLength}\n`), data);
+  }
+  const all = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.byteLength;
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", all));
+  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** `filler-export-2026-11-17.zip` — the local date of the export. */
@@ -258,7 +287,7 @@ async function addRules(zip: ZipBuilder) {
   zip.json("rules/index.json", "rules-index", index);
 }
 
-async function addApplications(zip: ZipBuilder, warnings: string[]): Promise<number> {
+async function addApplications(zip: ZipBuilder, warnings: string[], withFiles = true): Promise<number> {
   let applications: Application[];
   try {
     applications = await getAllApplications();
@@ -277,7 +306,7 @@ async function addApplications(zip: ZipBuilder, warnings: string[]): Promise<num
       adaptedCv: null,
     };
     zip.json(files.application, "application", app);
-    try {
+    if (withFiles) try {
       const posting = await getJobPostingFile(app);
       files.jobPosting = `${dir}/job-posting.md`;
       await zip.blob(files.jobPosting, "job-posting", posting, "text/markdown; charset=utf-8");
@@ -294,7 +323,7 @@ async function addApplications(zip: ZipBuilder, warnings: string[]): Promise<num
       zip.text(path, "cover-letter-translation", app.translation.content);
       files.translations.push({ language: app.translation.language, path });
     }
-    if (app.adaptedCv) {
+    if (withFiles && app.adaptedCv) {
       try {
         const pdf = await getAdaptedCvFile(app.adaptedCv);
         if (pdf) {
@@ -323,7 +352,8 @@ async function addApplications(zip: ZipBuilder, warnings: string[]): Promise<num
 }
 
 /** Collects every document and file into one zip. Never throws for a single unreadable item — see `manifest.warnings`. */
-export async function buildExport(now = new Date()): Promise<ExportResult> {
+export async function buildExport(now = new Date(), options: ExportOptions = {}): Promise<ExportResult> {
+  const applicationsMode = options.applications ?? "full";
   const zip = new ZipBuilder();
   const warnings: string[] = [];
 
@@ -350,7 +380,7 @@ export async function buildExport(now = new Date()): Promise<ExportResult> {
     warnings.push(`CVs: ${errorText(err)}`);
     return 0;
   });
-  const applications = await addApplications(zip, warnings);
+  const applications = applicationsMode === "none" ? 0 : await addApplications(zip, warnings, applicationsMode === "full");
 
   const manifest: ExportManifest = {
     format: EXPORT_FORMAT,
@@ -363,5 +393,5 @@ export async function buildExport(now = new Date()): Promise<ExportResult> {
   };
   const entries: Zippable = { "manifest.json": strToU8(JSON.stringify(manifest, null, 2)), ...zip.entries };
   const zipped = zipSync(entries, { level: 6, mtime: now });
-  return { zip: zipped, manifest, fileName: exportFileName(now) };
+  return { zip: zipped, manifest, fileName: exportFileName(now), contentHash: await hashEntries(zip.entries) };
 }

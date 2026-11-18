@@ -65,6 +65,7 @@ import { LANGUAGES } from "@/lib/languages";
 import { generatePassword } from "@/lib/generate-password";
 import { cn } from "@/lib/utils";
 import { isEmailAddress } from "@/lib/email";
+import { AgentApplyButton } from "@/components/AgentApplyButton";
 
 /**
  * Toggles "Pick fields on page" from the keyboard while the Side Panel is
@@ -1984,6 +1985,8 @@ export function MainView({
           onMark={() => void handleMarkApplied()}
         />
       )}
+
+      <AgentApplyButton job={job} url={tabUrl} />
 
       {setupComplete && job.contact && (
         <Button

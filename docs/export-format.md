@@ -193,3 +193,14 @@ Cover letters are plain text, paragraphs separated by a blank line.
 
 `startedAt` — the extension first read this posting; `submittedAt` — the user marked it applied.
 Absent on applications never marked applied, or marked before this was recorded.
+
+## Sync with the local agent
+
+While the extension is paired with the local agent (FillerAgent, Side Panel → "Connect local AI
+agent"), `features/agent-bridge/sync.ts` sends it this same zip automatically — when the panel
+finds the agent online, a few seconds after the user's data changes, and right before "Apply via
+AI agent". It calls `buildExport(now, { applications })` with `"none"` (or `"records"`, at most
+every 6 h: `application.json` + index, no postings/adapted CVs) and uploads only when
+`contentHash` — SHA-256 over every file except `manifest.json` and `applications/` — differs
+from the hash the agent reports at `GET /api/sync`. An export whose CV files couldn't be read
+(Drive not connected) is not sent.

@@ -182,3 +182,74 @@ describe("buildExport", () => {
     expect(json("applications/index.json")[0].files.adaptedCv).toBeNull();
   });
 });
+
+describe("buildExport for the agent sync", () => {
+  it("leaves application files out on request and hashes only the user's data", async () => {
+    const full = await buildExport(new Date(2026, 10, 17, 12, 0, 0));
+    const records = await buildExport(new Date(2026, 10, 18, 9, 0, 0), { applications: "records" });
+    const none = await buildExport(new Date(2026, 10, 18, 9, 0, 0), { applications: "none" });
+    const paths = (zip: Uint8Array) => Object.keys(unzipSync(zip));
+    expect(paths(records.zip)).toContain("applications/app1/application.json");
+    expect(paths(records.zip).some((p) => p.endsWith("adapted-cv.pdf") || p.endsWith("job-posting.md"))).toBe(false);
+    expect(paths(none.zip).some((p) => p.startsWith("applications/"))).toBe(false);
+    // Same data, other time and applications mode → same hash.
+    expect(records.contentHash).toBe(full.contentHash);
+    expect(none.contentHash).toBe(full.contentHash);
+    await repo.saveProfile({ ...(await repo.getProfile()), city: "Berlin" });
+    expect((await buildExport(new Date(), { applications: "none" })).contentHash).not.toBe(full.contentHash);
+  });
+});
+
+describe("syncWithAgent", () => {
+  const settings = { port: 47615, token: "t0k" };
+  let agentHash = "";
+  let uploads: string[] = [];
+
+  beforeEach(() => {
+    agentHash = "";
+    uploads = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer t0k");
+        if (init?.method === "POST") {
+          agentHash = new URL(url).searchParams.get("hash") ?? "";
+          uploads.push(agentHash);
+          return new Response(JSON.stringify({ hash: agentHash }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ hash: agentHash }), { status: 200 });
+      }),
+    );
+  });
+
+  it("uploads once, then only when the data changed — and always checks before apply", async () => {
+    const { syncWithAgent } = await import("@/features/agent-bridge/sync");
+    expect((await syncWithAgent(settings)).outcome).toBe("uploaded");
+    expect((await syncWithAgent(settings)).outcome).toBe("unchanged");
+    expect((await syncWithAgent(settings, { force: true })).outcome).toBe("unchanged"); // rebuilt, same hash
+    expect(uploads).toHaveLength(1);
+
+    await repo.saveFaqAnswers([{ question: "Why us?", answer: "Because of Go." }]);
+    expect((await syncWithAgent(settings)).outcome).toBe("uploaded");
+    expect(uploads).toHaveLength(2);
+
+    agentHash = ""; // the agent's data was replaced by a manual import
+    expect((await syncWithAgent(settings)).outcome).toBe("uploaded");
+  });
+
+  it("doesn't sync while Google Drive isn't connected", async () => {
+    const { syncWithAgent } = await import("@/features/agent-bridge/sync");
+    const auth = await import("@/features/google-drive/auth");
+    vi.mocked(auth.isGoogleConnected).mockResolvedValueOnce(false);
+    expect((await syncWithAgent(settings)).outcome).toBe("skipped");
+    expect(uploads).toEqual([]);
+  });
+
+  it("doesn't send an export that lost the CV files", async () => {
+    const { syncWithAgent } = await import("@/features/agent-bridge/sync");
+    for (const name of [...driveStore.keys()]) if (name.startsWith("cv-")) driveStore.delete(name);
+    const result = await syncWithAgent(settings);
+    expect(result.outcome).toBe("skipped");
+    expect(uploads).toEqual([]);
+  });
+});
