@@ -1,4 +1,5 @@
 import type { UiLanguagePreference } from "@/i18n/core";
+import type { AiFallbackPolicy } from "@/features/openai/fallback";
 
 /**
  * chrome.storage.sync — small cross-device preferences only
@@ -30,6 +31,12 @@ export interface Preferences {
   aiChooseCv: boolean;
   /** Side Panel language: "auto" follows the browser, else "en" | "de" | "ru" (`i18n/core.ts`). */
   uiLanguage: UiLanguagePreference;
+  /** Settings → AI fallback: when to answer with Claude instead of OpenAI (`features/openai/fallback.ts`). Needs the Anthropic key. */
+  aiFallbackPolicy: AiFallbackPolicy;
+  /** Claude model for the main tier (cover letters, outreach) — "" defers to `CLAUDE_MODEL_MAIN`. */
+  claudeMainModel: string;
+  /** Claude model for every support task — "" defers to `CLAUDE_MODEL_SUPPORT`. */
+  claudeSupportModel: string;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -45,6 +52,9 @@ const DEFAULT_PREFERENCES: Preferences = {
   autoSelectCv: true,
   aiChooseCv: false,
   uiLanguage: "auto",
+  aiFallbackPolicy: "unavailable",
+  claudeMainModel: "",
+  claudeSupportModel: "",
 };
 
 export async function getPreferences(): Promise<Preferences> {

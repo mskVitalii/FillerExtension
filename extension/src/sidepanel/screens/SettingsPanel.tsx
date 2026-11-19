@@ -4,6 +4,7 @@ import { downloadFile } from "@/features/pdf/export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { AiFallbackSettings } from "@/components/AiFallbackSettings";
 import { CvLibraryItem } from "@/components/CvLibraryItem";
 import { RulesEditor } from "@/components/RulesEditor";
 import { FaqAnswerBubble, FaqChatDivider, FaqQuestionBubble } from "@/components/FaqChat";
@@ -1131,6 +1132,8 @@ export function SettingsPanel({
           </div>
         </CardContent>
       </Card>
+
+      <AiFallbackSettings />
 
       <Card>
         <CardHeader>

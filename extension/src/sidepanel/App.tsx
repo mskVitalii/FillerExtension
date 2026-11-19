@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { AiFallbackNotice } from "@/components/AiFallbackNotice";
 import { ApiKeyStep } from "./screens/ApiKeyStep";
 import { ApplicationsList } from "./screens/ApplicationsList";
 import { ConnectGoogleStep } from "./screens/ConnectGoogleStep";
@@ -225,6 +226,7 @@ export function App() {
         );
       })}
       {screen}
+      <AiFallbackNotice />
     </>
   );
 }

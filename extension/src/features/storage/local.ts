@@ -24,6 +24,8 @@ import { todayISO } from "@/lib/date-format";
  */
 export interface LocalStorageSchema {
   openaiApiKey: string;
+  /** Settings → AI fallback: the user's Anthropic key for answering with Claude when OpenAI fails. Same "local only, never synced" tier as the OpenAI key. */
+  anthropicApiKey: string;
   /** spec_5 section C — optional secondary job-search providers, same "local only" trust tier as the OpenAI key. */
   tavilyApiKey: string;
   adzunaAppId: string;
@@ -107,6 +109,16 @@ export async function setOpenAiApiKey(key: string): Promise<void> {
 
 export async function deleteOpenAiApiKey(): Promise<void> {
   await removeLocal("openaiApiKey");
+}
+
+export async function getAnthropicApiKey(): Promise<string | undefined> {
+  return getLocal("anthropicApiKey");
+}
+
+/** An empty key removes it. */
+export async function setAnthropicApiKey(key: string): Promise<void> {
+  if (key) await setLocal("anthropicApiKey", key);
+  else await removeLocal("anthropicApiKey");
 }
 
 export interface JobSearchCredentials {

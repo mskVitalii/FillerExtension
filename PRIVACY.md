@@ -21,6 +21,7 @@ This policy explains what data the extension handles, where it goes, and why.
 | Profile information | Name, email, phone, address, city, postal code, LinkedIn, GitHub, personal website, expected salary — the fields you fill in yourself | Locally (`chrome.storage.local`), synced to **your own** Google Drive `appDataFolder` |
 | Résumé / CV | The PDF, Word (.docx) or LaTeX project (.zip / .tex) you upload, plus, for a LaTeX CV, its compiled PDF, plus text extracted from it locally, and the `{{placeholder}}` settings you define for adapting it per job posting | Locally, synced to **your own** Google Drive `appDataFolder` |
 | OpenAI API key | The key you paste in during setup | Locally only (`chrome.storage.local`) — never transmitted anywhere except directly to `api.openai.com` as part of your own API requests |
+| Anthropic API key (optional) | The key you paste in Settings → "Fallback to Claude", if you do | Locally only (`chrome.storage.local`) — never transmitted anywhere except directly to `api.anthropic.com` as part of your own API requests |
 | Google OAuth token | Issued by Google when you click "Connect Google" | Managed by Chrome's `chrome.identity` API; used only to call the Google Drive API on your behalf |
 | Job posting content | Text/structured data extracted from the job page you're viewing when you use the extension | Processed locally; sent to `api.openai.com` (with your key) only when you generate/extract with AI assistance |
 | Generated cover letters | The text drafted from your profile and the job posting | Stored locally and in your Google Drive `appDataFolder`, only when you use the extension |
@@ -32,9 +33,10 @@ Only if you export an adapted Word CV as PDF, Filler asks once for one more narr
 
 ## Who receives data, and why
 
-Filler talks to exactly two external services, both initiated by you and authenticated with your own credentials:
+Filler talks only to the external services below, both initiated by you and authenticated with your own credentials:
 
 - **OpenAI (`api.openai.com`)** — receives job posting text and your profile/CV text (as needed) to extract structured job details and draft cover letters, using the API key you provide. Governed by [OpenAI's own privacy policy](https://openai.com/privacy).
+- **Anthropic (`api.anthropic.com`)** — only if you add an Anthropic key in Settings → "Fallback to Claude". Then, depending on the option you pick there, a request OpenAI couldn't answer (overloaded, unreachable, or any error), or every request, goes to Claude instead, with the same content OpenAI would have received, using your key. Governed by [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy).
 - **Google Drive (`www.googleapis.com`)** — stores your profile, CV, and cover letter drafts in your own Drive account's app-data folder, using the OAuth token Chrome obtains when you connect your Google account. Governed by [Google's Privacy Policy](https://policies.google.com/privacy).
 - **LaTeX-On-HTTP (`latex.ytotech.com`)** — only if you upload a LaTeX CV. Browsers can't run a full TeX installation, so the files of your LaTeX project (sources, photo, other files in the .zip), with the placeholders filled in, are sent to this free open-source compile service ([source](https://github.com/YtoTech/latex-on-http)) each time the CV is compiled: once on upload, and when you preview, attach or download an adapted version. It returns the PDF. PDF and Word CVs are never sent there.
 
@@ -52,7 +54,7 @@ Filler requests the following Chrome permissions, each used only for its stated 
 - `downloads` — save an exported cover letter PDF to your computer
 - `identity` — obtain the Google OAuth token used to access your own Drive `appDataFolder`
 
-Host permissions are limited to `api.openai.com` and `www.googleapis.com` — the two services described above.
+Host permissions are limited to `api.openai.com` and `www.googleapis.com` — services described above. Anthropic's API accepts requests straight from a browser, so the optional Claude fallback needs no host permission.
 
 ## Data retention and control
 

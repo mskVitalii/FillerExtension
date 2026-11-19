@@ -35,10 +35,10 @@ describe("streamWithWebSearch limits", () => {
     expect(body.tools).toEqual([{ type: "web_search" }]);
   });
 
-  it("retries a 429 once, then gives up with the status", async () => {
-    fetchMock.mockResolvedValue(new Response("slow down", { status: 429, headers: { "retry-after": "0.01" } }));
+  it("retries a 429 with back-off (honouring Retry-After), then gives up with the status", async () => {
+    fetchMock.mockImplementation(async () => new Response("slow down", { status: 429, headers: { "retry-after": "0.01" } }));
     await expect(streamWithWebSearch("p", () => {})).rejects.toThrow(/\(429\)/);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("does not retry a 401", async () => {

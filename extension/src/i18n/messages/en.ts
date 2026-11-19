@@ -428,6 +428,20 @@ export const en = {
   "timeline.prev": "Previous day",
   "timeline.startedEarlier": "started an earlier day",
   "timeline.total": "total",
+  "fallback.title": "Fallback to Claude",
+  "fallback.hint": "OpenAI requests are retried with back-off when OpenAI is overloaded. If they still fail, Claude (Anthropic) can answer instead, billed to your own Anthropic key. The key stays in this browser, like the OpenAI one.",
+  "fallback.apiKey": "Anthropic API key",
+  "fallback.apiKeyStored": "Saved ({hint}) — paste a new key to replace it",
+  "fallback.removeKey": "Remove Anthropic key",
+  "fallback.policy": "When to use Claude",
+  "fallback.policyOff": "Never",
+  "fallback.policyUnavailable": "When OpenAI is overloaded or unreachable (after retries)",
+  "fallback.policyAny": "On any OpenAI error",
+  "fallback.policyAlways": "Always — Claude instead of OpenAI",
+  "fallback.modelMain": "Claude model for cover letters and outreach",
+  "fallback.modelSupport": "Claude model for support tasks",
+  "fallback.needsKey": "Add an Anthropic key, or Claude is never used.",
+  "fallback.notice": "OpenAI didn't answer ({reason}) — answered by {model}.",
 } as const;
 
 export type MessageKey = keyof typeof en;

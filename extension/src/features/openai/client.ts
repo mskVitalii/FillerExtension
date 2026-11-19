@@ -1,5 +1,11 @@
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
+import { claudeEffort, claudeStructured, claudeTextStream, claudeWebSearchStream } from "./anthropic";
+import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
+import { withClaudeFallback, type AiTier } from "./fallback";
+import { fetchWithRetry, isAbortError } from "./retry";
+
+export { ClaudeError, MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MODELS_URL = "https://api.openai.com/v1/models";
@@ -94,20 +100,19 @@ export async function getOutreachModel(): Promise<string> {
   return resolveModel(prefs.outreachModel, MODEL_TERRA);
 }
 
-export class OpenAiError extends Error {
-  constructor(
-    message: string,
-    public status?: number,
-  ) {
-    super(message);
-    this.name = "OpenAiError";
-  }
-}
-
-export class MissingApiKeyError extends OpenAiError {
-  constructor() {
-    super("No OpenAI API key is configured. Add your key in the extension settings.");
-    this.name = "MissingApiKeyError";
+/**
+ * Which Claude tier answers a call made with OpenAI `model` if it falls back: the main one for
+ * the models the user picked for application text (cover letter, outreach) or the strong
+ * built-in ones, support for everything else.
+ */
+export async function tierForModel(model: string): Promise<AiTier> {
+  if (model === MODEL_TERRA || model === MODEL_ASTRA) return "main";
+  try {
+    const prefs = await getPreferences();
+    const main = [resolveModel(prefs.coverLetterModel, MODEL_TERRA), resolveModel(prefs.outreachModel, MODEL_TERRA)];
+    return main.includes(model) ? "main" : "support";
+  } catch {
+    return "support";
   }
 }
 
@@ -138,34 +143,41 @@ interface ResponsesApiOutput {
 }
 
 /**
- * POSTs one Responses API body. With `reasoningEffort`, a 400 that names the
- * `reasoning` parameter (a model picked in Settings that doesn't reason) is
- * retried once without it, so a speed hint can never fail the request.
+ * POSTs one Responses API body, retrying 429/5xx and network failures with exponential back-off
+ * (`retry.ts`); a network failure that outlasts the retries becomes an `OpenAiNetworkError`.
+ * With `reasoningEffort`, a 400 that names the `reasoning` parameter (a model picked in Settings
+ * that doesn't reason) is retried once without it, so a speed hint can never fail the request.
  */
 async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort, signal?: AbortSignal): Promise<Response> {
-  const send = (payload: Record<string, unknown>) =>
-    fetch(RESPONSES_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal,
-    });
+  const send = async (payload: Record<string, unknown>) => {
+    try {
+      return await fetchWithRetry(
+        () =>
+          fetch(RESPONSES_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(payload),
+            signal,
+          }),
+        {
+          signal,
+          onRetry: ({ attempt, delayMs, status }) =>
+            console.warn(`[Filler] OpenAI ${status ?? "network error"} — retry ${attempt} in ${Math.round(delayMs / 100) / 10} s.`),
+        },
+      );
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) throw err;
+      throw new OpenAiNetworkError(err);
+    }
+  };
   if (!reasoningEffort) return send(body);
   const res = await send({ ...body, reasoning: { effort: reasoningEffort } });
   if (res.status !== 400) return res;
   const error = await res.clone().text().catch(() => "");
   return /reasoning/i.test(error) ? send(body) : res;
-}
-
-/** Thrown when a call ran past its time budget — the message says which call and how long. */
-export class OpenAiTimeoutError extends OpenAiError {
-  constructor(what: string, seconds: number) {
-    super(`${what} timed out after ${seconds} s.`);
-    this.name = "OpenAiTimeoutError";
-  }
 }
 
 /**
@@ -204,13 +216,6 @@ export function callDeadline(what: string, options: { signal?: AbortSignal; time
   };
 }
 
-/** Status codes worth one more try: rate limit and OpenAI-side failures. */
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * All AI requests go straight from the extension to OpenAI with the user's
  * own key (spec sections 3, 15, 21) via the Responses API — OpenAI's
@@ -219,13 +224,31 @@ function sleep(ms: number): Promise<void> {
  * extension runtime except as the Authorization header of this exact call.
  */
 export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promise<T> {
-  const apiKey = await getOpenAiApiKey();
-  if (!apiKey) throw new MissingApiKeyError();
   const model = request.model ?? (await getSupportModel());
 
+  // One budget for the whole call — OpenAI's retries and a Claude fallback included.
   const deadline = callDeadline(request.label ?? "OpenAI request", { signal: request.signal, timeoutMs: request.timeoutMs });
   try {
-    return await requestStructuredOnce(request, apiKey, model, deadline.signal);
+    return await withClaudeFallback({
+      tier: await tierForModel(model),
+      label: request.label,
+      openai: async () => {
+        const apiKey = await getOpenAiApiKey();
+        if (!apiKey) throw new MissingApiKeyError();
+        return requestStructuredOnce(request, apiKey, model, deadline.signal);
+      },
+      claude: (apiKey, claudeModel) =>
+        claudeStructured({
+          apiKey,
+          model: claudeModel,
+          system: request.systemPrompt,
+          user: request.userPrompt,
+          schema: request.schema,
+          parse: request.parse,
+          effort: claudeEffort(request.reasoningEffort),
+          signal: deadline.signal,
+        }),
+    });
   } catch (err) {
     throw deadline.error(err);
   } finally {
@@ -336,7 +359,9 @@ async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (
  * mid-stream anyway. Returns "" when the model wrote nothing.
  *
  * Bounded: `timeoutMs`/`idleMs` abort it with an `OpenAiTimeoutError`, and a
- * 429/5xx or network failure before the stream starts is retried once.
+ * 429/5xx or network failure before the stream starts is retried with back-off.
+ * If OpenAI still fails before any text arrived, Claude's own web search answers
+ * (per the fallback policy).
  */
 export interface WebSearchStreamOptions {
   model?: string;
@@ -350,8 +375,6 @@ export interface WebSearchStreamOptions {
 }
 
 export async function streamWithWebSearch(prompt: string, onDelta: (delta: string) => void, options: WebSearchStreamOptions = {}): Promise<string> {
-  const apiKey = await getOpenAiApiKey();
-  if (!apiKey) throw new MissingApiKeyError();
   const resolvedModel = options.model ?? (await getSupportModel());
   const body = {
     model: resolvedModel,
@@ -361,27 +384,41 @@ export async function streamWithWebSearch(prompt: string, onDelta: (delta: strin
   };
 
   const deadline = callDeadline("OpenAI web search", options);
+  let streamed = false;
+  const emit = (delta: string) => {
+    streamed = true;
+    onDelta(delta);
+  };
   try {
-    let res: Response | null = null;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        res = await postResponses(apiKey, body, options.reasoningEffort, deadline.signal);
-      } catch (err) {
-        if (deadline.signal.aborted || attempt >= 2) throw err;
-        await sleep(1000);
-        continue;
-      }
-      if (res.ok || !RETRYABLE_STATUS.has(res.status) || attempt >= 2) break;
-      const retryAfter = Number(res.headers.get("retry-after"));
-      await res.body?.cancel().catch(() => {});
-      await sleep(retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : 1500);
-    }
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => "");
-      throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${text.slice(0, 300)}`, res.status);
-    }
-    deadline.touch();
-    return await readOutputTextStream(res.body, onDelta, deadline.touch);
+    return await withClaudeFallback({
+      tier: "support",
+      label: "Web search",
+      canFallBack: () => !streamed,
+      openai: async () => {
+        const apiKey = await getOpenAiApiKey();
+        if (!apiKey) throw new MissingApiKeyError();
+        const res = await postResponses(apiKey, body, options.reasoningEffort, deadline.signal);
+        if (!res.ok || !res.body) {
+          const text = await res.text().catch(() => "");
+          throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${text.slice(0, 300)}`, res.status);
+        }
+        deadline.touch();
+        return readOutputTextStream(res.body, emit, deadline.touch);
+      },
+      claude: (apiKey, model) => {
+        deadline.touch();
+        return claudeWebSearchStream({
+          apiKey,
+          model,
+          system: "",
+          user: prompt,
+          effort: claudeEffort(options.reasoningEffort),
+          signal: deadline.signal,
+          onDelta: emit,
+          onChunk: deadline.touch,
+        });
+      },
+    });
   } catch (err) {
     throw deadline.error(err);
   } finally {
@@ -402,32 +439,37 @@ export async function requestTextStream(
   onDelta: (delta: string) => void,
   model?: string,
 ): Promise<string> {
-  const apiKey = await getOpenAiApiKey();
-  if (!apiKey) throw new MissingApiKeyError();
   const resolvedModel = model ?? (await getCoverLetterModel());
+  let streamed = false;
+  const emit = (delta: string) => {
+    streamed = true;
+    onDelta(delta);
+  };
 
-  const res = await fetch(RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+  const full = await withClaudeFallback({
+    tier: await tierForModel(resolvedModel),
+    label: "Cover letter",
+    // Retries and the fallback only before the first word reached the user — text shown can't be taken back.
+    canFallBack: () => !streamed,
+    openai: async () => {
+      const apiKey = await getOpenAiApiKey();
+      if (!apiKey) throw new MissingApiKeyError();
+      const res = await postResponses(apiKey, {
+        model: resolvedModel,
+        stream: true,
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.text().catch(() => "");
+        throw new OpenAiError(`OpenAI streaming request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+      }
+      return readOutputTextStream(res.body, emit);
     },
-    body: JSON.stringify({
-      model: resolvedModel,
-      stream: true,
-      input: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
+    claude: (apiKey, claudeModel) => claudeTextStream({ apiKey, model: claudeModel, system: systemPrompt, user: userPrompt, onDelta: emit }),
   });
-
-  if (!res.ok || !res.body) {
-    const body = await res.text().catch(() => "");
-    throw new OpenAiError(`OpenAI streaming request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
-  }
-
-  const full = await readOutputTextStream(res.body, onDelta);
-  if (!full) throw new OpenAiError("OpenAI streaming response had no content.");
+  if (!full) throw new OpenAiError("Streaming response had no content.");
   return full;
 }
