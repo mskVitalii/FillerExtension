@@ -1,6 +1,7 @@
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
-import { claudeEffort, claudeStructured, claudeTextStream, claudeWebSearchStream } from "./anthropic";
+import { claudeStructured, claudeTextStream, claudeWebSearchStream } from "./anthropic";
+import { effortFor, getModelInfo, isOpenAiTextModel } from "./model-catalog";
 import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
 import { withClaudeFallback, type AiTier } from "./fallback";
 import { fetchWithRetry, isAbortError } from "./retry";
@@ -23,8 +24,6 @@ export const MODEL_ASTRA = "gpt-6-astra";
 /** Curated list for the Settings selectors, and the fallback when `GET /v1/models` can't be reached. */
 export const AVAILABLE_MODELS = [MODEL_TERRA, MODEL_LUNA, MODEL_ASTRA] as const;
 
-const NON_TEXT_MODEL = /realtime|audio|tts|transcribe|whisper|image|live|cyber|search|embedding|codex/;
-
 /**
  * Whether `id` is a model this extension can call: a curated one, or a newer GPT-6+ general text
  * model (`gpt-6.2-luna`, …) that `/v1/models` lists. Dated snapshots and specialized variants
@@ -33,9 +32,7 @@ const NON_TEXT_MODEL = /realtime|audio|tts|transcribe|whisper|image|live|cyber|s
  * back to the tier default instead of failing every request.
  */
 export function isSupportedModel(id: string): boolean {
-  if ((AVAILABLE_MODELS as readonly string[]).includes(id)) return true;
-  const match = /^gpt-(\d+)(?:\.\d+)?-[a-z]+$/.exec(id);
-  return !!match && Number(match[1]) >= 6 && !NON_TEXT_MODEL.test(id);
+  return (AVAILABLE_MODELS as readonly string[]).includes(id) || isOpenAiTextModel(id);
 }
 
 /** The user's choice for a tier when it's still a supported model, otherwise the tier default. */
@@ -116,6 +113,7 @@ export async function tierForModel(model: string): Promise<AiTier> {
   }
 }
 
+/** What a caller asks for; `effortFor` turns it into what the chosen model accepts. */
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
 interface JsonSchemaRequest<T> {
@@ -145,8 +143,10 @@ interface ResponsesApiOutput {
 /**
  * POSTs one Responses API body, retrying 429/5xx and network failures with exponential back-off
  * (`retry.ts`); a network failure that outlasts the retries becomes an `OpenAiNetworkError`.
- * With `reasoningEffort`, a 400 that names the `reasoning` parameter (a model picked in Settings
- * that doesn't reason) is retried once without it, so a speed hint can never fail the request.
+ * The effort sent is what the model's catalog entry accepts (`effortFor`: e.g. `minimal` becomes
+ * `low` on GPT-6, nothing at all for a model without reasoning). As a safety net for a model the
+ * catalog gets wrong, a 400 that names the `reasoning` parameter is retried once without it, so a
+ * speed hint can never fail the request.
  */
 async function postResponses(apiKey: string, body: Record<string, unknown>, reasoningEffort?: ReasoningEffort, signal?: AbortSignal): Promise<Response> {
   const send = async (payload: Record<string, unknown>) => {
@@ -173,8 +173,9 @@ async function postResponses(apiKey: string, body: Record<string, unknown>, reas
       throw new OpenAiNetworkError(err);
     }
   };
-  if (!reasoningEffort) return send(body);
-  const res = await send({ ...body, reasoning: { effort: reasoningEffort } });
+  const effort = reasoningEffort ? effortFor(await getModelInfo(String(body.model)), reasoningEffort) : undefined;
+  if (!effort) return send(body);
+  const res = await send({ ...body, reasoning: { effort } });
   if (res.status !== 400) return res;
   const error = await res.clone().text().catch(() => "");
   return /reasoning/i.test(error) ? send(body) : res;
@@ -245,7 +246,7 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
           user: request.userPrompt,
           schema: request.schema,
           parse: request.parse,
-          effort: claudeEffort(request.reasoningEffort),
+          effort: request.reasoningEffort,
           signal: deadline.signal,
         }),
     });
@@ -256,22 +257,24 @@ export async function requestStructured<T>(request: JsonSchemaRequest<T>): Promi
   }
 }
 
+/** The JSON schema as an instruction, for a model that can't take it as `text.format`. */
+export function schemaInstruction(schema: Record<string, unknown>): string {
+  return `\n\nAnswer with one JSON object, nothing else, that follows this JSON schema:\n${JSON.stringify(schema)}`;
+}
+
 async function requestStructuredOnce<T>(request: JsonSchemaRequest<T>, apiKey: string, model: string, signal: AbortSignal): Promise<T> {
+  // Strict `json_schema` where the model takes it (every GPT-6 does); JSON mode plus the schema in the prompt otherwise.
+  const structured = (await getModelInfo(model)).structuredOutputs;
   const res = await postResponses(
     apiKey,
     {
       model,
       input: [
-        { role: "system", content: request.systemPrompt },
+        { role: "system", content: structured ? request.systemPrompt : request.systemPrompt + schemaInstruction(request.schema) },
         { role: "user", content: request.userPrompt },
       ],
       text: {
-        format: {
-          type: "json_schema",
-          name: request.schemaName,
-          strict: true,
-          schema: request.schema,
-        },
+        format: structured ? { type: "json_schema", name: request.schemaName, strict: true, schema: request.schema } : { type: "json_object" },
       },
     },
     request.reasoningEffort,
@@ -412,7 +415,7 @@ export async function streamWithWebSearch(prompt: string, onDelta: (delta: strin
           model,
           system: "",
           user: prompt,
-          effort: claudeEffort(options.reasoningEffort),
+          effort: options.reasoningEffort,
           signal: deadline.signal,
           onDelta: emit,
           onChunk: deadline.touch,

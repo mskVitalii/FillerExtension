@@ -12,6 +12,7 @@ import { useVisitedTabs } from "./hooks/useVisitedTabs";
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { isGoogleConnected } from "@/features/google-drive/auth";
 import { refreshDriveCaches } from "@/features/storage/drive-cache";
+import { refreshModelCatalog } from "@/features/openai/model-catalog";
 import {
   getCustomFields,
   getCvMeta,
@@ -69,6 +70,8 @@ export function App() {
     // The panel opens on the local caches; then pull what another browser
     // saved to Drive since, and reload only if something actually changed.
     if (connected) void syncFromDrive();
+    // Model prices/capabilities (OpenRouter's public list) — at most once a day, never blocking.
+    void refreshModelCatalog();
   }
 
   async function syncFromDrive() {

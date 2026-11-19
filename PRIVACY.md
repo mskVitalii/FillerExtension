@@ -37,6 +37,7 @@ Filler talks only to the external services below, both initiated by you and auth
 
 - **OpenAI (`api.openai.com`)** — receives job posting text and your profile/CV text (as needed) to extract structured job details and draft cover letters, using the API key you provide. Governed by [OpenAI's own privacy policy](https://openai.com/privacy).
 - **Anthropic (`api.anthropic.com`)** — only if you add an Anthropic key in Settings → "Fallback to Claude". Then, depending on the option you pick there, a request OpenAI couldn't answer (overloaded, unreachable, or any error), or every request, goes to Claude instead, with the same content OpenAI would have received, using your key. Governed by [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy).
+- **OpenRouter (`openrouter.ai`)** — at most once a day Filler downloads OpenRouter's public model list (`GET https://openrouter.ai/api/v1/models`) to know which OpenAI and Claude models exist, their list prices and the request options each accepts. The request carries no API key and none of your data; Filler never sends prompts or content to OpenRouter.
 - **Google Drive (`www.googleapis.com`)** — stores your profile, CV, and cover letter drafts in your own Drive account's app-data folder, using the OAuth token Chrome obtains when you connect your Google account. Governed by [Google's Privacy Policy](https://policies.google.com/privacy).
 - **LaTeX-On-HTTP (`latex.ytotech.com`)** — only if you upload a LaTeX CV. Browsers can't run a full TeX installation, so the files of your LaTeX project (sources, photo, other files in the .zip), with the placeholders filled in, are sent to this free open-source compile service ([source](https://github.com/YtoTech/latex-on-http)) each time the CV is compiled: once on upload, and when you preview, attach or download an adapted version. It returns the PDF. PDF and Word CVs are never sent there.
 
@@ -54,7 +55,7 @@ Filler requests the following Chrome permissions, each used only for its stated 
 - `downloads` — save an exported cover letter PDF to your computer
 - `identity` — obtain the Google OAuth token used to access your own Drive `appDataFolder`
 
-Host permissions are limited to `api.openai.com` and `www.googleapis.com` — services described above. Anthropic's API accepts requests straight from a browser, so the optional Claude fallback needs no host permission.
+Host permissions are limited to `api.openai.com` and `www.googleapis.com` — services described above. Anthropic's API and OpenRouter's public model list accept requests straight from a browser, so neither the optional Claude fallback nor the model list needs a host permission.
 
 ## Data retention and control
 

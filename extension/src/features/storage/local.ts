@@ -13,6 +13,7 @@ import type {
 import type { UrlActivation } from "@/types/application";
 import type { CvTemplateLibrary } from "@/types/cv-template";
 import type { Job } from "@/types/job";
+import type { ModelCatalog } from "@/features/openai/model-catalog";
 import { mergeBackfilledActivations } from "@/features/applications/stats";
 import { todayISO } from "@/lib/date-format";
 
@@ -24,6 +25,8 @@ import { todayISO } from "@/lib/date-format";
  */
 export interface LocalStorageSchema {
   openaiApiKey: string;
+  /** Models with prices and capabilities from OpenRouter's public list (`features/openai/model-catalog.ts`), refreshed daily. */
+  modelCatalogCache: ModelCatalog;
   /** Settings → AI fallback: the user's Anthropic key for answering with Claude when OpenAI fails. Same "local only, never synced" tier as the OpenAI key. */
   anthropicApiKey: string;
   /** spec_5 section C — optional secondary job-search providers, same "local only" trust tier as the OpenAI key. */

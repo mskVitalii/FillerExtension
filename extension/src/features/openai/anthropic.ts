@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ClaudeError } from "./errors";
+import { effortFor, getModelInfo, type Effort, type ModelInfo } from "./model-catalog";
 
 /**
  * Claude (Anthropic Messages API) as the fallback provider — the same three shapes the OpenAI
@@ -27,12 +28,17 @@ const STREAM_MAX_TOKENS = 32_000;
 const SERVER_FALLBACK_MODEL = /^claude-(opus|sonnet|fable)-/;
 const SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
-export type ClaudeEffort = "low" | "medium" | "high";
+export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
-/** OpenAI's `reasoning.effort` → Claude's `output_config.effort` (Claude has no "minimal"). */
-export function claudeEffort(effort: "minimal" | "low" | "medium" | "high" | undefined): ClaudeEffort | undefined {
+/**
+ * The requested effort as Claude's `output_config.effort` for this model (from its catalog
+ * entry): what it accepts, never "none"/"minimal" (not values of that parameter — the weakest
+ * Claude effort is "low"). `undefined` for a model without the parameter.
+ */
+export function claudeEffortFor(info: ModelInfo, requested: Effort | undefined): ClaudeEffort | undefined {
+  const effort = effortFor(info, requested);
   if (!effort) return undefined;
-  return effort === "minimal" ? "low" : effort;
+  return effort === "none" || effort === "minimal" ? "low" : effort;
 }
 
 export function isClaudeModel(id: string): boolean {
@@ -92,16 +98,18 @@ interface CommonParams {
   model: string;
   system: string;
   user: string;
-  effort?: ClaudeEffort;
+  /** Requested effort — sent as what this model accepts (`claudeEffortFor`). */
+  effort?: Effort;
   signal?: AbortSignal;
 }
 
 /** The request fields every call shares; the refusal fallback only where the model has one. */
-function baseParams(params: CommonParams, maxTokens: number) {
+function baseParams(params: CommonParams, info: ModelInfo, maxTokens: number) {
   const serverFallback = SERVER_FALLBACK_MODEL.test(params.model);
   return {
     model: params.model,
-    max_tokens: maxTokens,
+    // Never more than the model can write.
+    max_tokens: info.maxOutput > 0 ? Math.min(maxTokens, info.maxOutput) : maxTokens,
     system: params.system || undefined,
     messages: [{ role: "user" as const, content: params.user }],
     ...(serverFallback ? { betas: [SERVER_FALLBACK_BETA], fallbacks: "default" as const } : {}),
@@ -124,13 +132,17 @@ function assertNotRefused(message: { stop_reason: string | null; stop_details?: 
 /** One JSON answer that follows `schema` (`output_config.format`), parsed by the caller. */
 export async function claudeStructured<T>(params: CommonParams & { schema: Record<string, unknown>; parse: (raw: string) => T }): Promise<T> {
   try {
+    const info = await getModelInfo(params.model);
+    const effort = claudeEffortFor(info, params.effort);
+    const base = baseParams(params, info, STRUCTURED_MAX_TOKENS);
+    // Structured outputs where the model takes them; otherwise the schema goes in the prompt.
+    const format = info.structuredOutputs ? { format: { type: "json_schema" as const, schema: toClaudeSchema(params.schema) as Record<string, unknown> } } : {};
+    const system = info.structuredOutputs ? base.system : `${params.system}\n\nAnswer with one JSON object, nothing else, that follows this JSON schema:\n${JSON.stringify(params.schema)}`;
     const message = await createClaudeClient(params.apiKey).beta.messages.create(
       {
-        ...baseParams(params, STRUCTURED_MAX_TOKENS),
-        output_config: {
-          format: { type: "json_schema", schema: toClaudeSchema(params.schema) as Record<string, unknown> },
-          ...(params.effort ? { effort: params.effort } : {}),
-        },
+        ...base,
+        system,
+        ...(format.format || effort ? { output_config: { ...format, ...(effort ? { effort } : {}) } } : {}),
       },
       { signal: params.signal },
     );
@@ -165,7 +177,9 @@ async function streamText(
   tools: Anthropic.Beta.BetaToolUnion[] | undefined,
 ): Promise<string> {
   const api = createClaudeClient(params.apiKey);
-  const base = baseParams(params, STREAM_MAX_TOKENS);
+  const info = await getModelInfo(params.model);
+  const effort = claudeEffortFor(info, params.effort);
+  const base = baseParams(params, info, STREAM_MAX_TOKENS);
   const messages: Anthropic.Beta.BetaMessageParam[] = [...base.messages];
   let full = "";
   try {
@@ -175,7 +189,7 @@ async function streamText(
           ...base,
           messages,
           ...(tools ? { tools } : {}),
-          ...(params.effort ? { output_config: { effort: params.effort } } : {}),
+          ...(effort ? { output_config: { effort } } : {}),
         },
         { signal: params.signal },
       );
