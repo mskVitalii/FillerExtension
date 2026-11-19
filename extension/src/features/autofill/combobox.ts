@@ -153,7 +153,7 @@ const OPEN_SETTLE_MS = 60;
  * A plain `role="combobox"` widget with no react-select markers only gets
  * the generic mousedown/focus/click on the input itself.
  */
-async function openFlyout(el: HTMLElement): Promise<HTMLElement[]> {
+async function openFlyout(el: HTMLElement, scoped = false): Promise<HTMLElement[]> {
   let options = widgetOptionEls(el, false);
   if (options.length > 0) return options;
 
@@ -183,15 +183,30 @@ async function openFlyout(el: HTMLElement): Promise<HTMLElement[]> {
       el.focus?.();
       mouse(el, "click");
     });
+    // A plain ARIA combobox (Ashby's autocomplete, Downshift) opens its list on ArrowDown, with
+    // no focus event needed — which, with the Side Panel holding focus, `focus()` doesn't fire.
+    steps.push(() => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true, cancelable: true } as KeyboardEventInit));
+    });
   }
 
   for (const step of steps) {
     step();
     await delay(OPEN_SETTLE_MS);
-    options = widgetOptionEls(el, true);
+    options = widgetOptionEls(el, documentScanAllowed(el, scoped));
     if (options.length > 0) return options;
   }
   return [];
+}
+
+/**
+ * Whether a whole-page option scan may stand in for this widget's own list. `scoped` callers
+ * (a combobox with no flyout markers, which may never open at all) only trust one when the
+ * widget itself says it's expanded — otherwise an unrelated listbox elsewhere on the page
+ * would be read as its options.
+ */
+function documentScanAllowed(el: HTMLElement, scoped: boolean): boolean {
+  return !scoped || el.getAttribute("aria-expanded") === "true";
 }
 
 /**
@@ -247,17 +262,38 @@ export async function revealComboboxOptions(el: HTMLElement): Promise<string[] |
   }
 }
 
-const normText = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+/** Lowercased words only: punctuation, accents' case and runs of spaces don't decide a match. */
+const normText = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
-/** The option text that best matches `answer` — exact match preferred, then a substring either way. */
-function bestTextMatch(texts: string[], answer: string): string | null {
+/** `phrase` occurs in `text` as whole words ("linkedin" in "via linkedin", not "other" in "another"). */
+function hasPhrase(text: string, phrase: string): boolean {
+  return phrase.length > 0 && ` ${text} `.includes(` ${phrase} `);
+}
+
+/**
+ * The option text that best matches `answer`: the same words regardless of case, punctuation or
+ * spacing ("LinkedIn" = "Linkedin" = "Linked-in"), else an option named in the answer ("I saw
+ * it on LinkedIn") or an answer that is part of an option ("Referral" → "Employee referral").
+ * Among several partial matches the one closest in length to the answer wins; a bare
+ * substring inside a word never counts.
+ */
+export function bestTextMatch(texts: string[], answer: string): string | null {
   const a = normText(answer);
+  if (!a) return null;
   let best: { text: string; score: number } | null = null;
   for (const text of texts) {
     const norm = normText(text);
     if (!norm) continue;
-    const score = norm === a ? 2 : norm.includes(a) || a.includes(norm) ? 1 : 0;
-    if (score > 0 && score > (best?.score ?? 0)) best = { text, score };
+    let score = 0;
+    if (norm === a || norm.replace(/ /g, "") === a.replace(/ /g, "")) score = 1000;
+    else if (hasPhrase(a, norm) || hasPhrase(norm, a)) score = Math.max(1, 999 - Math.abs(norm.length - a.length));
+    if (score > (best?.score ?? 0)) best = { text, score };
   }
   return best?.text ?? null;
 }
@@ -293,12 +329,14 @@ interface ComboboxPickAttempt {
 async function attemptComboboxPick(
   el: HTMLElement,
   pickOption: (optionTexts: string[]) => string | null,
+  anyCombobox = false,
 ): Promise<ComboboxPickAttempt> {
   if (!isComboboxLike(el)) return { picked: false, menuOpened: false };
-  if (!isFlyoutOnly(el)) return { picked: false, menuOpened: false };
+  const flyoutOnly = isFlyoutOnly(el);
+  if (!flyoutOnly && !anyCombobox) return { picked: false, menuOpened: false };
 
   try {
-    const options = await openFlyout(el);
+    const options = await openFlyout(el, !flyoutOnly);
     if (options.length === 0) return { picked: false, menuOpened: false };
 
     const texts = options.map((opt) => collapse(opt.textContent ?? ""));
@@ -353,12 +391,25 @@ export async function fillComboboxBySearch(
 ): Promise<boolean> {
   if (!(el instanceof HTMLInputElement) || !isComboboxLike(el)) return false;
   if (isFlyoutOnly(el) && (await attemptComboboxPick(el, pickOption)).picked) return true;
+  return searchAndPick(el, query, pickOption, timeoutMs, false);
+}
 
+/**
+ * Types `query` (no blur), waits for the widget's result rows and clicks the one `pickOption`
+ * chooses; clears the typed text again when none suits. `scoped`: see `documentScanAllowed`.
+ */
+async function searchAndPick(
+  el: HTMLInputElement,
+  query: string,
+  pickOption: (optionTexts: string[]) => string | null,
+  timeoutMs: number,
+  scoped: boolean,
+): Promise<boolean> {
   try {
     typeSearchText(el, query);
     for (let waited = 0; waited <= timeoutMs; waited += SEARCH_POLL_MS) {
       await delay(waited === 0 ? 0 : SEARCH_POLL_MS);
-      const options = widgetOptionEls(el, true);
+      const options = widgetOptionEls(el, documentScanAllowed(el, scoped));
       if (options.length === 0) continue;
       const texts = options.map((opt) => collapse(opt.textContent ?? ""));
       const chosen = pickOption(texts);
@@ -374,13 +425,23 @@ export async function fillComboboxBySearch(
   }
 }
 
+const ANSWER_SEARCH_TIMEOUT_MS = 1200;
+
 /**
  * Fills a `role="combobox"`-shaped field's AI-generated answer the way its
- * own widget actually expects: clicking a matching `[role="option"]` row for
- * a flyout-driven react-select-style dropdown (`attemptComboboxPick`),
- * falling back to `fillElement`'s type-into-trigger behavior for every other
- * shape — including a flyout that opened but had no option matching the
- * answer, or an ordinary field this module has nothing special to do with.
+ * own widget actually expects: by clicking the `[role="option"]` row that
+ * matches it (`bestTextMatch`).
+ *
+ * 1. Open the widget and pick from its full list (`attemptComboboxPick`) —
+ *    a react-select or toggle-button flyout, and also a plain ARIA
+ *    combobox such as Ashby's autocomplete, which opens on ArrowDown.
+ * 2. A typeahead whose rows only appear for a search term: type the answer,
+ *    wait for the widget's own rows and click the match. Typed text alone is
+ *    never a selection there — Ashby discards it on blur, which is how "How
+ *    did you find out about this position?" used to end up empty although
+ *    "Linkedin" was on the list.
+ * 3. Only then fall back to `fillElement`'s plain typing, for a combobox
+ *    that does accept free text.
  *
  * Never falls back to typing into a react-select, nor into any flyout-only
  * widget whose menu never opened: the typed text would sit in the search
@@ -391,10 +452,14 @@ export async function fillComboboxBySearch(
  * typing fallback — some of those do accept free text once open.
  */
 export async function fillComboboxAnswer(el: HTMLElement, answer: string): Promise<boolean> {
-  const attempt = await attemptComboboxPick(el, (texts) => bestTextMatch(texts, answer));
+  const pick = (texts: string[]) => bestTextMatch(texts, answer);
+  const attempt = await attemptComboboxPick(el, pick, true);
   if (attempt.picked) return true;
   // A react-select that opened but had no matching row doesn't accept free text either.
   if (isComboboxLike(el) && isReactSelectLike(el)) return false;
   if (!attempt.menuOpened && isComboboxLike(el) && isFlyoutOnly(el)) return false;
+  if (el instanceof HTMLInputElement && isComboboxLike(el) && !isFlyoutOnly(el)) {
+    if (await searchAndPick(el, answer, pick, ANSWER_SEARCH_TIMEOUT_MS, true)) return true;
+  }
   return fillElement(el, answer);
 }
