@@ -103,6 +103,7 @@ export const de: Record<MessageKey, string> = {
   "apps.uniqueUrls": "eindeutige URLs",
   "busy.adaptingCv": "Angepasster Lebenslauf wird vorbereitet…",
   "busy.answering": "Bewerbungsfragen werden beantwortet…",
+  "busy.scanning": "Stellenanzeige wird gelesen…",
   "busy.autofilling": "Formular wird ausgefüllt…",
   "busy.generating": "Anschreiben wird erstellt…",
   "busy.improving": "Anschreiben wird verbessert…",

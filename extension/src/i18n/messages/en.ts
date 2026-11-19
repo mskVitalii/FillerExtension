@@ -101,6 +101,7 @@ export const en = {
   "apps.uniqueUrls": "unique URLs",
   "busy.adaptingCv": "Preparing the adapted CV…",
   "busy.answering": "Answering application questions…",
+  "busy.scanning": "Reading the job posting…",
   "busy.autofilling": "Filling in the form…",
   "busy.generating": "Generating the cover letter…",
   "busy.improving": "Improving the cover letter…",

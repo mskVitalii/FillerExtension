@@ -1692,6 +1692,8 @@ export function MainView({
             : null;
   const locked = busyTask !== null;
   const lockedTitle = locked ? t("busy.wait", { task: busyTask }) : undefined;
+  // Both also wait for the page scan (extraction, AI completion, brief): a letter or CV built from a
+  // half-read posting would miss the company or the requirements.
   // The cover letter and the adapted CV don't touch each other, so they run side by side: writing the
   // draft doesn't lock the adapted-CV buttons and adapting the CV doesn't lock the draft's.
   const draftBusyTask = generating
@@ -1702,7 +1704,9 @@ export function MainView({
         ? t("busy.autofilling")
         : answeringAllQuestions
           ? t("busy.answering")
-          : null;
+          : isAnalyzingJob
+            ? t("busy.scanning")
+            : null;
   const draftLocked = draftBusyTask !== null;
   const draftLockedTitle = draftLocked ? t("busy.wait", { task: draftBusyTask }) : undefined;
   const cvBusyTask = adaptingCv
@@ -1711,7 +1715,9 @@ export function MainView({
       ? t("busy.autofilling")
       : answeringAllQuestions
         ? t("busy.answering")
-        : null;
+        : isAnalyzingJob
+          ? t("busy.scanning")
+          : null;
   const cvLocked = cvBusyTask !== null;
   const cvLockedTitle = cvLocked ? t("busy.wait", { task: cvBusyTask }) : undefined;
   const cvChoice = useCvChoice({

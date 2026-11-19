@@ -103,6 +103,7 @@ export const ru: Record<MessageKey, string> = {
   "apps.uniqueUrls": "уникальных URL",
   "busy.adaptingCv": "Подготовка адаптированного CV…",
   "busy.answering": "Ответы на вопросы заявки…",
+  "busy.scanning": "Читаю вакансию…",
   "busy.autofilling": "Заполнение формы…",
   "busy.generating": "Генерация сопроводительного письма…",
   "busy.improving": "Улучшение сопроводительного письма…",
