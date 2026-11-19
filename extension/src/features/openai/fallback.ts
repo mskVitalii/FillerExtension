@@ -90,7 +90,8 @@ export function describeFailure(err: unknown): string {
   return "OpenAI error";
 }
 
-async function announce(notice: FallbackNotice): Promise<void> {
+/** Tells listeners, the console and the Side Panel that `notice.model` answered instead of OpenAI. */
+export async function announceAiFallback(notice: FallbackNotice): Promise<void> {
   console.warn(`[Filler] ${notice.label ? `${notice.label}: ` : ""}answered by ${notice.model} (${notice.reason}).`);
   for (const listener of listeners) {
     try {
@@ -128,7 +129,7 @@ export async function withClaudeFallback<T>(options: {
   } catch (err) {
     if (!usable || !shouldFallBack(settings.policy, err) || (options.canFallBack && !options.canFallBack())) throw err;
     const result = await options.claude(settings.apiKey, model);
-    void announce({ at: new Date().toISOString(), model, reason: describeFailure(err), label: options.label }).catch(() => {});
+    void announceAiFallback({ at: new Date().toISOString(), model, reason: describeFailure(err), label: options.label }).catch(() => {});
     return result;
   }
 }

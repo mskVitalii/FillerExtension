@@ -27,6 +27,9 @@ const { readOptionAnswer, readCheckboxDecision } = await import("@/features/open
 const { decidePageContent } = await import("@/features/openai/decide-page-content");
 const { answerCustomQuestion } = await import("@/features/openai/answer-question");
 const { chooseCvWithAi } = await import("@/features/openai/choose-cv");
+const { retryRuntime } = await import("@/features/openai/retry");
+// A 5xx from Decisions is retried with back-off now; don't wait for real in these tests.
+retryRuntime.sleep = async () => {};
 
 const JOB: Job = {
   company: "Acme",

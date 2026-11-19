@@ -39,7 +39,8 @@ export function isClaudeModel(id: string): boolean {
   return /^claude-[a-z]+-\d/.test(id);
 }
 
-function client(apiKey: string): Anthropic {
+/** The SDK client every Claude call uses — also the agent's tool loop (FillerAgent `openai/responses.ts`). */
+export function createClaudeClient(apiKey: string): Anthropic {
   return new Anthropic({
     apiKey,
     dangerouslyAllowBrowser: true,
@@ -123,7 +124,7 @@ function assertNotRefused(message: { stop_reason: string | null; stop_details?: 
 /** One JSON answer that follows `schema` (`output_config.format`), parsed by the caller. */
 export async function claudeStructured<T>(params: CommonParams & { schema: Record<string, unknown>; parse: (raw: string) => T }): Promise<T> {
   try {
-    const message = await client(params.apiKey).beta.messages.create(
+    const message = await createClaudeClient(params.apiKey).beta.messages.create(
       {
         ...baseParams(params, STRUCTURED_MAX_TOKENS),
         output_config: {
@@ -163,7 +164,7 @@ async function streamText(
   params: CommonParams & { onDelta: (delta: string) => void; onChunk?: () => void },
   tools: Anthropic.Beta.BetaToolUnion[] | undefined,
 ): Promise<string> {
-  const api = client(params.apiKey);
+  const api = createClaudeClient(params.apiKey);
   const base = baseParams(params, STREAM_MAX_TOKENS);
   const messages: Anthropic.Beta.BetaMessageParam[] = [...base.messages];
   let full = "";
