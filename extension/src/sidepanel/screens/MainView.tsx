@@ -1690,8 +1690,18 @@ export function MainView({
           : answeringAllQuestions
             ? t("busy.answering")
             : null;
-  const locked = busyTask !== null;
-  const lockedTitle = locked ? t("busy.wait", { task: busyTask }) : undefined;
+  // The draft's own work shows in the cover letter block at the end; the banner at the top only names
+  // the rest, so starting or streaming a letter doesn't push the panel down.
+  const bannerTask = generating || improving ? null : busyTask;
+  // Every action also waits for the page scan: acting on a half-read posting would fill, answer or
+  // record with the wrong company, title or requirements. Only navigation stays open meanwhile.
+  const scanTitle = isAnalyzingJob ? t("busy.wait", { task: t("busy.scanning") }) : undefined;
+  const actionBusyTask = busyTask ?? (isAnalyzingJob ? t("busy.scanning") : null);
+  const locked = actionBusyTask !== null;
+  const lockedTitle = locked ? t("busy.wait", { task: actionBusyTask }) : undefined;
+  // Opened by "Generate cover letter" (or a resumed background run), closed again only by a different
+  // posting or Reset, both of which clear `coverLetter`.
+  const coverLetterOpen = generating || Boolean(coverLetter);
   // Both also wait for the page scan (extraction, AI completion, brief): a letter or CV built from a
   // half-read posting would miss the company or the requirements.
   // The cover letter and the adapted CV don't touch each other, so they run side by side: writing the
@@ -1759,17 +1769,17 @@ export function MainView({
         </div>
       </div>
 
-      {busyTask && (
+      {bannerTask && (
         <p
           role="status"
           className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-xs font-medium text-primary"
         >
           <Loader2 className="size-3 shrink-0 animate-spin" />
-          {busyTask}
+          {bannerTask}
         </p>
       )}
 
-      {isAnalyzingJob && !busyTask && (
+      {isAnalyzingJob && !bannerTask && (
         <p className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           <Loader2 className="size-3 shrink-0 animate-spin" />
           {loadingJob
@@ -1990,7 +2000,12 @@ export function MainView({
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
               />
-              <Button size="sm" onClick={handleExtractFromPastedText} disabled={pasting || !pasteText.trim()}>
+              <Button
+                size="sm"
+                onClick={handleExtractFromPastedText}
+                disabled={pasting || isAnalyzingJob || !pasteText.trim()}
+                title={scanTitle}
+              >
                 {pasting ? t("main.reading") : t("main.useThisText")}
               </Button>
             </div>
@@ -2000,25 +2015,16 @@ export function MainView({
 
       {/* flex-wrap + flex-auto: a third button that doesn't fit drops to its own full-width row. */}
       <div className="flex flex-wrap gap-2">
-        {setupComplete && (
-          // Once clicked for this posting it turns white and stays disabled: "Regenerate" under the
-          // draft is the way to get another one. A different posting clears `coverLetter`, which re-arms it.
+        {setupComplete && !coverLetterOpen && (
+          // Once clicked it gives way to the cover letter block at the end of the panel, where
+          // "Regenerate" gets another one. A different posting clears `coverLetter`, which brings it back.
           <Button
             className="flex-auto"
-            variant={generating || coverLetter ? "outline" : "default"}
             onClick={handleGenerate}
-            disabled={draftLocked || Boolean(coverLetter) || !job.position}
-            title={generating ? undefined : draftLockedTitle}
+            disabled={draftLocked || !job.position}
+            title={draftLockedTitle}
           >
-            {generating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> {t("common.generating")}
-              </>
-            ) : coverLetter ? (
-              t("main.coverLetterGenerated")
-            ) : (
-              t("main.generateCoverLetter")
-            )}
+            {t("main.generateCoverLetter")}
           </Button>
         )}
         <Button className="flex-auto" onClick={() => void runAutofill(setupComplete)} disabled={locked} title={lockedTitle}>
@@ -2036,18 +2042,25 @@ export function MainView({
         <MarkAppliedButton
           application={existingApplication}
           suggested={Boolean(coverLetter) && !generating}
-          busy={markingApplied || locked}
+          busy={markingApplied}
+          disabled={locked}
+          title={lockedTitle}
           onMark={() => void handleMarkApplied()}
         />
       )}
 
-      <AgentApplyButton job={job} url={tabUrl} />
+      {/* `display: contents` keeps the layout as if the fieldset weren't there; `disabled` still
+          reaches every button inside, so the agent hand-over waits for the scan like the rest. */}
+      <fieldset disabled={isAnalyzingJob} title={scanTitle} className="contents">
+        <AgentApplyButton job={job} url={tabUrl} />
+      </fieldset>
 
       {setupComplete && job.contact && (
         <Button
           variant="outline"
           onClick={() => void handleGenerateOutreach()}
-          disabled={generatingOutreach}
+          disabled={generatingOutreach || isAnalyzingJob}
+          title={scanTitle}
         >
           <Mail className="h-4 w-4" />
           {generatingOutreach ? t("main.drafting") : t("main.generateOutreach")}
@@ -2063,7 +2076,13 @@ export function MainView({
               <Button size="sm" variant="ghost" onClick={() => void handleCopyOutreachMessage()}>
                 {outreachCopied ? t("common.copied") : t("common.copy")}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => void handleGenerateOutreach()} disabled={generatingOutreach}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void handleGenerateOutreach()}
+                disabled={generatingOutreach || isAnalyzingJob}
+                title={scanTitle}
+              >
                 {generatingOutreach ? t("main.drafting") : t("common.regenerate")}
               </Button>
               {job.contact && (
@@ -2118,7 +2137,8 @@ export function MainView({
             <Button
               size="sm"
               onClick={() => void handleImproveOutreach()}
-              disabled={improvingOutreach || !outreachImproveInstructions.trim()}
+              disabled={improvingOutreach || isAnalyzingJob || !outreachImproveInstructions.trim()}
+              title={scanTitle}
             >
               {improvingOutreach ? t("main.improving") : t("common.apply")}
             </Button>
@@ -2134,152 +2154,6 @@ export function MainView({
         </p>
       )}
       {autofillStatus && <p className="text-xs text-muted-foreground">{autofillStatus}</p>}
-
-      {coverLetter && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <DraggableValue value={coverLetter} onDragStart={handleCoverLetterDragStart}>
-              <p className="text-sm font-medium">{t("main.coverLetter")}</p>
-            </DraggableValue>
-            <span className="text-xs text-muted-foreground">
-              {driveSaveStatus === "saving" && t("main.savingToDrive")}
-              {driveSaveStatus === "saved" && t("main.savedToDrive")}
-              {driveSaveStatus === "error" && t("main.driveSaveFailed")}
-            </span>
-          </div>
-
-          <div className="flex gap-1 border-b border-border text-sm">
-            <button
-              onClick={() => setCoverLetterTab("draft")}
-              className={cn(
-                "px-2 py-1 -mb-px border-b-2",
-                coverLetterTab === "draft" ? "border-primary font-medium" : "border-transparent text-muted-foreground",
-              )}
-            >
-              {t("main.draft")}
-            </button>
-            <button
-              onClick={() => setCoverLetterTab("translate")}
-              className={cn(
-                "px-2 py-1 -mb-px border-b-2",
-                coverLetterTab === "translate"
-                  ? "border-primary font-medium"
-                  : "border-transparent text-muted-foreground",
-              )}
-            >
-              {t("main.translate")}{translatingLanguages.size > 0 && "…"}
-            </button>
-          </div>
-
-          {coverLetterTab === "draft" ? (
-            <>
-              <p className="text-xs text-muted-foreground">
-                <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragCoverLetter")}
-              </p>
-              {cleanedNotice && <p className="text-xs text-muted-foreground">{cleanedNotice}</p>}
-              <Suspense fallback={<EditorFallback />}>
-                <CoverLetterEditor content={coverLetter} onChange={handleCoverLetterChange} />
-              </Suspense>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={draftLocked} title={draftLockedTitle}>
-                  {generating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {t("common.regenerate")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleExportPdf(coverLetter)}
-                  disabled={generating || improving || !coverLetter}
-                >
-                  {t("main.exportPdf")}
-                </Button>
-              </div>
-              <div className="flex flex-col gap-1.5 rounded-md border border-border p-2">
-                <p className="text-xs font-medium">{t("main.improve")}</p>
-                <textarea
-                  className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
-                  placeholder={t("main.improvePlaceholder")}
-                  value={improveInstructions}
-                  onChange={(e) => setImproveInstructions(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleImprove}
-                  disabled={draftLocked || !improveInstructions.trim()}
-                  title={improving ? undefined : draftLockedTitle}
-                >
-                  {improving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {improving ? t("main.improving") : t("common.apply")}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {targetLanguages.length > 1 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {targetLanguages.map((language) => (
-                    <button
-                      key={language}
-                      onClick={() => setActiveTranslationLanguage(language)}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        language === effectiveActiveLanguage
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {language}
-                      {translatingLanguages.has(language) && "…"}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {t("main.translateHint")}
-              </p>
-              <Select value={translateLanguage} onChange={(e) => void handleTranslateLanguageChange(e.target.value)}>
-                {LANGUAGES.map((language) => (
-                  <option key={language} value={language}>
-                    {language}
-                  </option>
-                ))}
-              </Select>
-              {translations[effectiveActiveLanguage] ? (
-                <>
-                  <DraggableValue value={translations[effectiveActiveLanguage]}>
-                    <p className="text-xs text-muted-foreground">{t("main.dragAsText")}</p>
-                  </DraggableValue>
-                  <Suspense fallback={<EditorFallback />}>
-                    <CoverLetterEditor
-                      content={translations[effectiveActiveLanguage]}
-                      onChange={(text) =>
-                        setTranslations((prev) => ({ ...prev, [effectiveActiveLanguage]: text }))
-                      }
-                    />
-                  </Suspense>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      void handleExportPdf(translations[effectiveActiveLanguage], effectiveActiveLanguage)
-                    }
-                    disabled={generating || translatingLanguages.has(effectiveActiveLanguage)}
-                  >
-                    {t("main.exportPdf")}
-                  </Button>
-                </>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  {translatingLanguages.has(effectiveActiveLanguage)
-                    ? t("main.translating")
-                    : t("main.translationSoon")}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {setupComplete && (
         <div>
@@ -2382,7 +2256,8 @@ export function MainView({
               size="sm"
               variant="outline"
               onClick={() => void handleAddManualQuestion()}
-              disabled={addingManualQuestion || !manualQuestionText.trim()}
+              disabled={addingManualQuestion || isAnalyzingJob || !manualQuestionText.trim()}
+              title={scanTitle}
             >
               {t("common.add")}
             </Button>
@@ -2466,33 +2341,21 @@ export function MainView({
         )}
       </div>
 
-      {(cvMeta || coverLetter) && (
+      {cvMeta && (
         <div>
           <p className="text-sm font-medium">{t("main.attachments")}</p>
           <p className="text-xs text-muted-foreground">
             <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragAttachments")}
           </p>
           <div className="mt-1.5 flex gap-2">
-            {cvMeta && (
-              <AttachmentIcon
-                label={t("main.cv")}
-                ready={cvFileReady && !cvLocked}
-                onDragStart={handleCvDragStart}
-                onActivate={() => {
-                  if (!cvLocked) void handleAttachCvToPage();
-                }}
-              />
-            )}
-            {coverLetter && (
-              <AttachmentIcon
-                label={t("main.coverLetter")}
-                ready={coverLetterFileReady && !locked}
-                onDragStart={handleCoverLetterDragStart}
-                onActivate={() => {
-                  if (!locked) void handleUploadCoverLetterToPage();
-                }}
-              />
-            )}
+            <AttachmentIcon
+              label={t("main.cv")}
+              ready={cvFileReady && !cvLocked}
+              onDragStart={handleCvDragStart}
+              onActivate={() => {
+                if (!cvLocked) void handleAttachCvToPage();
+              }}
+            />
           </div>
           {adaptTemplate && (
             <div className="mt-2 flex flex-col gap-1">
@@ -2506,7 +2369,12 @@ export function MainView({
                 <Button size="sm" variant="ghost" disabled={cvLocked} title={cvLockedTitle} onClick={() => void handleAdaptedCv("download")}>
                   <Download className="h-3.5 w-3.5" /> {t("main.exportAdaptedCv")}
                 </Button>
-                <button onClick={onOpenCvAdapt} className="text-xs text-muted-foreground underline underline-offset-2">
+                <button
+                  onClick={onOpenCvAdapt}
+                  disabled={cvLocked}
+                  title={cvLockedTitle}
+                  className="text-xs text-muted-foreground underline underline-offset-2 disabled:opacity-50"
+                >
                   {t("main.adjust")}
                 </button>
               </div>
@@ -2516,6 +2384,186 @@ export function MainView({
         </div>
       )}
 
+      {/* Last on purpose: it grows while the letter streams in, and nothing the user still acts on
+          (Autofill, Adapt CV, the adapted CV) should move under the cursor meanwhile. The border is
+          the text colour, so it stays high-contrast whichever theme the panel is drawn in. */}
+      {coverLetterOpen && (
+        <section
+          aria-label={t("main.coverLetter")}
+          aria-busy={generating || improving}
+          className="flex flex-col gap-2 rounded-md border-2 border-foreground p-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <DraggableValue value={coverLetter} onDragStart={handleCoverLetterDragStart}>
+              <p className="text-sm font-medium">{t("main.coverLetter")}</p>
+            </DraggableValue>
+            <span className="flex min-w-0 items-center gap-1 text-right text-xs text-muted-foreground">
+              {(generating || improving) && (
+                <>
+                  <Loader2 className="size-3 shrink-0 animate-spin" />
+                  {generating ? t("common.generating") : t("main.improving")}
+                </>
+              )}
+              {!generating && !improving && driveSaveStatus === "saving" && t("main.savingToDrive")}
+              {!generating && !improving && driveSaveStatus === "saved" && t("main.savedToDrive")}
+              {!generating && !improving && driveSaveStatus === "error" && t("main.driveSaveFailed")}
+            </span>
+          </div>
+
+          <div className="flex gap-1 border-b border-border text-sm">
+            <button
+              onClick={() => setCoverLetterTab("draft")}
+              className={cn(
+                "px-2 py-1 -mb-px border-b-2",
+                coverLetterTab === "draft" ? "border-primary font-medium" : "border-transparent text-muted-foreground",
+              )}
+            >
+              {t("main.draft")}
+            </button>
+            <button
+              onClick={() => setCoverLetterTab("translate")}
+              className={cn(
+                "px-2 py-1 -mb-px border-b-2",
+                coverLetterTab === "translate"
+                  ? "border-primary font-medium"
+                  : "border-transparent text-muted-foreground",
+              )}
+            >
+              {t("main.translate")}{translatingLanguages.size > 0 && "…"}
+            </button>
+          </div>
+
+          {coverLetterTab === "draft" ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                <GripVertical className="mb-0.5 inline h-3 w-3" /> {t("main.dragCoverLetter")}
+              </p>
+              {cleanedNotice && <p className="text-xs text-muted-foreground">{cleanedNotice}</p>}
+              {coverLetter ? (
+                <Suspense fallback={<EditorFallback />}>
+                  <CoverLetterEditor content={coverLetter} onChange={handleCoverLetterChange} />
+                </Suspense>
+              ) : (
+                // Holds the editor's height before the first words arrive, so the block opens at its size.
+                <div className="flex min-h-[222px] items-start gap-1.5 rounded-md border border-border p-3 text-sm text-muted-foreground">
+                  <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+                  {t("busy.generating")}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={draftLocked} title={draftLockedTitle}>
+                  {generating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t("common.regenerate")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleExportPdf(coverLetter)}
+                  disabled={draftLocked || !coverLetter}
+                  title={draftLockedTitle}
+                >
+                  {t("main.exportPdf")}
+                </Button>
+              </div>
+              {coverLetter && !generating && (
+                <div className="flex">
+                  <AttachmentIcon
+                    label={t("main.coverLetter")}
+                    ready={coverLetterFileReady && !locked}
+                    onDragStart={handleCoverLetterDragStart}
+                    onActivate={() => {
+                      if (!locked) void handleUploadCoverLetterToPage();
+                    }}
+                  />
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5 rounded-md border border-border p-2">
+                <p className="text-xs font-medium">{t("main.improve")}</p>
+                <textarea
+                  className="min-h-16 rounded-md border border-border bg-background p-2 text-sm outline-none"
+                  placeholder={t("main.improvePlaceholder")}
+                  value={improveInstructions}
+                  onChange={(e) => setImproveInstructions(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleImprove}
+                  disabled={draftLocked || !improveInstructions.trim()}
+                  title={improving ? undefined : draftLockedTitle}
+                >
+                  {improving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {improving ? t("main.improving") : t("common.apply")}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {targetLanguages.length > 1 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {targetLanguages.map((language) => (
+                    <button
+                      key={language}
+                      onClick={() => setActiveTranslationLanguage(language)}
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
+                        language === effectiveActiveLanguage
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {language}
+                      {translatingLanguages.has(language) && "…"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t("main.translateHint")}
+              </p>
+              <Select value={translateLanguage} onChange={(e) => void handleTranslateLanguageChange(e.target.value)}>
+                {LANGUAGES.map((language) => (
+                  <option key={language} value={language}>
+                    {language}
+                  </option>
+                ))}
+              </Select>
+              {translations[effectiveActiveLanguage] ? (
+                <>
+                  <DraggableValue value={translations[effectiveActiveLanguage]}>
+                    <p className="text-xs text-muted-foreground">{t("main.dragAsText")}</p>
+                  </DraggableValue>
+                  <Suspense fallback={<EditorFallback />}>
+                    <CoverLetterEditor
+                      content={translations[effectiveActiveLanguage]}
+                      onChange={(text) =>
+                        setTranslations((prev) => ({ ...prev, [effectiveActiveLanguage]: text }))
+                      }
+                    />
+                  </Suspense>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void handleExportPdf(translations[effectiveActiveLanguage], effectiveActiveLanguage)
+                    }
+                    disabled={draftLocked || translatingLanguages.has(effectiveActiveLanguage)}
+                    title={draftLockedTitle}
+                  >
+                    {t("main.exportPdf")}
+                  </Button>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {translatingLanguages.has(effectiveActiveLanguage)
+                    ? t("main.translating")
+                    : t("main.translationSoon")}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -2629,11 +2677,17 @@ function EditableField({
 function MarkAppliedButton({
   application,
   busy,
+  disabled,
+  title,
   suggested,
   onMark,
 }: {
   application: Application | null;
+  /** The mark itself is being saved: shows a spinner. */
   busy: boolean;
+  /** Something else runs (or the page is still being read): greyed out, `title` says why. */
+  disabled: boolean;
+  title?: string;
   /** A cover letter is ready — applying is the likely next step, so the button is drawn filled. */
   suggested: boolean;
   onMark: () => void;
@@ -2648,7 +2702,7 @@ function MarkAppliedButton({
     );
   }
   return (
-    <Button variant={suggested ? "default" : "outline"} className="w-full" onClick={onMark} disabled={busy}>
+    <Button variant={suggested ? "default" : "outline"} className="w-full" onClick={onMark} disabled={busy || disabled} title={busy ? undefined : title}>
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
       {t("main.markApplied")}
     </Button>

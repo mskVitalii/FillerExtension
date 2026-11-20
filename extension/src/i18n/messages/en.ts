@@ -184,7 +184,6 @@ export const en = {
   "main.completingJob": "Filling in missing job details…",
   "main.convertingDocx": "Converting to PDF via Google Docs…",
   "main.coverLetter": "Cover Letter",
-  "main.coverLetterGenerated": "Cover Letter Generated",
   "main.coverLetterPlaced": "Cover letter placed into {inputs} file input(s), {zones} drop zone(s).",
   "main.customFields": "Custom Fields",
   "main.cv": "CV",

@@ -186,7 +186,6 @@ export const de: Record<MessageKey, string> = {
   "main.completingJob": "Fehlende Angaben zur Stelle werden ergänzt…",
   "main.convertingDocx": "Umwandlung in PDF über Google Docs…",
   "main.coverLetter": "Anschreiben",
-  "main.coverLetterGenerated": "Anschreiben erstellt",
   "main.coverLetterPlaced": "Anschreiben in {inputs} Datei-Eingabe(n) und {zones} Ablagebereich(e) eingefügt.",
   "main.customFields": "Eigene Felder",
   "main.cv": "Lebenslauf",

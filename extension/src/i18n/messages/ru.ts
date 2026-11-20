@@ -186,7 +186,6 @@ export const ru: Record<MessageKey, string> = {
   "main.completingJob": "Дополнение недостающих данных вакансии…",
   "main.convertingDocx": "Конвертация в PDF через Google Docs…",
   "main.coverLetter": "Сопроводительное письмо",
-  "main.coverLetterGenerated": "Сопроводительное письмо готово",
   "main.coverLetterPlaced": "Сопроводительное письмо добавлено: полей загрузки файла — {inputs}, зон перетаскивания — {zones}.",
   "main.customFields": "Свои поля",
   "main.cv": "CV",
