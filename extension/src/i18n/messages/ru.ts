@@ -444,4 +444,9 @@ export const ru: Record<MessageKey, string> = {
   "fallback.modelSupport": "Модель Claude для вспомогательных задач",
   "fallback.needsKey": "Без ключа Anthropic Claude не используется.",
   "fallback.notice": "OpenAI не ответил ({reason}) — ответил {model}.",
+  "quota.title": "На аккаунте OpenAI закончились кредиты",
+  "quota.steps": "Откройте страницу оплаты OpenAI, войдите в аккаунт, которому принадлежит API-ключ, и нажмите \"Add to credit balance\" (можно включить автопополнение). После оплаты запросы могут заработать только через несколько минут.",
+  "quota.open": "Открыть оплату OpenAI",
+  "quota.fallbackOff": "У вас сохранён ключ Anthropic: включите «{fallback}» в настройках, и пока ответит Claude.",
+  "quota.details": "OpenAI: {detail}",
 };

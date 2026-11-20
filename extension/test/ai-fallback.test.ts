@@ -9,13 +9,14 @@ vi.mock("@/features/storage/local", () => ({
 }));
 vi.mock("@/features/storage/sync", () => ({ getPreferences: async () => ({ ...prefs }) }));
 
-const { requestStructured, requestTextStream } = await import("@/features/openai/client");
+const { requestStructured, requestTextStream, OpenAiQuotaError } = await import("@/features/openai/client");
 const { requestDecisions } = await import("@/features/openai/decisions");
 const { onAiFallback } = await import("@/features/openai/fallback");
 const { toClaudeSchema } = await import("@/features/openai/anthropic");
 const { retryRuntime } = await import("@/features/openai/retry");
 
 const OPENAI_OK = { output: [{ type: "message", content: [{ type: "output_text", text: '{"ok":"openai"}' }] }] };
+const QUOTA = JSON.stringify({ error: { code: "credit_balance_exhausted", message: "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.", param: null, type: "insufficient_quota" } }, null, 2);
 const OVERLOADED = '{"error":{"message":"Our servers are currently overloaded.","type":"service_unavailable_error","code":"server_is_overloaded"}}';
 
 function claudeMessage(text: string, model = "claude-haiku-5-5") {
@@ -140,6 +141,35 @@ describe("Claude fallback", () => {
 
     prefs.aiFallbackPolicy = "any";
     expect(await structured()).toEqual({ ok: "claude" });
+  });
+
+  it("never retries a 429 that says the account is out of credits, and still falls back to Claude", async () => {
+    openaiRoute = () => new Response(QUOTA, { status: 429 });
+    const notices: { reason: string }[] = [];
+    const off = onAiFallback((n) => notices.push(n));
+    expect(await structured()).toEqual({ ok: "claude" });
+    off();
+    expect(openaiCalls()).toHaveLength(1);
+    expect(notices).toEqual([expect.objectContaining({ reason: "OpenAI out of credits" })]);
+  });
+
+  it("throws a typed OpenAiQuotaError with OpenAI's own message when nothing can fall back", async () => {
+    prefs.aiFallbackPolicy = "off";
+    openaiRoute = () => new Response(QUOTA, { status: 429 });
+    const err = await structured().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OpenAiQuotaError);
+    expect((err as InstanceType<typeof OpenAiQuotaError>).detail).toMatch(/^You have no credits remaining\./);
+    expect((err as Error).message).toMatch(/insufficient_quota/);
+    expect(openaiCalls()).toHaveLength(1);
+    expect(claudeCalls()).toHaveLength(0);
+  });
+
+  it("still retries an ordinary rate-limit 429", async () => {
+    prefs.aiFallbackPolicy = "off";
+    let n = 0;
+    openaiRoute = () => (++n < 2 ? new Response('{"error":{"type":"requests","code":"rate_limit_exceeded","message":"Rate limit reached"}}', { status: 429 }) : json(OPENAI_OK));
+    expect(await structured()).toEqual({ ok: "openai" });
+    expect(openaiCalls()).toHaveLength(2);
   });
 
   it("'any' also covers a missing OpenAI key", async () => {

@@ -1,6 +1,7 @@
 import { getOpenAiApiKey } from "@/features/storage/local";
 import { claudeStructured } from "./anthropic";
 import { MODEL_LUNA, MissingApiKeyError, OpenAiError, OpenAiNetworkError } from "./client";
+import { openAiHttpError } from "./errors";
 import { withClaudeFallback } from "./fallback";
 import { fetchWithRetry, isAbortError } from "./retry";
 
@@ -127,7 +128,7 @@ async function requestOpenAiDecisions(request: DecisionRequest): Promise<Decisio
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
-        throw new OpenAiError(`OpenAI decisions request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+        throw openAiHttpError("OpenAI decisions request", res.status, body);
       }
       const data = (await res.json()) as { answers?: DecisionAnswer[] };
       if (!Array.isArray(data.answers)) throw new OpenAiError("OpenAI decisions response had no answers.");

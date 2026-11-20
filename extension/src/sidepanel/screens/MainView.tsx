@@ -68,6 +68,7 @@ import { generatePassword } from "@/lib/generate-password";
 import { cn } from "@/lib/utils";
 import { isEmailAddress } from "@/lib/email";
 import { AgentApplyButton } from "@/components/AgentApplyButton";
+import { AiErrorMessage } from "@/components/AiErrorMessage";
 
 /**
  * Toggles "Pick fields on page" from the keyboard while the Side Panel is
@@ -1809,7 +1810,7 @@ export function MainView({
       <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
       {toolbarPinned === false && <PinHint />}
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <AiErrorMessage text={error} />}
 
       {existingApplication && (
         <p className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
@@ -2066,7 +2067,7 @@ export function MainView({
           {generatingOutreach ? t("main.drafting") : t("main.generateOutreach")}
         </Button>
       )}
-      {outreachError && <p className="text-xs text-destructive">{outreachError}</p>}
+      {outreachError && <AiErrorMessage text={outreachError} />}
 
       {outreachMessage && (
         <div className="flex flex-col overflow-hidden rounded-md border border-border">
@@ -2153,7 +2154,7 @@ export function MainView({
           </button>
         </p>
       )}
-      {autofillStatus && <p className="text-xs text-muted-foreground">{autofillStatus}</p>}
+      {autofillStatus && <AiErrorMessage text={autofillStatus} className="text-xs text-muted-foreground" />}
 
       {setupComplete && (
         <div>
@@ -2378,7 +2379,7 @@ export function MainView({
                   {t("main.adjust")}
                 </button>
               </div>
-              {adaptStatus && <p className="text-xs text-muted-foreground">{adaptStatus}</p>}
+              {adaptStatus && <AiErrorMessage text={adaptStatus} className="text-xs text-muted-foreground" />}
             </div>
           )}
         </div>

@@ -2,11 +2,11 @@ import { getOpenAiApiKey } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
 import { claudeStructured, claudeTextStream, claudeWebSearchStream } from "./anthropic";
 import { effortFor, getModelInfo, isOpenAiTextModel } from "./model-catalog";
-import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
+import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiQuotaError, OpenAiTimeoutError, isQuotaExhaustedText, openAiHttpError } from "./errors";
 import { withClaudeFallback, type AiTier } from "./fallback";
 import { fetchWithRetry, isAbortError } from "./retry";
 
-export { ClaudeError, MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
+export { ClaudeError, MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiQuotaError, OpenAiTimeoutError } from "./errors";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MODELS_URL = "https://api.openai.com/v1/models";
@@ -283,7 +283,7 @@ async function requestStructuredOnce<T>(request: JsonSchemaRequest<T>, apiKey: s
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new OpenAiError(`OpenAI request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+    throw openAiHttpError("OpenAI request", res.status, body);
   }
 
   const data = (await res.json()) as ResponsesApiOutput;
@@ -298,7 +298,8 @@ interface StreamEvent {
   delta?: string;
   /** On `error` / `response.failed` events. */
   message?: string;
-  response?: { error?: { message?: string } };
+  code?: string;
+  response?: { error?: { message?: string; code?: string } };
 }
 
 /**
@@ -338,6 +339,7 @@ async function readOutputTextStream(body: ReadableStream<Uint8Array>, onDelta: (
       }
       if (event.type === "error" || event.type === "response.failed") {
         const reason = event.message ?? event.response?.error?.message ?? "unknown error";
+        if (isQuotaExhaustedText(event.code ?? event.response?.error?.code)) throw new OpenAiQuotaError(reason);
         throw new OpenAiError(`OpenAI streaming request failed: ${reason}`);
       }
       if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
@@ -403,7 +405,7 @@ export async function streamWithWebSearch(prompt: string, onDelta: (delta: strin
         const res = await postResponses(apiKey, body, options.reasoningEffort, deadline.signal);
         if (!res.ok || !res.body) {
           const text = await res.text().catch(() => "");
-          throw new OpenAiError(`OpenAI web search request failed (${res.status}): ${text.slice(0, 300)}`, res.status);
+          throw openAiHttpError("OpenAI web search request", res.status, text);
         }
         deadline.touch();
         return readOutputTextStream(res.body, emit, deadline.touch);
@@ -467,7 +469,7 @@ export async function requestTextStream(
       });
       if (!res.ok || !res.body) {
         const body = await res.text().catch(() => "");
-        throw new OpenAiError(`OpenAI streaming request failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+        throw openAiHttpError("OpenAI streaming request", res.status, body);
       }
       return readOutputTextStream(res.body, emit);
     },

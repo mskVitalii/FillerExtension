@@ -5,9 +5,12 @@
  *
  * Retried: 408, 409, 429 and every 5xx (OpenAI's 503 `server_is_overloaded` among them), and a
  * request that never got an answer (network error). Never retried: other 4xx (bad key,
- * invalid request) and anything after the caller's signal aborted. A `Retry-After` header is
+ * invalid request), a 429 that says the account is out of credits (`insufficient_quota` — it
+ * can't pass until the user pays), and anything after the caller's signal aborted. A `Retry-After` header is
  * honoured; without one the wait doubles each attempt, with jitter so parallel calls spread out.
  */
+
+import { isQuotaExhaustedText } from "./errors";
 
 export interface RetryPolicy {
   /** Total attempts, the first one included. */
@@ -93,6 +96,7 @@ export async function fetchWithRetry(send: () => Promise<Response>, options: Ret
       continue;
     }
     if (res.ok || !isRetryableStatus(res.status) || attempt >= policy.maxAttempts) return res;
+    if (res.status === 429 && isQuotaExhaustedText(await res.clone().text().catch(() => ""))) return res;
     const delayMs = backoffDelay(attempt, parseRetryAfter(res.headers), policy);
     options.onRetry?.({ attempt, delayMs, status: res.status });
     await res.body?.cancel().catch(() => {});

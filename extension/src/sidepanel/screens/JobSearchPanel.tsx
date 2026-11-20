@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { formatPostedAgo } from "@/features/job-search/freshness";
 import { MAX_NEGATIVE_PROMPT_LENGTH, splitByNegative } from "@/features/job-search/negative";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
+import { AiErrorMessage } from "@/components/AiErrorMessage";
 
 /** `chrome.storage.sync` allows ~120 writes a minute — save once typing pauses, not per keystroke. */
 const SAVE_NEGATIVE_DELAY_MS = 800;
@@ -456,7 +457,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         </CardContent>
       </Card>
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <AiErrorMessage text={error} />}
 
       {warnings.length > 0 && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">

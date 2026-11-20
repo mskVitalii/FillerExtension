@@ -442,6 +442,11 @@ export const en = {
   "fallback.modelSupport": "Claude model for support tasks",
   "fallback.needsKey": "Add an Anthropic key, or Claude is never used.",
   "fallback.notice": "OpenAI didn't answer ({reason}) — answered by {model}.",
+  "quota.title": "Your OpenAI account has run out of credits",
+  "quota.steps": "Open OpenAI billing, sign in with the account that owns your API key and click \"Add to credit balance\" (optionally turn on auto recharge). After paying it can take a few minutes before requests work again.",
+  "quota.open": "Open OpenAI billing",
+  "quota.fallbackOff": "You have an Anthropic key saved: turn on \"{fallback}\" in Settings to let Claude answer meanwhile.",
+  "quota.details": "OpenAI: {detail}",
 } as const;
 
 export type MessageKey = keyof typeof en;

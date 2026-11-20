@@ -1,13 +1,14 @@
 import { getAnthropicApiKey } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
 import { CLAUDE_MODEL_MAIN, CLAUDE_MODEL_SUPPORT, isClaudeModel } from "./anthropic";
-import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiTimeoutError } from "./errors";
+import { MissingApiKeyError, OpenAiError, OpenAiNetworkError, OpenAiQuotaError, OpenAiTimeoutError } from "./errors";
 import { isAbortError, isRetryableStatus } from "./retry";
 
 /**
  * When an OpenAI call (after its own retries) fails, whether to answer it with Claude instead:
  * - `off` — never;
- * - `unavailable` — only when OpenAI is overloaded or unreachable: 429, 5xx, a network error;
+ * - `unavailable` — only when OpenAI is overloaded or unreachable: 429 (out of credits included),
+ *   5xx, a network error;
  * - `any` — on any OpenAI API error (a bad or missing key, quota, an invalid request…);
  * - `always` — Claude is the primary provider; OpenAI isn't called at all.
  * Every policy needs an Anthropic key; without one OpenAI's error is shown as before.
@@ -86,6 +87,7 @@ export const FALLBACK_NOTICE_KEY = "aiFallbackNotice";
 export function describeFailure(err: unknown): string {
   if (err instanceof MissingApiKeyError) return "no OpenAI key";
   if (err instanceof OpenAiNetworkError) return "OpenAI unreachable";
+  if (err instanceof OpenAiQuotaError) return "OpenAI out of credits";
   if (err instanceof OpenAiError && err.status) return `OpenAI ${err.status}`;
   return "OpenAI error";
 }

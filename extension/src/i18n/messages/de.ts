@@ -444,4 +444,9 @@ export const de: Record<MessageKey, string> = {
   "fallback.modelSupport": "Claude-Modell für Hilfsaufgaben",
   "fallback.needsKey": "Ohne Anthropic-Schlüssel wird Claude nie genutzt.",
   "fallback.notice": "OpenAI hat nicht geantwortet ({reason}) — Antwort von {model}.",
+  "quota.title": "Ihr OpenAI-Konto hat kein Guthaben mehr",
+  "quota.steps": "Öffnen Sie die OpenAI-Abrechnung, melden Sie sich mit dem Konto an, dem Ihr API-Schlüssel gehört, und klicken Sie auf \"Add to credit balance\" (optional Auto-Recharge einschalten). Nach der Zahlung kann es einige Minuten dauern, bis Anfragen wieder funktionieren.",
+  "quota.open": "OpenAI-Abrechnung öffnen",
+  "quota.fallbackOff": "Sie haben einen Anthropic-Schlüssel gespeichert: Schalten Sie in den Einstellungen \"{fallback}\" ein, damit Claude solange antwortet.",
+  "quota.details": "OpenAI: {detail}",
 };

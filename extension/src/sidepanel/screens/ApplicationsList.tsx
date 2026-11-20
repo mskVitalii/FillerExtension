@@ -20,6 +20,7 @@ import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } fro
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
 import { getUrlActivationsWithBackfill, getWorkStart, removeUrlActivation } from "@/features/storage/local";
 import type { AdaptedCvRecord, Application, ApplicationStatus, UrlActivation } from "@/types/application";
+import { AiErrorMessage } from "@/components/AiErrorMessage";
 
 const STATUS_OPTIONS: ApplicationStatus[] = ["draft", "applied", "interview", "rejected", "offer"];
 const EMPTY_STATS: SubmissionStats = { total: 0, lastWindow: 0, avgPerDay: 0, byDay: [], series: [] };
@@ -218,7 +219,7 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
       </div>
 
       {loading && <p className="text-sm text-muted-foreground">{t("apps.loading")}</p>}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <AiErrorMessage text={error} />}
 
       {!loading && !error && stats.total > 0 && (
         <div className="flex flex-col gap-2">

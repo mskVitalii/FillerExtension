@@ -69,6 +69,7 @@ import { formatSalaryForStorage } from "@/lib/salary";
 import { FAQ_QUESTIONS } from "@/lib/faq-questions";
 import { LANGUAGES } from "@/lib/languages";
 import { sendMessage } from "@/types/messages";
+import { AiErrorMessage } from "@/components/AiErrorMessage";
 
 /** Grouped once at module load — `FAQ_QUESTIONS` is a fixed constant, not per-render state. */
 const FAQ_GROUPS = Object.entries(
@@ -654,7 +655,7 @@ export function SettingsPanel({
             {uploading ? t("common.processing") : t("settings.uploadCv")}
           </Button>
           <p className="text-xs text-muted-foreground">{t("settings.cvFormats")}</p>
-          {cvUploadError && <p className="text-xs text-destructive">{cvUploadError}</p>}
+          {cvUploadError && <AiErrorMessage text={cvUploadError} />}
         </CardContent>
       </Card>
 
@@ -1031,7 +1032,7 @@ export function SettingsPanel({
                 </section>
               </div>
               <div className="flex flex-col gap-2 border-t border-border px-4 py-3">
-                {faqError && <p className="text-xs text-destructive">{faqError}</p>}
+                {faqError && <AiErrorMessage text={faqError} />}
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={handleGenerateMissingFaq} disabled={generatingFaq}>
                     {generatingFaq ? t("common.generating") : t("settings.generateMissing")}

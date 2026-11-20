@@ -43,6 +43,7 @@ import { CV_FILE_ACCEPT, prepareCvFile } from "@/lib/cv-text";
 import { isLatexFile } from "@/features/cv-template/latex";
 import { fileToBase64 } from "@/lib/base64";
 import { cn } from "@/lib/utils";
+import { AiErrorMessage } from "@/components/AiErrorMessage";
 
 type View = "adapt" | "template";
 type SaveStatus = "idle" | "saving" | "saved" | "local-only";
@@ -623,7 +624,7 @@ export function CvAdaptPanel({ tabId, tabUrl, profile, hasApiKey, onBack, onRequ
       </div>
 
       {busy && <p className="text-xs text-muted-foreground">{busy}</p>}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <AiErrorMessage text={error} />}
       {status && <p className="text-xs text-muted-foreground">{status}</p>}
 
       {!selectedCv ? (
