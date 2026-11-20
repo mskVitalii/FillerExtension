@@ -6,6 +6,8 @@ import { MissingApiKeyError, requestStructured } from "./client";
 import { requestDecisions } from "./decisions";
 import { applicantDecisionInput, factsGateQuestion, hasChoiceOptions, optionDecisionQuestions, readFactsGate, readOptionAnswer } from "./question-decisions";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
+import { catchAllKind, type CatchAllContext } from "@/features/autofill/catch-all";
+import { answerCatchAll } from "./answer-catch-all";
 
 const SCHEMA = {
   type: "object",
@@ -157,6 +159,8 @@ export interface CustomQuestionAnswer {
   sufficientInfo: boolean;
   /** 0..1 when an option question was decided by the Decisions API. */
   confidence?: number;
+  /** True when a catch-all field ("Additional information") is deliberately left empty. */
+  skipped?: boolean;
 }
 
 /**
@@ -164,6 +168,11 @@ export interface CustomQuestionAnswer {
  * first gated by it ("does the applicant's data cover this?") and only then written by the
  * Responses API, so a factual question the data can't answer comes back as a non-answer for the
  * user instead of costing a generation. If the Decisions call fails, it's answered the old way.
+ *
+ * A catch-all ("Additional information", "Sonstiges") goes to `answerCatchAll` instead: pass
+ * `catchAll` with what the form says about it (required, other values), or leave it undefined and
+ * a free-text question whose label is a clear catch-all is treated as one with requiredness
+ * unknown. `null` forces the ordinary path.
  */
 export async function answerCustomQuestion(
   question: string,
@@ -173,7 +182,12 @@ export async function answerCustomQuestion(
   dateKind?: DateInputKind,
   multi?: boolean,
   postingLanguage?: string,
+  catchAll?: CatchAllContext | null,
 ): Promise<CustomQuestionAnswer> {
+  const freeText = !(options && options.length > 0) && !numeric && !dateKind;
+  if (freeText && (catchAll || (catchAll === undefined && catchAllKind(question) === "strong"))) {
+    return answerCatchAll(question, job, catchAll ?? {}, postingLanguage);
+  }
   const [context, coverLetter] = await Promise.all([getApplicantContext(), getLocal("lastCoverLetter")]);
   const { input, promptCacheKey } = applicantDecisionInput(context, coverLetter ?? "", job, postingLanguage);
   const q = { question, options, multi, numeric, dateKind };

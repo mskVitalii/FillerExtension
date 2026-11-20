@@ -15,6 +15,7 @@ import { backingSelect, repaintFacade } from "./select-facade";
 import { pageRadioQuestions } from "./pick-questions";
 import { looksLikeSalutationOptions } from "@/lib/salutation";
 import { fillElement } from "./native-setter";
+import { catchAllKind, isCatchAllField } from "./catch-all";
 
 const FILLABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [role="combobox"]';
 const EXCLUDED_INPUT_TYPES = new Set([
@@ -47,6 +48,18 @@ export interface CustomQuestion {
   numeric?: boolean;
   /** Present when the field is a `date`/`month`/`week`/`time`/`datetime-local` input — the answer must be in that exact format. */
   dateKind?: DateInputKind;
+  /**
+   * A catch-all ("Additional information", "Sonstiges", "Message to the hiring team") rather than
+   * a real question (`catch-all.ts`): answered only when required or the posting asks for
+   * something specific, and never with what the form already holds.
+   */
+  catchAll?: boolean;
+  /** The form marks the field required. Set on catch-alls, where it decides whether to answer. */
+  required?: boolean;
+  /** For a catch-all: the other fields' values on the form at scan time, so the answer doesn't repeat them. */
+  formValues?: { label: string; value: string }[];
+  /** For a catch-all: a cover letter is already attached in a file field of the form. */
+  coverLetterAttached?: boolean;
 }
 
 /**
@@ -218,8 +231,72 @@ async function detectCustomQuestionsUncached(): Promise<CustomQuestion[]> {
     options: field.options,
     numeric: field.numeric,
     dateKind: field.dateKind,
+    ...catchAllInfo(field),
   }));
   return [...questions, ...radioQuestions(questions.length)];
+}
+
+const TEXT_INPUT_TYPES = new Set(["", "text"]);
+
+/** A field the applicant writes prose into: a textarea, a plain text input or a contenteditable. */
+function isFreeTextField(el: HTMLElement): boolean {
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(el.getAttribute("type")?.toLowerCase() ?? "");
+  return el.isContentEditable || el.getAttribute("contenteditable") === "true";
+}
+
+function formRoot(el: HTMLElement): ParentNode {
+  return el.closest("form") ?? el.ownerDocument;
+}
+
+/** No other free-text field follows `el` in its form: the "anything else?" box sits at the end. */
+function isLastFreeTextField(el: HTMLElement): boolean {
+  const later = [...formRoot(el).querySelectorAll<HTMLElement>('textarea, input, [contenteditable="true"]')].filter(
+    (other) => other !== el && isFreeTextField(other) && isFillable(other) && el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  return later.length === 0;
+}
+
+const COVER_LETTER_FILE_RE = /cover|anschreiben|motivation|lettre|anschr/i;
+
+/** A file field of the form already holds a cover letter (its file name, or the field's label, says so). */
+function hasAttachedCoverLetter(el: HTMLElement): boolean {
+  for (const input of formRoot(el).querySelectorAll<HTMLInputElement>('input[type="file"]')) {
+    const files = [...(input.files ?? [])];
+    if (files.length === 0) continue;
+    if (files.some((f) => COVER_LETTER_FILE_RE.test(f.name)) || COVER_LETTER_FILE_RE.test(fieldQuestionText(input))) return true;
+  }
+  return false;
+}
+
+/** The other filled fields of `el`'s form (label → value), capped, for a catch-all's "don't repeat" list. */
+function otherFormValues(el: HTMLElement): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  for (const other of formRoot(el).querySelectorAll<HTMLElement>(FILLABLE_SELECTOR)) {
+    if (other === el || !isFillable(other)) continue;
+    const value = readValue(other);
+    if (!value) continue;
+    const label = fieldQuestionText(other) || other.getAttribute("name") || "";
+    out.push({ label: label.slice(0, 80), value: value.slice(0, 200) });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+/** The catch-all fields of a `CustomQuestion` (empty for a real question). */
+function catchAllInfo(field: QuestionField): Partial<CustomQuestion> {
+  if (field.options || field.numeric || field.dateKind || !isFreeTextField(field.el)) return {};
+  const kind = catchAllKind(field.question);
+  if (!kind) return {};
+  const coverLetterAttached = kind === "coverLetter" ? hasAttachedCoverLetter(field.el) : undefined;
+  const isLast = kind === "weak" ? isLastFreeTextField(field.el) : undefined;
+  if (!isCatchAllField(field.question, { isLastTextField: isLast, coverLetterAttached })) return {};
+  return {
+    catchAll: true,
+    required: isRequiredField(field.el),
+    formValues: otherFormValues(field.el),
+    coverLetterAttached: coverLetterAttached || undefined,
+  };
 }
 
 /**

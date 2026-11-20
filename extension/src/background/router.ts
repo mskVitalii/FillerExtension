@@ -304,6 +304,7 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
         message.dateKind,
         message.multi,
         message.postingLanguage,
+        message.catchAll,
       );
       return {
         type: "CUSTOM_QUESTION_ANSWER",

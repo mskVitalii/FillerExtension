@@ -18,6 +18,7 @@ import {
 } from "./question-decisions";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 import { isNonAnswer } from "./answer-question";
+import { answerCatchAll } from "./answer-catch-all";
 import type { CheckboxCategory, CheckboxDecision } from "./decide-checkboxes";
 
 export type { CheckboxDecision } from "./decide-checkboxes";
@@ -289,6 +290,40 @@ type PageContentResult = { checkboxDecisions: CheckboxDecision[]; questionAnswer
  * picker) still goes through `answerCustomQuestion` on its own.
  */
 export async function decidePageContent(
+  checkboxes: PageCheckbox[],
+  questions: CustomQuestion[],
+  job: Job,
+  postingLanguage?: string,
+): Promise<PageContentResult> {
+  const catchAlls = questions.filter((q) => q.catchAll);
+  const regular = catchAlls.length > 0 ? questions.filter((q) => !q.catchAll) : questions;
+  const result = await decideRegular(checkboxes, regular, job, postingLanguage);
+  if (catchAlls.length === 0) return result;
+
+  // Catch-alls go last, so they see every other answer of this batch and add only what's new.
+  const otherAnswers = regular.flatMap((q) => {
+    const answer = result.questionAnswers.find((a) => a.id === q.id)?.answer ?? "";
+    return answer ? [{ question: q.question, answer }] : [];
+  });
+  const catchAllAnswers = await Promise.all(
+    catchAlls.map(async (q): Promise<PageContentQuestionAnswer> => {
+      const { answer, sufficientInfo } = await answerCatchAll(
+        q.question,
+        job,
+        { required: q.required ?? false, formValues: q.formValues, otherAnswers, coverLetterAttached: q.coverLetterAttached },
+        postingLanguage,
+      );
+      return { id: q.id, answer, sufficientInfo };
+    }),
+  );
+  const byId = new Map([...result.questionAnswers, ...catchAllAnswers].map((a) => [a.id, a]));
+  return {
+    checkboxDecisions: result.checkboxDecisions,
+    questionAnswers: questions.map((q) => byId.get(q.id) ?? { id: q.id, answer: "", sufficientInfo: true }),
+  };
+}
+
+async function decideRegular(
   checkboxes: PageCheckbox[],
   questions: CustomQuestion[],
   job: Job,

@@ -5,6 +5,7 @@ import type { CvTemplate, CvValueSuggestion } from "./cv-template";
 import type { JobSearchProvider, JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "./job-search";
 import type { SlopFinding } from "@/features/cover-letter/slop-detector";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
+import type { CatchAllContext } from "@/features/autofill/catch-all";
 import type { PickedField, FieldDescriptor } from "@/features/autofill/pick-questions";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 import type { PageCheckbox, CheckboxDecisionInput } from "@/features/autofill/checkboxes";
@@ -90,6 +91,8 @@ export type RuntimeMessage =
       dateKind?: DateInputKind;
       /** The job posting's detected language (JobLanguageInfo.postingLanguages[0]) — the answer is written in it when given. */
       postingLanguage?: string;
+      /** For a catch-all field (`CustomQuestion.catchAll`): what the form says about it. Absent = judged by the label alone. */
+      catchAll?: CatchAllContext;
     }
   | {
       type: "CUSTOM_QUESTION_ANSWER";
