@@ -2,7 +2,9 @@ import type { Job } from "@/types/job";
 import { getLocal } from "@/features/storage/local";
 import { getApplicantContext } from "@/features/profile/context";
 import { catchAllPlan, type CatchAllContext } from "@/features/autofill/catch-all";
-import { requestStructured } from "./client";
+import { MissingApiKeyError, requestStructured } from "./client";
+import { DECISION_THRESHOLDS, predicateProbability, requestDecisions, type DecisionInput, type DecisionQuestion } from "./decisions";
+import { applicantDecisionInput } from "./question-decisions";
 import { HOUSE_STYLE_RULES, stripEmDashes } from "./house-style";
 
 const SCHEMA = {
@@ -64,16 +66,78 @@ export interface CatchAllAnswer {
   skipped: boolean;
 }
 
+const GATE = "catchAllAdds";
+
+/** The system prompt's "write only when…" rules as one yes/no question, for the Decisions gate. */
+function catchAllGateQuestion(postingAsk: string | undefined): DecisionQuestion {
+  return {
+    type: "predicate",
+    name: GATE,
+    instructions: `The application form has an open catch-all field ("field"), not marked required: "Additional information", "Anything else?".
+The recruiter already has the applicant's CV, cover letter, profile and every value in "formValues"
+and "otherAnswers". Should the applicant write anything in it?
+- Yes only if ${postingAsk ? `the applicant's data covers what the posting explicitly asks applicants to include ("postingAsk") and the form doesn't already hold it, or if ` : ""}the applicant's data holds a genuinely NEW fact relevant to this application that appears nowhere else (e.g. a constraint the recruiter must know).
+- No for anything already in the CV, cover letter, profile or form: contact data, links, salary, start date /
+  notice period / availability, work permit / visa / relocation, language levels, a summary of the
+  experience, the motivation.
+- No when in doubt: an empty field is the normal, good outcome.`,
+  };
+}
+
+/** P(the field should be written), or null when the Decisions call failed or didn't answer (then generate anyway). */
+async function catchAllGate(
+  shared: { input: DecisionInput; promptCacheKey: string },
+  question: string,
+  ctx: CatchAllContext,
+  postingAsk: string | undefined,
+): Promise<number | null> {
+  try {
+    // The per-field part goes last, so the applicant prefix stays shared with the form's other Decisions calls.
+    const input: DecisionInput = [
+      ...(shared.input as Exclude<DecisionInput, string>),
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_json",
+            data: {
+              formValues: (ctx.formValues ?? []).filter((v) => v.value.trim()),
+              otherAnswers: (ctx.otherAnswers ?? []).filter((a) => a.answer.trim()),
+              coverLetterAttached: ctx.coverLetterAttached || undefined,
+              postingAsk: postingAsk ?? null,
+              field: question,
+            },
+          },
+        ],
+      },
+    ];
+    const answers = await requestDecisions({ input, promptCacheKey: shared.promptCacheKey, questions: [catchAllGateQuestion(postingAsk)] });
+    return predicateProbability(answers, GATE);
+  } catch (err) {
+    if (err instanceof MissingApiKeyError) throw err;
+    console.warn("[Filler] Decisions API failed, writing the catch-all via Responses:", err);
+    return null;
+  }
+}
+
 /**
  * The answer for a catch-all field (`features/autofill/catch-all.ts`): empty for an optional one
- * the posting asks nothing specific for (no model call), otherwise one short model call that may
- * still return `skip`, given everything the form already holds so it can't repeat it.
+ * the posting asks nothing specific for (no model call). A field that isn't required first passes
+ * a cheap Decisions gate ("is there anything new to add?"), because the usual answer is to skip;
+ * only above `DECISION_THRESHOLDS.catchAllWrite` (or if the gate fails) does one short model call
+ * write it, given everything the form already holds so it can't repeat it — and it may still skip.
  */
 export async function answerCatchAll(question: string, job: Job, ctx: CatchAllContext, postingLanguage?: string): Promise<CatchAllAnswer> {
   const plan = catchAllPlan(job, ctx);
   if (plan.action === "skip") return { answer: "", sufficientInfo: true, skipped: true };
 
   const [context, storedLetter] = await Promise.all([getApplicantContext(), getLocal("lastCoverLetter")]);
+  if (ctx.required !== true) {
+    const shared = applicantDecisionInput(context, storedLetter ?? "", job, postingLanguage);
+    const probability = await catchAllGate(shared, question, ctx, plan.postingAsk);
+    if (probability !== null && probability < DECISION_THRESHOLDS.catchAllWrite) return { answer: "", sufficientInfo: true, skipped: true };
+  }
+
   const userPrompt = JSON.stringify(
     {
       job,

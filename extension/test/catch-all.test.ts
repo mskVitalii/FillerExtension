@@ -163,6 +163,61 @@ describe("answerCatchAll", () => {
   });
 });
 
+describe("answerCatchAll Decisions gate", () => {
+  const gate = (probability: number) => () => [{ type: "predicate", name: "catchAllAdds", probability }];
+  const asking: Job = { ...JOB, description: "We build payments in Go. In your application, please tell us your earliest start date." };
+
+  it("skips a non-required catch-all without a Responses call when the gate says there is nothing new", async () => {
+    const calls = mockOpenAi(() => ({ skip: false, answer: "should not be used" }), gate(0.1));
+    expect(await answerCatchAll("Additional information", JOB, {})).toEqual({ answer: "", sufficientInfo: true, skipped: true });
+    expect(calls.map((c) => c.url.split("/").pop())).toEqual(["decisions"]);
+    const questions = calls[0].body.questions as { name: string; instructions: string }[];
+    expect(questions.map((q) => q.name)).toEqual(["catchAllAdds"]);
+    const input = calls[0].body.input as { content: unknown }[];
+    expect(JSON.stringify(input[input.length - 1])).toContain("Additional information");
+  });
+
+  it("writes it when the gate passes, and passes the posting's ask to the gate", async () => {
+    const calls = mockOpenAi(() => ({ skip: false, answer: "I can start on 1 March." }), gate(0.8));
+    expect(await answerCatchAll("Additional information", asking, { required: false })).toEqual({
+      answer: "I can start on 1 March.",
+      sufficientInfo: true,
+      skipped: false,
+    });
+    expect(calls.map((c) => c.url.split("/").pop())).toEqual(["decisions", "responses"]);
+    const questions = calls[0].body.questions as { instructions: string }[];
+    expect(questions[0].instructions).toContain("postingAsk");
+  });
+
+  it("the generation can still skip after the gate passed", async () => {
+    mockOpenAi(() => ({ skip: true, answer: "" }), gate(0.6));
+    expect(await answerCatchAll("Additional information", JOB, {})).toEqual({ answer: "", sufficientInfo: true, skipped: true });
+  });
+
+  it("falls back to generating when the Decisions call fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url.split("/").pop() ?? "");
+        if (url.endsWith("/v1/decisions")) return new Response("bad request", { status: 400 });
+        const text = JSON.stringify({ skip: false, answer: "I can meet the team at GopherCon in March." });
+        return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text }] }] }));
+      }),
+    );
+    expect(await answerCatchAll("Additional information", JOB, {})).toMatchObject({ answer: "I can meet the team at GopherCon in March.", skipped: false });
+    expect(calls[calls.length - 1]).toBe("responses");
+    warn.mockRestore();
+  });
+
+  it("never gates a required field", async () => {
+    const calls = mockOpenAi(() => ({ skip: false, answer: "I look forward to hearing from you." }), gate(0));
+    expect(await answerCatchAll("Additional information", JOB, { required: true })).toMatchObject({ skipped: false });
+    expect(calls.map((c) => c.url.split("/").pop())).toEqual(["responses"]);
+  });
+});
+
 describe("answerCustomQuestion with a catch-all", () => {
   it("routes an explicit optional catch-all to the skip, not the question pipeline", async () => {
     const calls = mockOpenAi(() => ({ answer: "A long summary of my CV.", sufficientInfo: true }));
@@ -176,7 +231,7 @@ describe("answerCustomQuestion with a catch-all", () => {
   it("recognises a catch-all by its label when no context is passed (requiredness unknown → model may skip)", async () => {
     const calls = mockOpenAi(() => ({ skip: true, answer: "" }));
     expect(await answerCustomQuestion("Weitere Informationen", JOB)).toMatchObject({ answer: "", skipped: true });
-    expect(calls.map((c) => c.url.split("/").pop())).toEqual(["responses"]);
+    expect(calls.map((c) => c.url.split("/").pop())).toEqual(["decisions", "responses"]);
   });
 });
 
