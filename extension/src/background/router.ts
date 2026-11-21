@@ -18,6 +18,7 @@ import { translateCoverLetter } from "@/features/openai/translate-cover-letter";
 import { answerCustomQuestion } from "@/features/openai/answer-question";
 import { decomposeBlock } from "@/features/openai/decompose-block";
 import { decidePageContent } from "@/features/openai/decide-page-content";
+import { decideFields } from "@/features/openai/decide-fields";
 import { analyzeJobBrief } from "@/features/openai/analyze-job-brief";
 import { chooseCvWithAi } from "@/features/openai/choose-cv";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
@@ -102,6 +103,10 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
     case "FILL_STATS_REPORT": {
       await recordFillRun(message.run);
       return undefined;
+    }
+
+    case "DECIDE_FIELDS": {
+      return { type: "FIELD_DECISIONS", result: await decideFields(message.request) };
     }
 
     case "GET_PROFILE": {

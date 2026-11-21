@@ -2,6 +2,7 @@ import type { ProfileFieldKey } from "@/types/profile";
 import { countryCandidates } from "@/lib/country-codes";
 import { collapse } from "../field-signal";
 import { fillElement } from "../native-setter";
+import { noteSeenOptions } from "../option-capture";
 import type { AtsAdapter, AtsStep, AtsStepKind, QuestionHints } from "./types";
 import {
   clickLikeUser,
@@ -139,6 +140,7 @@ export async function pickUi5Option(el: HTMLElement, candidates: string[]): Prom
   if (shown && !UI5_PLACEHOLDER_RE.test(shown) && pickBestOption([shown], candidates)) return true;
   const options = await openUi5(el);
   const texts = options.map((o) => collapse(o.textContent ?? ""));
+  noteSeenOptions(texts);
   const chosen = pickBestOption(texts, candidates);
   if (!chosen) {
     closeUi5(el);

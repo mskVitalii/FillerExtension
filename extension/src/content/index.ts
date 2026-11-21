@@ -1,4 +1,4 @@
-import type { RuntimeMessage } from "@/types/messages";
+import { sendMessage, type MessageOf, type RuntimeMessage } from "@/types/messages";
 import { extractJob, isExtractionSufficient } from "@/features/job-extraction/extractor";
 import { pageMainText } from "@/features/job-extraction/dom-heuristics";
 import { autofillDocument } from "@/features/autofill/engine";
@@ -23,6 +23,14 @@ import { showPageToast } from "@/features/autofill/page-toast";
 import { INSERT_FIELD_LABELS } from "@/features/autofill/insert-field-labels";
 import { base64ToFile } from "@/lib/base64";
 import { atsOf, type FillFieldStat, type FillRun } from "@/features/fill-stats/stats";
+import type { FieldDecider } from "@/features/autofill/ai-assist";
+
+/**
+ * The Autofill's AI pass, answered by the background (`DECIDE_FIELDS`) — the page never talks to
+ * OpenAI and never sees the key. Rejects without a key; the engine then keeps the offline fill.
+ */
+const decideFields: FieldDecider = async (request) =>
+  (await sendMessage<MessageOf<"FIELD_DECISIONS">>({ type: "DECIDE_FIELDS", request })).result;
 
 /** Hands one Autofill's per-field outcome to the background, which keeps the fill statistics. */
 function reportFillStats(fields: FillFieldStat[]): void {
@@ -99,7 +107,7 @@ function registerMessageListener(): void {
       }
 
       case "AUTOFILL": {
-        void autofillDocument(message.profile, { onReport: reportFillStats })
+        void autofillDocument(message.profile, { onReport: reportFillStats, decideFields })
           .then((result) => {
             const response: RuntimeMessage = { type: "AUTOFILL_RESULT", ...result };
             sendResponse(response);

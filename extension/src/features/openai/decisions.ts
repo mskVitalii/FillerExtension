@@ -35,6 +35,10 @@ export const DECISION_THRESHOLDS = {
   factsAvailable: 0.35,
   /** The AI's CV pick replaces the offline one only at this confidence or above. */
   cvChoice: 0.5,
+  /** A dropdown no option matched offline is set to the AI's option at this confidence or above. */
+  optionMatch: 0.6,
+  /** A field the detector couldn't classify fills from the profile only at this confidence or above (a wrong key types real data into the wrong box). */
+  profileField: 0.7,
   /** A non-required catch-all ("Additional information") is written only when P(something new to add) reaches this; low, since a miss costs only one call that may still skip. */
   catchAllWrite: 0.3,
   /** A `choice` CV placeholder takes the AI's variant only at this confidence or above, else the offline default. */

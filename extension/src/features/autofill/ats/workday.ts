@@ -3,6 +3,7 @@ import { countryCandidates } from "@/lib/country-codes";
 import { resolvePhone } from "@/lib/phone";
 import { collapse } from "../field-signal";
 import { typeSearchText } from "../native-setter";
+import { noteSeenOptions } from "../option-capture";
 import type { AtsAdapter, AtsStep, AtsStepKind, CvHistory, EducationEntry, QuestionHints, WorkEntry } from "./types";
 import {
   clickLikeUser,
@@ -183,6 +184,7 @@ export async function pickFromListbox(btn: HTMLElement, candidates: string[]): P
   const opened = await readListbox(btn);
   if (!opened) return false;
   const texts = opened.options.map((o) => collapse(o.textContent ?? ""));
+  noteSeenOptions(texts);
   const chosen = pickBestOption(texts, candidates);
   if (!chosen) {
     closeList(btn);
@@ -221,6 +223,7 @@ export async function fillPrompt(input: HTMLInputElement, candidates: string[], 
   }, 2000);
   if (!results) return false;
   const texts = results.map((r) => collapse(r.textContent ?? ""));
+  noteSeenOptions(texts);
   const chosen = pickBestOption(texts, candidates);
   if (!chosen) {
     pressKey(input, "Escape");

@@ -1,5 +1,6 @@
 import { collapse } from "./field-signal";
 import { fillElement, typeSearchText } from "./native-setter";
+import { noteSeenOptions } from "./option-capture";
 
 /**
  * Shared react-select-style "flyout" combobox handling (spec_5 section A;
@@ -340,6 +341,7 @@ async function attemptComboboxPick(
     if (options.length === 0) return { picked: false, menuOpened: false };
 
     const texts = options.map((opt) => collapse(opt.textContent ?? ""));
+    noteSeenOptions(texts);
     const chosen = pickOption(texts);
     if (!chosen) return { picked: false, menuOpened: true };
     const target = options[texts.indexOf(chosen)];
@@ -412,6 +414,7 @@ async function searchAndPick(
       const options = widgetOptionEls(el, documentScanAllowed(el, scoped));
       if (options.length === 0) continue;
       const texts = options.map((opt) => collapse(opt.textContent ?? ""));
+      noteSeenOptions(texts);
       const chosen = pickOption(texts);
       if (!chosen) continue;
       clickOption(options[texts.indexOf(chosen)]);
@@ -462,4 +465,17 @@ export async function fillComboboxAnswer(el: HTMLElement, answer: string): Promi
     if (await searchAndPick(el, answer, pick, ANSWER_SEARCH_TIMEOUT_MS, true)) return true;
   }
   return fillElement(el, answer);
+}
+
+/**
+ * Picks the option whose text is exactly `choice` — one the AI chose from the texts this widget
+ * showed earlier (`ai-assist.ts`). Opens the widget's full list first; a typeahead whose rows
+ * only appear for a search term gets `query` typed again (the term those rows came from).
+ * Never types `choice` itself in as a value.
+ */
+export async function pickComboboxOption(el: HTMLElement, choice: string, query: string): Promise<boolean> {
+  const exact = (texts: string[]) => (texts.includes(choice) ? choice : null);
+  if ((await attemptComboboxPick(el, exact, true)).picked) return true;
+  if (!(el instanceof HTMLInputElement) || !isComboboxLike(el) || !query) return false;
+  return searchAndPick(el, query, exact, SEARCH_TIMEOUT_MS, !isFlyoutOnly(el));
 }

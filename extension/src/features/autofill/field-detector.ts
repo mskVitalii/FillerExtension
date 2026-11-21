@@ -200,3 +200,26 @@ export function detectSemanticField(el: FillableElement): ProfileFieldKey | null
   if (el instanceof HTMLInputElement && el.type === "tel") return "phone";
   return null;
 }
+
+/**
+ * Whether the AI may guess `el`'s profile key (`ai-assist.ts`) after `detectSemanticField`
+ * returned null: only when the detector found nothing at all. Not when the ATS adapter mapped
+ * or ignored it on purpose, not when a pattern matched and was vetoed (a referrer's e-mail,
+ * an address line 2), and not when a signal names somebody else. Prose labels are left to
+ * the custom-question path, which answers them.
+ */
+export function isUnclassifiedField(el: FillableElement): boolean {
+  const ats = atsAdapterFor(el);
+  if (ats?.isIgnored?.(el) || ats?.mapField?.(el) !== undefined) return false;
+  const autocomplete = el.getAttribute("autocomplete")?.toLowerCase().trim();
+  if (autocomplete && AUTOCOMPLETE_MAP[autocomplete]) return false;
+  const parts = signalParts(el);
+  if (parts.length === 0) return false;
+  const choice = isChoiceField(el);
+  for (const { text, identifier } of parts) {
+    if (OTHER_PERSON_RE.test(text)) return false;
+    if (!identifier && (isProse(text) || text.includes("?"))) return false;
+    if (matchField(text, choice)) return false;
+  }
+  return true;
+}

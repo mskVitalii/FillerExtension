@@ -13,6 +13,7 @@ import type { CheckboxDecision } from "@/features/openai/decide-checkboxes";
 import type { InsertField } from "@/features/autofill/insert-field-labels";
 import type { DateInputKind } from "@/lib/date-format";
 import type { FillRun } from "@/features/fill-stats/stats";
+import type { FieldDecisionRequest, FieldDecisionResult } from "@/features/autofill/ai-assist";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -43,6 +44,13 @@ export type RuntimeMessage =
   | { type: "AUTOFILL_RESULT"; filled: number; total: number; generatedPassword: string | null }
   /** Content script → background, once an Autofill's refill guard settled: what happened to each profile field. */
   | { type: "FILL_STATS_REPORT"; run: FillRun }
+  /**
+   * Content script → background, during an Autofill: the AI pass's batched Decisions questions
+   * (dropdowns no option matched offline, fields the detector couldn't classify). Answered with
+   * FIELD_DECISIONS, or ERROR without a key — then the offline fill stands as it is.
+   */
+  | { type: "DECIDE_FIELDS"; request: FieldDecisionRequest }
+  | { type: "FIELD_DECISIONS"; result: FieldDecisionResult }
   | { type: "INSERT_VALUE"; field: InsertField; value: string }
   | { type: "GENERATE_COVER_LETTER"; tabId: number; job: Job; postingLanguage?: string }
   | { type: "COVER_LETTER_RESULT"; content: string; slopFindings: SlopFinding[]; cleaned: boolean }

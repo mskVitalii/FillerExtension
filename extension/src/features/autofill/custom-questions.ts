@@ -1,4 +1,5 @@
 import { detectSemanticField } from "./field-detector";
+import { cachedAiField } from "./ai-assist";
 import { queryFillableDeep } from "./engine";
 import { isGhostField } from "./dom-query";
 import { fieldQuestionText, isQuestionShaped, nativeFieldOptions } from "./field-signal";
@@ -190,6 +191,8 @@ function scanQuestionFields(ats: AtsAdapter | null = activeAtsAdapter()): Questi
     if (isRevealedPasswordField(el)) continue;
     const select = facadeSelect.get(el);
     if (detectSemanticField(el) || (select && detectSemanticField(select))) continue;
+    // A profile field the Autofill's AI pass recognised (`ai-assist.ts`) is the profile's, not a question.
+    if (cachedAiField(select ?? el)) continue;
     const options = nativeFieldOptions(select ?? el);
     const question = questionFor(el, ats, select, options);
     if (!question) continue;

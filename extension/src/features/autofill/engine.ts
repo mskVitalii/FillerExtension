@@ -1,16 +1,27 @@
 import type { Profile, ProfileFieldKey } from "@/types/profile";
 import { detectSemanticField } from "./field-detector";
 import { fillElement } from "./native-setter";
-import { fillComboboxAnswer, fillComboboxByPicking, isComboboxLike, isReactSelectLike } from "./combobox";
+import { fillComboboxAnswer, fillComboboxByPicking, isComboboxLike, isReactSelectLike, pickComboboxOption } from "./combobox";
 import { fillPhoneField, findDialCodeField, fillSalaryField, resolvePhoneFill } from "./field-format";
 import { findConfirmPasswordFields, isNewPasswordField, isRevealedPasswordField } from "./password-fields";
 import { countryCandidates } from "@/lib/country-codes";
 import { looksLikeSalutationOptions, salutationCandidates, salutationMatches } from "@/lib/salutation";
 import { generatePassword } from "@/lib/generate-password";
 import { isGhostField, queryFillableDeep } from "./dom-query";
-import { describeField, findByKey } from "./element-locator";
+import { describeField, findByKey, type FieldKey } from "./element-locator";
 import { guardFills, readValue, type GuardedFill } from "./refill-guard";
-import { fieldQuestionText } from "./field-signal";
+import { collapse, fieldQuestionText, nativeFieldOptions } from "./field-signal";
+import { takeSeenOptions } from "./option-capture";
+import {
+  aiClassifiable,
+  cachedAiField,
+  decideCached,
+  pendingKind,
+  pendingPick,
+  type FieldDecider,
+  type PendingKind,
+  type PendingPick,
+} from "./ai-assist";
 import { fieldKind } from "@/features/fill-stats/dom";
 import { fillLocationField } from "./location";
 import { activeAtsAdapter, isAtsIgnored, withAtsCache } from "./ats";
@@ -155,6 +166,11 @@ async function autofillDocumentUncached(
      * recognized as a profile field (fill statistics, `features/fill-stats`).
      */
     onReport?: (fields: FillFieldStat[]) => void;
+    /**
+     * The AI second pass (`ai-assist.ts`): dropdowns no option matched offline, and fields the
+     * detector couldn't classify. Absent (FillerAgent, tests) → the offline fill only.
+     */
+    decideFields?: FieldDecider;
   } = {},
 ): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const ats = activeAtsAdapter();
@@ -187,10 +203,13 @@ async function autofillDocumentUncached(
   const selectsWithFacade = new Set(facadeSelect.values());
 
   let filled = 0;
+  const decide = options.decideFields;
   const guarded: GuardedFill[] = [];
   const stats: FillFieldStat[] = [];
-  /** `guarded[i]` is `stats[guardedStat[i]]`. */
-  const guardedStat: number[] = [];
+  /** `guarded[i]` is `guardedStats[i]`'s field. */
+  const guardedStats: FillFieldStat[] = [];
+  const misses: OptionMiss[] = [];
+  const unclassified: Unclassified[] = [];
   for (const el of elements) {
     // Defense in depth on top of the label-matching patterns themselves:
     // no profile value is ever a password, so a password-type input is
@@ -205,8 +224,15 @@ async function autofillDocumentUncached(
     const facade = facadeSelect.has(el) ? el : null;
     const target: HTMLElement = facadeSelect.get(el) ?? el;
     // The ATS adapter's own mapping (and what it ignores) is part of `detectSemanticField`.
-    const field = facade ? (detectSemanticField(target) ?? detectSemanticField(facade)) : detectSemanticField(el);
-    if (!field) continue;
+    const detected = facade ? (detectSemanticField(target) ?? detectSemanticField(facade)) : detectSemanticField(el);
+    // A field an earlier AI pass on this page classified fills offline now, like a detected one.
+    const field = detected ?? (decide ? cachedAiField(target) : null);
+    if (!field) {
+      if (decide && aiClassifiable(target)) {
+        unclassified.push({ ref: fieldRef(target), facade: facade && fieldRef(facade), before: readValue(target), pending: pendingKind(target) });
+      }
+      continue;
+    }
     // A salary <select> that only picks the currency or the period ("EUR", "pro Jahr" — concludis
     // puts both right after the amount, under the same label) is not the amount.
     if (field === "expectedSalary" && target instanceof HTMLSelectElement && !hasNumericOption(target)) continue;
@@ -214,28 +240,17 @@ async function autofillDocumentUncached(
     const stat: FillFieldStat = { kind: fieldKind(el), field, label: fieldQuestionText(el).slice(0, 120), filler: "no-value" };
     stats.push(stat);
     if (!value) continue;
-    const before = readValue(target);
-    const key = describeField(target);
-    stat.filler = "failed";
-    if (await fillWithAdapter(target, field, value, profile, ats)) {
-      if (facade) repaintFacade(facade, target as HTMLSelectElement);
+    const outcome = await fillProfileField(target, facade, field, value, profile, ats, stat, Boolean(decide));
+    if (outcome.guard) {
       filled++;
-      stat.filler = "filled";
-      guardedStat.push(stats.length - 1);
-      guarded.push({
-        el: target,
-        before,
-        locate: () => findByKey(key),
-        refill: (fresh) => fillWithAdapter(fresh, field, value, profile, ats),
-      });
+      guarded.push(outcome.guard);
+      guardedStats.push(stat);
     }
+    if (outcome.miss) misses.push(outcome.miss);
   }
-  // Not awaited: the Side Panel gets its count now, while the guard keeps
-  // the values in place through the form's next re-render (refill-guard.ts).
-  void guardFills(guarded).then((report) => {
-    for (const i of report.lostIndexes) stats[guardedStat[i]].filler = "lost";
-    options.onReport?.(stats);
-  });
+  // Not awaited: the guard keeps the values in place through the form's next re-render
+  // (refill-guard.ts) while the rest of the fill, and the AI pass, go on.
+  const offlineGuard = guardFills(guarded);
 
   // Fields with an obvious answer but no profile key (Workday's "Phone Device Type", its phone-code prompt).
   if (ats?.afterFill) {
@@ -251,7 +266,195 @@ async function autofillDocumentUncached(
   const { password: generatedPassword, filled: passwordFilled } = fillRegistrationPassword(elements);
   filled += passwordFilled;
 
+  // The AI pass runs last, so it never holds up an offline fill; its own fills get their own guard.
+  let aiGuard = guardFills([]);
+  let aiGuardedStats: FillFieldStat[] = [];
+  if (decide && (misses.length > 0 || unclassified.length > 0)) {
+    try {
+      const ai = await runAiPass(profile, ats, decide, misses, unclassified, stats);
+      filled += ai.filled;
+      aiGuard = guardFills(ai.guarded);
+      aiGuardedStats = ai.guardedStats;
+    } catch (error) {
+      console.warn("[Filler] AI autofill pass failed", error);
+    }
+  }
+  void Promise.all([offlineGuard, aiGuard]).then(([offline, ai]) => {
+    for (const i of offline.lostIndexes) guardedStats[i].filler = "lost";
+    for (const i of ai.lostIndexes) aiGuardedStats[i].filler = "lost";
+    options.onReport?.(stats);
+  });
+
   return { filled, total: elements.length, generatedPassword };
+}
+
+/** A field found once, re-found by key if a re-render replaced it while the AI was answering. */
+interface FieldRef {
+  el: HTMLElement;
+  key: FieldKey;
+}
+
+function fieldRef(el: HTMLElement): FieldRef {
+  return { el, key: describeField(el) };
+}
+
+function liveElement(ref: FieldRef): HTMLElement | null {
+  if (ref.el.isConnected) return ref.el;
+  const found = findByKey(ref.key);
+  if (found) ref.el = found;
+  return found;
+}
+
+/** A dropdown with a known value that no option matched offline — for the AI pass. */
+interface OptionMiss {
+  ref: FieldRef;
+  facade: FieldRef | null;
+  field: ProfileFieldKey;
+  /** What the field held before the fill; it is only picked while it still does. */
+  before: string;
+  stat: FillFieldStat;
+  pick: PendingPick;
+  /** The search term a typeahead showed those options for. */
+  query: string;
+}
+
+/** A field the detector couldn't classify — for the AI pass. */
+interface Unclassified {
+  ref: FieldRef;
+  facade: FieldRef | null;
+  before: string;
+  pending: PendingKind;
+}
+
+/**
+ * Fills one profile field and returns its refill-guard entry, or — when it failed on a dropdown
+ * whose options didn't match and `collectMiss` is set — the miss for the AI pass.
+ */
+async function fillProfileField(
+  target: HTMLElement,
+  facade: HTMLElement | null,
+  field: ProfileFieldKey,
+  value: string,
+  profile: Profile,
+  ats: AtsAdapter | null,
+  stat: FillFieldStat,
+  collectMiss: boolean,
+): Promise<{ guard: GuardedFill | null; miss: OptionMiss | null }> {
+  const before = readValue(target);
+  const key = describeField(target);
+  stat.filler = "failed";
+  takeSeenOptions();
+  if (await fillWithAdapter(target, field, value, profile, ats)) {
+    if (facade) repaintFacade(facade, target as HTMLSelectElement);
+    stat.filler = "filled";
+    const guard: GuardedFill = {
+      el: target,
+      before,
+      locate: () => findByKey(key),
+      refill: (fresh) => fillWithAdapter(fresh, field, value, profile, ats),
+    };
+    return { guard, miss: null };
+  }
+  if (!collectMiss) return { guard: null, miss: null };
+  const options = target instanceof HTMLSelectElement ? (nativeFieldOptions(target) ?? []) : takeSeenOptions();
+  if (options.length === 0) return { guard: null, miss: null };
+  // A city is only unambiguous with its country ("Munich" → "München / Bayern", not Munich, ND).
+  const shown = field === "city" && profile.country ? `${value}, ${profile.country}` : value;
+  const miss: OptionMiss = {
+    ref: { el: target, key },
+    facade: facade && fieldRef(facade),
+    field,
+    before,
+    stat,
+    query: field === "city" ? profile.city : value,
+    pick: pendingPick({ field, label: fieldQuestionText(facade ?? target), value: shown, options }),
+  };
+  return { guard: null, miss };
+}
+
+/** Sets a dropdown to the option text the AI chose — by exact text, never by retyping the value. */
+function applyOptionChoice(
+  el: HTMLElement,
+  field: ProfileFieldKey,
+  choice: string,
+  query: string,
+  profile: Profile,
+  ats: AtsAdapter | null,
+): Promise<boolean> {
+  if (el instanceof HTMLSelectElement) {
+    const option = Array.from(el.options).find((o) => collapse(o.textContent ?? "") === choice);
+    return Promise.resolve(Boolean(option) && fillElement(el, option!.value || choice));
+  }
+  // An ATS widget (Workday, SuccessFactors) is picked by its own writer: the choice is one of its option texts.
+  return ats?.fillField?.(el, field, choice, profile) ?? pickComboboxOption(el, choice, query);
+}
+
+interface AiPassResult {
+  filled: number;
+  guarded: GuardedFill[];
+  guardedStats: FillFieldStat[];
+}
+
+/**
+ * The second, AI pass (`ai-assist.ts`): one Decisions request for every option miss and every
+ * unclassified field, then the picks and the newly classified fields are filled. A field filled
+ * that way can miss its options in turn (a select of countries spelled differently) — those get
+ * one follow-up request. Every field is re-found by key and left alone if its value changed
+ * meanwhile (the user got there first).
+ */
+async function runAiPass(
+  profile: Profile,
+  ats: AtsAdapter | null,
+  decide: FieldDecider,
+  misses: OptionMiss[],
+  unclassified: Unclassified[],
+  stats: FillFieldStat[],
+): Promise<AiPassResult> {
+  const out: AiPassResult = { filled: 0, guarded: [], guardedStats: [] };
+
+  const applyPick = async (miss: OptionMiss, choice: string | null) => {
+    if (!choice) return;
+    const el = liveElement(miss.ref);
+    if (!el || readValue(el) !== miss.before) return;
+    const apply = (target: HTMLElement) => applyOptionChoice(target, miss.field, choice, miss.query, profile, ats);
+    if (!(await apply(el))) return;
+    const facade = miss.facade && liveElement(miss.facade);
+    if (facade && el instanceof HTMLSelectElement) repaintFacade(facade, el);
+    miss.stat.filler = "filled";
+    out.filled++;
+    out.guarded.push({ el, before: miss.before, locate: () => findByKey(miss.ref.key), refill: apply });
+    out.guardedStats.push(miss.stat);
+  };
+
+  const answers = await decideCached(decide, misses.map((m) => m.pick), unclassified.map((u) => u.pending));
+  for (const miss of misses) await applyPick(miss, answers.choice(miss.pick.key));
+
+  const followUp: OptionMiss[] = [];
+  for (const field of unclassified) {
+    const key = answers.field(field.pending.key);
+    if (!key) continue;
+    const el = liveElement(field.ref);
+    if (!el || readValue(el) !== field.before) continue;
+    if (key === "expectedSalary" && el instanceof HTMLSelectElement && !hasNumericOption(el)) continue;
+    const facade = field.facade && liveElement(field.facade);
+    const value = profileValue(profile, key);
+    const stat: FillFieldStat = { kind: fieldKind(facade ?? el), field: key, label: fieldQuestionText(facade ?? el).slice(0, 120), filler: "no-value" };
+    stats.push(stat);
+    if (!value) continue;
+    const outcome = await fillProfileField(el, facade, key, value, profile, ats, stat, true);
+    if (outcome.guard) {
+      out.filled++;
+      out.guarded.push(outcome.guard);
+      out.guardedStats.push(stat);
+    }
+    if (outcome.miss) followUp.push(outcome.miss);
+  }
+
+  if (followUp.length > 0) {
+    const more = await decideCached(decide, followUp.map((m) => m.pick), []);
+    for (const miss of followUp) await applyPick(miss, more.choice(miss.pick.key));
+  }
+  return out;
 }
 
 function hasNumericOption(select: HTMLSelectElement): boolean {
