@@ -31,6 +31,12 @@ export interface JobSearchQuery {
   provider: JobSearchProvider;
   /** Role / keywords, e.g. "senior backend engineer". */
   what: string;
+  /**
+   * A set of search terms ("go developer", "backend engineer", …), each searched on its own and
+   * merged — one phrase often finds nothing. When non-empty it replaces `what`
+   * (`job-search/terms.ts`); `what` stays for callers that search with one phrase (the Side Panel).
+   */
+  terms?: string[];
   /** City / region / country, free text. */
   where: string;
   remoteOnly?: boolean;

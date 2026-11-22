@@ -3,6 +3,7 @@ import { formatSalaryRange } from "@/lib/salary";
 import { dropStalePostings } from "./freshness";
 import { applyGradesToTerms } from "./grades";
 import { adzunaExcludeWords } from "./negative";
+import { searchTerms } from "./terms";
 
 interface AdzunaJob {
   title: string;
@@ -129,9 +130,8 @@ export interface AdzunaSearchOutcome {
  * title synonyms/per-language variants — run as one Adzuna search per tag
  * and merged, rather than gambling on Adzuna's undocumented `what_or`
  * word-vs-phrase OR semantics (see the file-level comment above for why
- * `what_or` itself is avoided). Falls back to the single `query.what` search
- * when no tags were resolved (a user-typed "what", or a provider other than
- * Adzuna's tag flow never ran).
+ * `what_or` itself is avoided). Falls back to the query's own terms (`terms`,
+ * or the single `what`) when no tags were resolved.
  *
  * Requests run **sequentially**, not `Promise.all` — firing every tag at
  * once routinely tripped Adzuna's rate limit (spec_7 item 13). Each tag is
@@ -148,7 +148,8 @@ export async function searchAdzunaJobs(
   onTagResults?: (results: JobSearchResult[]) => void,
   signal?: AbortSignal,
 ): Promise<AdzunaSearchOutcome> {
-  const baseTags = query.tags && query.tags.length > 0 ? query.tags : [query.what];
+  const terms = searchTerms(query);
+  const baseTags = query.tags && query.tags.length > 0 ? query.tags : terms.length > 0 ? terms : [query.what];
   // Every grade multiplies the request count (they run sequentially, rate-limited), so cap the total.
   const gradeCount = Math.max(query.grades?.length ?? 0, 1);
   const maxBase = Math.max(1, Math.floor(MAX_ADZUNA_REQUESTS / gradeCount));

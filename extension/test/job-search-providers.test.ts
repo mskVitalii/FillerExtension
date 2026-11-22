@@ -9,7 +9,7 @@ vi.mock("@/features/openai/client", () => ({
 }));
 
 const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS, OPENAI_SEARCH_SHARDS } = await import("@/features/job-search/openai-provider");
-const { buildTavilyRequest } = await import("@/features/job-search/tavily-provider");
+const { buildTavilyQuery, buildTavilyRequest, mergeTavilyHits, searchTavilyJobs, MAX_TAVILY_QUERIES, MAX_TAVILY_QUERY_LENGTH } = await import("@/features/job-search/tavily-provider");
 const { buildAdzunaUrl, searchAdzunaJobs } = await import("@/features/job-search/adzuna-provider");
 const { extractJobListings } = await import("@/features/openai/extract-job-listings");
 
@@ -27,6 +27,12 @@ describe("OpenAI provider prompt", () => {
     expect(prompt).toContain(`does NOT want postings that match any of the following`);
     expect(prompt).toContain(`"${NEGATIVE}"`);
     expect(prompt).toContain("https://a/1");
+  });
+
+  it("asks for any of the search terms", () => {
+    const prompt = buildOpenAiSearchPrompt(query({ terms: ["go developer", "Backend engineer", "go developer "] }), "");
+    expect(prompt).toContain('Role/keywords: any of "go developer", "Backend engineer".');
+    expect(prompt).not.toContain('"backend engineer".');
   });
 
   it("says nothing about exclusions without one", () => {
@@ -134,16 +140,90 @@ describe("searchOpenAiJobs when a shard fails", () => {
 });
 
 describe("Tavily request", () => {
-  it("puts the negative prompt in the query and domains in exclude_domains", () => {
-    const body = buildTavilyRequest(query({ provider: "tavily", negative: NEGATIVE }), "key", "x".repeat(5000));
-    expect(body.query).toContain(`"${NEGATIVE}"`);
-    // The background is what gets cut by the length cap, not the exclusion.
-    expect((body.query as string).length).toBeLessThanOrEqual(2000);
+  it("is a short keyword query per term: no candidate background, no exclusions, no already-shown list", () => {
+    const body = buildTavilyRequest(query({ provider: "tavily", negative: NEGATIVE, remoteOnly: true, grades: ["senior", "lead"] }), "go developer", "key");
+    expect(body.query).toBe('"go developer" jobs Berlin remote senior lead');
     expect(body.exclude_domains).toEqual(["linkedin.com"]);
   });
 
+  it("stays within Tavily's limit whatever the term and the place", () => {
+    const q = buildTavilyQuery("x".repeat(5000), { where: "y".repeat(5000), remoteOnly: true, grades: ["junior", "senior"] });
+    expect(q.length).toBeLessThanOrEqual(MAX_TAVILY_QUERY_LENGTH);
+    expect(q.startsWith('"x')).toBe(true);
+    expect(MAX_TAVILY_QUERY_LENGTH).toBeLessThan(400);
+  });
+
+  it("doesn't repeat a grade the term already names", () => {
+    expect(buildTavilyQuery("Senior Go developer", { where: "", grades: ["senior"] })).toBe('"Senior Go developer" jobs');
+  });
+
   it("sends no exclude_domains without a domain term", () => {
-    expect(buildTavilyRequest(query({ negative: "no crypto" }), "key", "")).not.toHaveProperty("exclude_domains");
+    expect(buildTavilyRequest(query({ negative: "no crypto" }), "go developer", "key")).not.toHaveProperty("exclude_domains");
+  });
+
+  it("merges hits term by term, without repeats or postings already shown", () => {
+    const hit = (url: string) => ({ title: url, url, content: "" });
+    const merged = mergeTavilyHits(
+      [[hit("https://a/1"), hit("https://a/2"), hit("https://a/3")], [hit("https://a/1/"), hit("https://b/1")]],
+      [{ title: "", company: "", location: "", url: "https://a/2", salary: "", snippet: "", source: "tavily" }],
+      3,
+    );
+    expect(merged.map((h) => h.url)).toEqual(["https://a/1", "https://b/1", "https://a/3"]);
+  });
+});
+
+describe("searchTavilyJobs", () => {
+  beforeEach(() => requestStructured.mockReset().mockResolvedValue({ jobs: [] }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubTavily(byTerm: Record<string, { url: string }[] | number>) {
+    const queries: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as { query: string };
+        queries.push(body.query);
+        const term = /^"([^"]+)"/.exec(body.query)![1];
+        const answer = byTerm[term] ?? [];
+        if (typeof answer === "number") return new Response("bad", { status: answer });
+        return new Response(JSON.stringify({ results: answer.map((r) => ({ title: "Go dev", content: "fits", ...r })) }), { status: 200 });
+      }),
+    );
+    return queries;
+  }
+
+  it("searches every term and parses the merged hits once, with the background", async () => {
+    const queries = stubTavily({ "go developer": [{ url: "https://a/1" }], "backend engineer": [{ url: "https://a/1" }, { url: "https://b/1" }] });
+    const background = "y".repeat(20_000);
+    const { warnings } = await searchTavilyJobs(query({ provider: "tavily", terms: ["go developer", "backend engineer"] }), "key", background);
+    expect(queries.sort()).toEqual(['"backend engineer" jobs Berlin', '"go developer" jobs Berlin']);
+    expect(requestStructured).toHaveBeenCalledTimes(1);
+    const request = requestStructured.mock.calls[0][0] as { userPrompt?: string; systemPrompt: string };
+    const prompt = JSON.stringify(request);
+    expect(prompt).toContain(background);
+    expect(prompt.match(/https:\/\/a\/1/g)).toHaveLength(1);
+    expect(warnings).toEqual([]);
+  });
+
+  it("turns a failing term into a warning, and every term failing into an error", async () => {
+    stubTavily({ "go developer": [{ url: "https://a/1" }], broken: 400 });
+    const { warnings } = await searchTavilyJobs(query({ provider: "tavily", terms: ["go developer", "broken"] }), "key", "");
+    expect(warnings).toEqual([expect.stringMatching(/^"broken" — Tavily search failed \(400\)/)]);
+
+    stubTavily({ broken: 401 });
+    await expect(searchTavilyJobs(query({ provider: "tavily", terms: ["broken"] }), "key", "")).rejects.toThrow(/401/);
+  });
+
+  it("falls back to the single `what` and caps the number of terms", async () => {
+    const queries = stubTavily({});
+    await searchTavilyJobs(query({ provider: "tavily" }), "key", "");
+    expect(queries).toEqual(['"backend engineer" jobs Berlin']);
+
+    const many = Array.from({ length: MAX_TAVILY_QUERIES + 2 }, (_, i) => `term ${i}`);
+    const capped = stubTavily({});
+    const { warnings } = await searchTavilyJobs(query({ provider: "tavily", terms: many }), "key", "");
+    expect(capped).toHaveLength(MAX_TAVILY_QUERIES);
+    expect(warnings).toEqual([expect.stringContaining(`first ${MAX_TAVILY_QUERIES} of ${many.length}`)]);
   });
 });
 
@@ -201,6 +281,12 @@ describe("searchAdzunaJobs", () => {
     vi.unstubAllGlobals();
   });
 
+  it("runs one request per search term when no tags were resolved", async () => {
+    const outcome = searchAdzunaJobs(query({ provider: "adzuna", terms: ["a", "b"] }), { appId: "i", appKey: "k" }, "de");
+    await vi.runAllTimersAsync();
+    expect((await outcome).results.map((r) => r.tag)).toEqual(["a", "a", "b"]);
+  });
+
   it("runs tags one by one and streams each tag's new results", async () => {
     const streamed: string[][] = [];
     const outcome = searchAdzunaJobs(query({ provider: "adzuna", tags: ["a", "broken", "b"] }), { appId: "i", appKey: "k" }, "de", 1, (jobs) =>
@@ -212,5 +298,21 @@ describe("searchAdzunaJobs", () => {
     expect(results.map((r) => r.url)).toEqual(["https://adzuna/a/1", "https://adzuna/shared", "https://adzuna/b/1"]);
     expect(streamed).toEqual([["https://adzuna/a/1", "https://adzuna/shared"], ["https://adzuna/b/1"]]);
     expect(warnings).toEqual([expect.stringContaining('"broken"')]);
+  });
+});
+
+describe("searchTavilyJobs when the parse pass fails", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the raw hits with their dates read from Tavily's format", async () => {
+    requestStructured.mockReset().mockRejectedValue(new Error("parse timed out"));
+    const recent = new Date(Date.now() - 2 * 86_400_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ results: [{ title: "Go dev", url: "https://a/1", content: "fits", published_date: recent.toUTCString() }] }), { status: 200 })),
+    );
+    const { results, warnings } = await searchTavilyJobs(query({ provider: "tavily" }), "key", "");
+    expect(results.map((r) => r.postedAt)).toEqual([recent.toISOString().slice(0, 10)]);
+    expect(warnings).toEqual([expect.stringContaining("parse timed out")]);
   });
 });
