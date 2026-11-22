@@ -300,3 +300,19 @@ describe("searchAdzunaJobs", () => {
     expect(warnings).toEqual([expect.stringContaining('"broken"')]);
   });
 });
+
+describe("searchTavilyJobs when the parse pass fails", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the raw hits with their dates read from Tavily's format", async () => {
+    requestStructured.mockReset().mockRejectedValue(new Error("parse timed out"));
+    const recent = new Date(Date.now() - 2 * 86_400_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ results: [{ title: "Go dev", url: "https://a/1", content: "fits", published_date: recent.toUTCString() }] }), { status: 200 })),
+    );
+    const { results, warnings } = await searchTavilyJobs(query({ provider: "tavily" }), "key", "");
+    expect(results.map((r) => r.postedAt)).toEqual([recent.toISOString().slice(0, 10)]);
+    expect(warnings).toEqual([expect.stringContaining("parse timed out")]);
+  });
+});

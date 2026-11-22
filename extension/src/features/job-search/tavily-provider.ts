@@ -116,6 +116,12 @@ async function fetchTavily(body: Record<string, unknown>, signal?: AbortSignal):
   }
 }
 
+/** Tavily dates pages RFC 1123-style ("Wed, 28 Oct 2026 10:00:00 GMT"): the first 10 characters of that are no date, so read it whole. */
+function isoDay(date: string | undefined): string {
+  const time = date ? Date.parse(date) : NaN;
+  return Number.isNaN(time) ? "" : new Date(time).toISOString().slice(0, 10);
+}
+
 /** Raw Tavily hits as postings, for when the parse pass fails: unranked, but the links work. */
 function rawTavilyListings(results: TavilyResult[]): JobSearchResult[] {
   return dropStalePostings(
@@ -126,7 +132,7 @@ function rawTavilyListings(results: TavilyResult[]): JobSearchResult[] {
       url: r.url,
       salary: "",
       snippet: (r.content ?? "").slice(0, 240),
-      postedAt: r.published_date?.slice(0, 10) ?? "",
+      postedAt: isoDay(r.published_date),
       source: "tavily" as const,
     })),
   );
