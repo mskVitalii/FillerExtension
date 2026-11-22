@@ -7,15 +7,26 @@ import { searchAdzunaJobs } from "./adzuna-provider";
 import { adzunaCountryCode } from "./adzuna-country";
 import { timeStage } from "./timing";
 import { getSearchSuggestion } from "./suggestion-cache";
+import { cleanTerms, searchTerms } from "./terms";
 
 export interface JobSearchRun {
   results: JobSearchResult[];
-  /** The query as searched — Adzuna fills in `tags` (and `what`/`where`) the next page must reuse. */
+  /** The query as searched — Adzuna fills in `tags` (and `what`/`where`), Tavily `terms`, which the next page must reuse. */
   resolvedQuery: JobSearchQuery;
   /** Partial-results notices: an Adzuna tag that failed, a web search that stopped early, an unsorted Tavily list. */
   warnings?: string[];
   totalMs: number;
   stages: JobSearchStageTiming[];
+}
+
+/** The CV-derived term set (title synonyms + per-language variants), timed as one stage. */
+async function suggestTerms(stages: JobSearchStageTiming[], label: string): Promise<{ what: string; where: string; terms: string[] }> {
+  const started = performance.now();
+  const suggestion = await getSearchSuggestion(true);
+  stages.push({ label: suggestion.cached ? `${label} (cached)` : label, ms: performance.now() - started });
+  const terms = cleanTerms(suggestion.tags?.length ? suggestion.tags : [suggestion.what]);
+  if (terms.length === 0) throw new Error("Couldn't derive search terms from your CV — type a few search terms.");
+  return { what: suggestion.what, where: suggestion.where, terms };
 }
 
 /**
@@ -48,19 +59,18 @@ export async function runJobSearch(
     // independently and could land on a *different* tag set than page 1.
     let resolved = query;
     if (!resolved.tags?.length) {
-      if (resolved.what.trim()) {
-        // A user-typed keyword is a deliberate, specific override — respect
-        // it as-is rather than second-guessing it with AI-derived tags.
-        resolved = { ...resolved, tags: [resolved.what.trim()] };
+      const terms = searchTerms(resolved);
+      if (terms.length > 0) {
+        // User-given terms are a deliberate, specific override — respect
+        // them as-is rather than second-guessing them with AI-derived tags.
+        resolved = { ...resolved, tags: terms };
       } else {
-        const startedSuggest = performance.now();
-        const suggestion = await getSearchSuggestion(true);
-        stages.push({ label: suggestion.cached ? "Suggest tags (cached)" : "Suggest tags", ms: performance.now() - startedSuggest });
+        const suggestion = await suggestTerms(stages, "Suggest tags");
         resolved = {
           ...resolved,
           what: suggestion.what,
           where: resolved.where.trim() || suggestion.where,
-          tags: suggestion.tags?.length ? suggestion.tags : [suggestion.what],
+          tags: suggestion.terms,
         };
       }
     }
@@ -85,10 +95,17 @@ export async function runJobSearch(
   const background = legend?.content ?? "";
   if (query.provider === "tavily") {
     if (!creds.tavilyApiKey) throw new Error("Add your Tavily API key in Settings first.");
-    const { results, warnings } = await searchTavilyJobs(query, creds.tavilyApiKey, background, options.excludeResults, stages, options.signal);
+    // Tavily is a keyword search like Adzuna: without terms it searches the CV-derived set, locked
+    // into `resolvedQuery.terms` so "load more" reuses it.
+    let resolved = query;
+    if (searchTerms(resolved).length === 0) {
+      const suggestion = await suggestTerms(stages, "Suggest terms");
+      resolved = { ...resolved, terms: suggestion.terms, where: resolved.where.trim() || suggestion.where };
+    }
+    const { results, warnings } = await searchTavilyJobs(resolved, creds.tavilyApiKey, background, options.excludeResults, stages, options.signal);
     // Tavily answers all at once: hand the batch over the same way, so callers need one path.
     if (results.length > 0) options.onResults?.(results);
-    return { results, resolvedQuery: query, ...(warnings.length ? { warnings } : {}), ...timing() };
+    return { results, resolvedQuery: resolved, ...(warnings.length ? { warnings } : {}), ...timing() };
   }
   const { results, warnings } = await searchOpenAiJobs(query, background, options.excludeResults, stages, options.onResults, options.signal);
   return { results, resolvedQuery: query, ...(warnings.length ? { warnings } : {}), ...timing() };
