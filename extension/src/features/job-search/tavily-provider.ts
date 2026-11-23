@@ -54,17 +54,60 @@ const MAX_HIT_CONTENT = 1200;
 const MAX_WHERE_LENGTH = 100;
 
 /**
- * How one term is searched. Each round ("page") runs two kinds of query per term, and the next page
- * runs two others, so "load more" and the autopilot's next round reach postings the last one didn't:
+ * How one term is searched. Each round ("page") runs other queries than the last, so "load more" and
+ * the autopilot's next round reach postings the last one didn't (Tavily itself has no pages):
  *  - `jobs`: "term" jobs Germany — the open web, the employers' ATS ranked first;
  *  - `ats`: "term" Germany on the ATS hosts only — direct postings the agent can apply to;
  *  - `hiring`: term hiring Germany, published this week — the freshest postings;
- *  - `local`: the local market's own wording ("(m/w/d)" in German-speaking countries).
+ *  - `local`: the local market's own wording ("(m/w/d)" in German-speaking countries);
+ *  - `city`: "term" jobs Munich — a country's big cities, two per round (`TAVILY_CITIES`), where a
+ *    country-wide query only ever reaches the same few pages.
  */
-export type TavilyVariant = "jobs" | "ats" | "hiring" | "local";
+export type TavilyVariant = "jobs" | "ats" | "hiring" | "local" | "city";
 
+/** One query of a round: its kind, and the place it names when that isn't the search's own ("Munich"). */
+export interface TavilyQueryPlan {
+  variant: TavilyVariant;
+  place?: string;
+}
+
+/** The big tech-job cities of the countries a search names most, in order of how many postings they have. */
+export const TAVILY_CITIES: Record<string, string[]> = {
+  germany: ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne", "Stuttgart", "Düsseldorf", "Leipzig", "Karlsruhe", "Dresden", "Hanover", "Nuremberg", "Bonn", "Mannheim", "Essen", "Dortmund"],
+  austria: ["Vienna", "Graz", "Linz", "Salzburg"],
+  switzerland: ["Zurich", "Geneva", "Basel", "Bern", "Lausanne", "Zug"],
+  netherlands: ["Amsterdam", "Rotterdam", "Utrecht", "Eindhoven", "The Hague"],
+  "united kingdom": ["London", "Manchester", "Edinburgh", "Cambridge", "Bristol", "Oxford"],
+  france: ["Paris", "Lyon", "Toulouse", "Nantes"],
+  spain: ["Madrid", "Barcelona", "Valencia", "Málaga"],
+  poland: ["Warsaw", "Kraków", "Wrocław", "Gdańsk"],
+};
+const CITIES_PER_ROUND = 2;
+
+/** The cities a country-wide search spreads over; none when it names a city (or nothing) itself. */
+export function tavilyCities(where: string): string[] {
+  const country = countryNamedIn(where);
+  return country ? (TAVILY_CITIES[country] ?? []) : [];
+}
+
+/** How many different rounds a search has before they repeat: the two base rounds, then the cities two at a time. */
+export function tavilyRounds(where: string): number {
+  return 2 + Math.ceil(tavilyCities(where).length / CITIES_PER_ROUND);
+}
+
+/** The queries of round `page` (1-based; past the last round they start over). */
+export function tavilyPlan(page: number, where = ""): TavilyQueryPlan[] {
+  const round = (Math.max(1, page) - 1) % tavilyRounds(where);
+  if (round === 0) return [{ variant: "jobs" }, { variant: "ats" }];
+  if (round === 1) return [{ variant: "hiring" }, { variant: "local" }];
+  const cities = tavilyCities(where);
+  const from = (round - 2) * CITIES_PER_ROUND;
+  return cities.slice(from, from + CITIES_PER_ROUND).map((place) => ({ variant: "city" as const, place }));
+}
+
+/** The kinds of query of round `page`, for a search without cities. */
 export function tavilyVariants(page: number): TavilyVariant[] {
-  return (Math.max(1, page) - 1) % 2 === 0 ? ["jobs", "ats"] : ["hiring", "local"];
+  return tavilyPlan(page).map((p) => p.variant);
 }
 
 /** Countries Tavily's `country` boost knows, by the names a "where" uses for them. */
@@ -80,12 +123,19 @@ const TAVILY_COUNTRIES: Record<string, string> = {
 };
 const GERMAN_SPEAKING = /(?<!\p{L})(?:germany|deutschland|austria|österreich|switzerland|schweiz|berlin|münchen|munich|hamburg|köln|cologne|frankfurt|stuttgart|düsseldorf|leipzig|dresden|hannover|nürnberg|wien|vienna|zürich|zurich)(?!\p{L})|германи/iu;
 
-/** The country a "where" names, as Tavily's `country` parameter wants it ("germany"), or "". */
-export function tavilyCountry(where: string): string {
+/** The country a "where" names by name ("Germany", "UK"), not by one of its cities, or "". */
+function countryNamedIn(where: string): string {
   const text = where.toLowerCase();
   for (const [name, country] of Object.entries(TAVILY_COUNTRIES)) {
     if (new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}])`, "u").test(text)) return country;
   }
+  return "";
+}
+
+/** The country a "where" names, as Tavily's `country` parameter wants it ("germany"), or "". */
+export function tavilyCountry(where: string): string {
+  const named = countryNamedIn(where);
+  if (named) return named;
   // A German city alone ("Berlin") is Germany.
   return GERMAN_SPEAKING.test(where) && !/austria|österreich|wien|vienna|switzerland|schweiz|zürich|zurich/i.test(where) ? "germany" : "";
 }
@@ -97,7 +147,7 @@ export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "wher
     .map((g) => g.label.toLowerCase())
     .filter((g) => !phrase.toLowerCase().includes(g));
   const where = query.where.trim().slice(0, MAX_WHERE_LENGTH);
-  const word = { jobs: "jobs", ats: "", hiring: "hiring", local: GERMAN_SPEAKING.test(where) ? "(m/w/d)" : "job opening" }[variant];
+  const word = { jobs: "jobs", city: "jobs", ats: "", hiring: "hiring", local: GERMAN_SPEAKING.test(where) ? "(m/w/d)" : "job opening" }[variant];
   const tail = [word, where, query.remoteOnly ? "remote" : "", ...grades].filter(Boolean).join(" ");
   // The term gets whatever room the rest leaves; the final cut is a guarantee, not the plan.
   const room = Math.max(1, MAX_TAVILY_QUERY_LENGTH - tail.length - 3);
@@ -110,12 +160,13 @@ export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "wher
  * in the parse pass; only terms that are domains ("linkedin.com") are dropped
  * natively, through `exclude_domains`.
  */
-export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string, variant: TavilyVariant = "jobs"): Record<string, unknown> {
+export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string, variant: TavilyVariant = "jobs", place?: string): Record<string, unknown> {
   const excludeDomains = negativeDomains(query.negative);
   const country = tavilyCountry(query.where);
   return {
     api_key: apiKey,
-    query: buildTavilyQuery(term, query, variant),
+    // A city round names the city in place of the country ("Munich"); the country stays the boost.
+    query: buildTavilyQuery(term, place ? { ...query, where: place } : query, variant),
     // "advanced" (2 credits) for the broad query, where its better snippets matter most; "basic" for the rest.
     search_depth: variant === "jobs" ? "advanced" : "basic",
     max_results: RESULTS_PER_QUERY,
@@ -230,7 +281,7 @@ export function mergeTavilyHits(perTerm: TavilyResult[][], exclude: JobSearchRes
 }
 
 /**
- * Two Tavily searches per term (`tavilyVariants(page)`; the caller resolves a CV-derived set when the
+ * Two Tavily searches per term (`tavilyPlan(page)`: base, fresh/local, then two cities a round; the caller resolves a CV-derived set when the
  * user gave none), a few at a time, then parse passes over the merged hits in chunks, all told where
  * the search is. A query that fails is a warning; every query failing is an error, not "no postings".
  */
@@ -248,13 +299,13 @@ export async function searchTavilyJobs(
   const terms = all.slice(0, MAX_TAVILY_QUERIES);
   const warnings: string[] = [];
   if (all.length > terms.length) warnings.push(`Only the first ${terms.length} of ${all.length} search terms were searched with Tavily.`);
-  const variants = tavilyVariants(page);
-  const jobs = terms.flatMap((term) => variants.map((variant) => ({ term, variant })));
+  const plan = tavilyPlan(page, query.where);
+  const jobs = terms.flatMap((term) => plan.map(({ variant, place }) => ({ term, variant, place })));
 
   const outcomes = await timeStage(stages, "Tavily search", () =>
-    mapLimit(jobs, TAVILY_CONCURRENCY, async ({ term, variant }) => {
+    mapLimit(jobs, TAVILY_CONCURRENCY, async ({ term, variant, place }) => {
       try {
-        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey, variant), signal);
+        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey, variant, place), signal);
         return { term, variant, hits: data.results ?? [] };
       } catch (err) {
         if (signal?.aborted) throw err;
@@ -265,7 +316,7 @@ export async function searchTavilyJobs(
   const failed = outcomes.filter((o) => o.error !== undefined);
   if (failed.length === outcomes.length) throw failed[0].error;
   // One warning per term, not per query: a term that failed in both of its queries.
-  const failedTerms = [...new Set(failed.map((o) => o.term))].filter((t) => failed.filter((o) => o.term === t).length === variants.length);
+  const failedTerms = [...new Set(failed.map((o) => o.term))].filter((t) => failed.filter((o) => o.term === t).length === plan.length);
   for (const term of failedTerms) {
     const o = failed.find((x) => x.term === term)!;
     warnings.push(`"${term}" — ${o.error instanceof Error ? o.error.message : "search failed"}`);

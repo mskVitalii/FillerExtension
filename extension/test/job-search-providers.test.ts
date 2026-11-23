@@ -9,7 +9,7 @@ vi.mock("@/features/openai/client", () => ({
 }));
 
 const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS, OPENAI_SEARCH_SHARDS } = await import("@/features/job-search/openai-provider");
-const { buildTavilyQuery, buildTavilyRequest, mergeTavilyHits, searchTavilyJobs, tavilyCountry, tavilyVariants, MAX_TAVILY_QUERIES, MAX_TAVILY_QUERY_LENGTH } = await import("@/features/job-search/tavily-provider");
+const { buildTavilyQuery, buildTavilyRequest, mergeTavilyHits, searchTavilyJobs, tavilyCountry, tavilyPlan, tavilyRounds, tavilyVariants, MAX_TAVILY_QUERIES, MAX_TAVILY_QUERY_LENGTH } = await import("@/features/job-search/tavily-provider");
 const { buildAdzunaUrl, searchAdzunaJobs } = await import("@/features/job-search/adzuna-provider");
 const { extractJobListings } = await import("@/features/openai/extract-job-listings");
 
@@ -168,6 +168,18 @@ describe("Tavily request", () => {
     expect(buildTavilyRequest(q, "go developer", "key", "hiring")).toMatchObject({ query: "go developer hiring Germany", time_range: "week" });
     expect(buildTavilyQuery("go developer", { where: "Germany" }, "local")).toBe('"go developer" (m/w/d) Germany');
     expect(buildTavilyQuery("go developer", { where: "Lisbon" }, "local")).toBe('"go developer" job opening Lisbon');
+  });
+
+  it("a country-wide search goes on round by round through its big cities, two at a time, then starts over", () => {
+    expect(tavilyRounds("Germany")).toBe(10);
+    expect(tavilyPlan(3, "Germany")).toEqual([{ variant: "city", place: "Berlin" }, { variant: "city", place: "Munich" }]);
+    expect(tavilyPlan(4, "Germany")).toEqual([{ variant: "city", place: "Hamburg" }, { variant: "city", place: "Frankfurt" }]);
+    expect(tavilyPlan(11, "Germany")).toEqual(tavilyPlan(1, "Germany"));
+    // A city search, or a place without a list, has no city rounds.
+    expect(tavilyRounds("Berlin")).toBe(2);
+    expect(tavilyPlan(3, "Berlin")).toEqual(tavilyPlan(1, "Berlin"));
+    const body = buildTavilyRequest(query({ provider: "tavily", where: "Germany" }), "go developer", "key", "city", "Munich");
+    expect(body).toMatchObject({ query: '"go developer" jobs Munich', country: "germany", search_depth: "basic" });
   });
 
   it("boosts the searched country", () => {
