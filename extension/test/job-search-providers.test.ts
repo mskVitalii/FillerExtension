@@ -9,7 +9,7 @@ vi.mock("@/features/openai/client", () => ({
 }));
 
 const { buildOpenAiSearchPrompt, searchOpenAiJobs, MAX_OPENAI_RESULTS, OPENAI_SEARCH_SHARDS } = await import("@/features/job-search/openai-provider");
-const { buildTavilyQuery, buildTavilyRequest, mergeTavilyHits, searchTavilyJobs, MAX_TAVILY_QUERIES, MAX_TAVILY_QUERY_LENGTH } = await import("@/features/job-search/tavily-provider");
+const { buildTavilyQuery, buildTavilyRequest, mergeTavilyHits, searchTavilyJobs, tavilyCountry, tavilyVariants, MAX_TAVILY_QUERIES, MAX_TAVILY_QUERY_LENGTH } = await import("@/features/job-search/tavily-provider");
 const { buildAdzunaUrl, searchAdzunaJobs } = await import("@/features/job-search/adzuna-provider");
 const { extractJobListings } = await import("@/features/openai/extract-job-listings");
 
@@ -157,6 +157,27 @@ describe("Tavily request", () => {
     expect(buildTavilyQuery("Senior Go developer", { where: "", grades: ["senior"] })).toBe('"Senior Go developer" jobs');
   });
 
+  it("each round runs two kinds of query per term, the next round two others (Tavily has no pages)", () => {
+    expect(tavilyVariants(1)).toEqual(["jobs", "ats"]);
+    expect(tavilyVariants(2)).toEqual(["hiring", "local"]);
+    expect(tavilyVariants(3)).toEqual(["jobs", "ats"]);
+    const q = query({ provider: "tavily", where: "Germany" });
+    expect(buildTavilyRequest(q, "go developer", "key", "ats")).toMatchObject({ query: '"go developer" Germany', search_depth: "basic", country: "germany" });
+    expect(buildTavilyRequest(q, "go developer", "key", "ats")).not.toHaveProperty("include_domains_mode");
+    expect(buildTavilyRequest(q, "go developer", "key", "jobs")).toMatchObject({ include_domains_mode: "prefer", search_depth: "advanced" });
+    expect(buildTavilyRequest(q, "go developer", "key", "hiring")).toMatchObject({ query: "go developer hiring Germany", time_range: "week" });
+    expect(buildTavilyQuery("go developer", { where: "Germany" }, "local")).toBe('"go developer" (m/w/d) Germany');
+    expect(buildTavilyQuery("go developer", { where: "Lisbon" }, "local")).toBe('"go developer" job opening Lisbon');
+  });
+
+  it("boosts the searched country", () => {
+    expect(tavilyCountry("Germany")).toBe("germany");
+    expect(tavilyCountry("Berlin")).toBe("germany");
+    expect(tavilyCountry("Wien, Österreich")).toBe("austria");
+    expect(tavilyCountry("London, UK")).toBe("united kingdom");
+    expect(tavilyCountry("Lisbon")).toBe("");
+  });
+
   it("sends no exclude_domains without a domain term", () => {
     expect(buildTavilyRequest(query({ negative: "no crypto" }), "go developer", "key")).not.toHaveProperty("exclude_domains");
   });
@@ -196,13 +217,23 @@ describe("searchTavilyJobs", () => {
     const queries = stubTavily({ "go developer": [{ url: "https://a/1" }], "backend engineer": [{ url: "https://a/1" }, { url: "https://b/1" }] });
     const background = "y".repeat(20_000);
     const { warnings } = await searchTavilyJobs(query({ provider: "tavily", terms: ["go developer", "backend engineer"] }), "key", background);
-    expect(queries.sort()).toEqual(['"backend engineer" jobs Berlin', '"go developer" jobs Berlin']);
+    expect(queries.sort()).toEqual(['"backend engineer" Berlin', '"backend engineer" jobs Berlin', '"go developer" Berlin', '"go developer" jobs Berlin']);
     expect(requestStructured).toHaveBeenCalledTimes(1);
     const request = requestStructured.mock.calls[0][0] as { userPrompt?: string; systemPrompt: string };
     const prompt = JSON.stringify(request);
     expect(prompt).toContain(background);
     expect(prompt.match(/https:\/\/a\/1/g)).toHaveLength(1);
     expect(warnings).toEqual([]);
+  });
+
+  it("parses many hits in batches, each told where the search is, so none is cut off", async () => {
+    const hits = Array.from({ length: 20 }, (_, i) => ({ url: `https://a/${i}` }));
+    stubTavily({ "go developer": hits });
+    requestStructured.mockImplementation(async (...a: unknown[]) => { const req = a[0] as { userPrompt: string } | undefined; return { jobs: [...(req?.userPrompt ?? "").matchAll(/URL: (\S+)/g)].map((m) => ({ title: "t", company: "c", location: "Berlin", url: m[1], salary: "", snippet: "", postedAt: "" })) }; });
+    const { results } = await searchTavilyJobs(query({ provider: "tavily", terms: ["go developer"], where: "Germany" }), "key", "");
+    expect(requestStructured.mock.calls.length).toBe(2);
+    expect(results).toHaveLength(20);
+    expect((requestStructured.mock.calls[0][0] as { systemPrompt: string }).systemPrompt).toContain('jobs in "Germany". Drop every posting whose workplace is outside Germany');
   });
 
   it("turns a failing term into a warning, and every term failing into an error", async () => {
@@ -217,12 +248,12 @@ describe("searchTavilyJobs", () => {
   it("falls back to the single `what` and caps the number of terms", async () => {
     const queries = stubTavily({});
     await searchTavilyJobs(query({ provider: "tavily" }), "key", "");
-    expect(queries).toEqual(['"backend engineer" jobs Berlin']);
+    expect(queries.sort()).toEqual(['"backend engineer" Berlin', '"backend engineer" jobs Berlin']);
 
     const many = Array.from({ length: MAX_TAVILY_QUERIES + 2 }, (_, i) => `term ${i}`);
     const capped = stubTavily({});
     const { warnings } = await searchTavilyJobs(query({ provider: "tavily", terms: many }), "key", "");
-    expect(capped).toHaveLength(MAX_TAVILY_QUERIES);
+    expect(capped).toHaveLength(MAX_TAVILY_QUERIES * 2);
     expect(warnings).toEqual([expect.stringContaining(`first ${MAX_TAVILY_QUERIES} of ${many.length}`)]);
   });
 });

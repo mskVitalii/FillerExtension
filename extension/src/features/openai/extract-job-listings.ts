@@ -29,7 +29,15 @@ const SCHEMA = {
   },
 } as const;
 
-function systemPrompt(today: string, negative?: string): string {
+/** The search's place as a hard rule for the parse pass ("Germany"): a posting elsewhere is dropped, not ranked lower. */
+export function placeInstruction(where?: string, remoteOnly?: boolean): string {
+  const place = (where ?? "").trim().slice(0, 100);
+  const remote = remoteOnly ? " The search is for remote jobs: drop postings that are on-site or hybrid only." : "";
+  if (!place) return remote.trim();
+  return `The search is for jobs in "${place}". Drop every posting whose workplace is outside ${place} — another country, or remote only for people elsewhere ("US only", "LATAM") — and drop it too when the text names no place at all and the employer is clearly based elsewhere. Keep postings in ${place} (any city in it) and remote postings open to people living there. "location" is the posting's own place, as specific as the text gives it ("Munich, Germany", "Remote (Germany)"); never leave it empty when the text names one.${remote}`;
+}
+
+function systemPrompt(today: string, negative?: string, place?: string): string {
   const exclusion = negativeInstruction(negative);
   return `You turn raw web-search results about job openings into a clean,
 structured list. The input text was produced by a live internet search and may include
@@ -50,10 +58,9 @@ Rules:
 - "snippet" is a 1-2 sentence summary of the role; when a "candidate" background is given
   below, make it say *why this posting fits them* specifically (seniority match, matching
   skills, location/remote fit) rather than just restating the posting.
-- If a "candidate" background is given, drop postings that are a poor fit for them (wrong
-  seniority, unrelated field) even if they're genuine job postings — only surface ones
-  actually worth their time.
-- Deduplicate: the same posting linked twice becomes one entry.${exclusion ? `\n- ${exclusion}` : ""}
+- If a "candidate" background is given, drop postings that are clearly a poor fit for them
+  (an unrelated field, a seniority far off). When unsure, keep it: a later step scores the fit.
+- Deduplicate: the same posting linked twice becomes one entry.${place ? `\n- ${place}` : ""}${exclusion ? `\n- ${exclusion}` : ""}
 - If nothing in the text is actually a job posting, return an empty "jobs" array.`;
 }
 
@@ -72,7 +79,7 @@ export async function extractJobListings(
   rawText: string,
   source: "openai" | "tavily",
   candidateBackground?: string,
-  options: { negative?: string; reasoningEffort?: ReasoningEffort; timeoutMs?: number; signal?: AbortSignal } = {},
+  options: { negative?: string; where?: string; remoteOnly?: boolean; reasoningEffort?: ReasoningEffort; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<JobSearchResult[]> {
   const userPrompt = candidateBackground
     ? `candidate:\n${candidateBackground}\n\n---\n\n${rawText.slice(0, 40000)}`
@@ -83,7 +90,7 @@ export async function extractJobListings(
   }>({
     schemaName: "job_listings",
     schema: SCHEMA,
-    systemPrompt: systemPrompt(todayISO(), options.negative),
+    systemPrompt: systemPrompt(todayISO(), options.negative, placeInstruction(options.where, options.remoteOnly)),
     userPrompt,
     reasoningEffort: options.reasoningEffort,
     timeoutMs: options.timeoutMs,

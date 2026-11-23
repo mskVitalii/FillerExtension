@@ -102,7 +102,7 @@ export async function runJobSearch(
       const suggestion = await suggestTerms(stages, "Suggest terms");
       resolved = { ...resolved, terms: suggestion.terms, where: resolved.where.trim() || suggestion.where };
     }
-    const { results, warnings } = await searchTavilyJobs(resolved, creds.tavilyApiKey, background, options.excludeResults, stages, options.signal);
+    const { results, warnings } = await searchTavilyJobs(resolved, creds.tavilyApiKey, background, options.excludeResults, stages, options.signal, options.page ?? 1);
     // Tavily answers all at once: hand the batch over the same way, so callers need one path.
     if (results.length > 0) options.onResults?.(results);
     return { results, resolvedQuery: resolved, ...(warnings.length ? { warnings } : {}), ...timing() };

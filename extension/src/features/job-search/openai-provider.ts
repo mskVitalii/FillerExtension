@@ -165,6 +165,8 @@ export async function searchOpenAiJobs(
   const parsed = await timeStage(stages, "Parse results", () =>
     extractJobListings(prose, "openai", candidateBackground, {
       negative: query.negative,
+      where: query.where,
+      remoteOnly: query.remoteOnly,
       reasoningEffort: "low",
       timeoutMs: OPENAI_SEARCH_LIMITS.parseTimeoutMs,
       signal,

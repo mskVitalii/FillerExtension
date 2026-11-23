@@ -34,27 +34,75 @@ interface TavilyResponse {
  * candidate stays in the parse pass, where it decides what fits.
  */
 export const MAX_TAVILY_QUERY_LENGTH = 350;
-/** Each term is one "advanced" Tavily search (2 API credits): a CV-derived set of ten near-synonyms would cost 20 per search. */
-export const MAX_TAVILY_QUERIES = 6;
+/**
+ * Terms searched per round: every term the user (or the CV) gave, up to the agent's own cap. It used to
+ * be 6 of 9, and each page ran the same 6 queries again (Tavily has no pages), so the autopilot found
+ * 0-5 new postings a round in a market with thousands (2026-11-23).
+ */
+export const MAX_TAVILY_QUERIES = 12;
 /** Parallel Tavily requests; more than a few at once runs into its rate limit. */
-const TAVILY_CONCURRENCY = 3;
-const RESULTS_PER_QUERY = 10;
-/** What one parse pass reads: enough hits from every term, without a prompt so long the parse times out. */
-const MAX_PARSE_HITS = 40;
-const MAX_HIT_CONTENT = 1500;
+const TAVILY_CONCURRENCY = 4;
+/** Tavily's maximum per request. */
+const RESULTS_PER_QUERY = 20;
+/** What all parse passes of one round read together. */
+const MAX_PARSE_HITS = 160;
+/** Hits per parse pass: small enough that none is cut at the parser's 40k-character input (it used to drop ~40% of the hits). */
+const PARSE_CHUNK = 16;
+const PARSE_CONCURRENCY = 4;
+const MAX_HIT_CONTENT = 1200;
 /** A user-typed place can be a sentence; the query keeps room for the term. */
 const MAX_WHERE_LENGTH = 100;
 
+/**
+ * How one term is searched. Each round ("page") runs two kinds of query per term, and the next page
+ * runs two others, so "load more" and the autopilot's next round reach postings the last one didn't:
+ *  - `jobs`: "term" jobs Germany — the open web, the employers' ATS ranked first;
+ *  - `ats`: "term" Germany on the ATS hosts only — direct postings the agent can apply to;
+ *  - `hiring`: term hiring Germany, published this week — the freshest postings;
+ *  - `local`: the local market's own wording ("(m/w/d)" in German-speaking countries).
+ */
+export type TavilyVariant = "jobs" | "ats" | "hiring" | "local";
+
+export function tavilyVariants(page: number): TavilyVariant[] {
+  return (Math.max(1, page) - 1) % 2 === 0 ? ["jobs", "ats"] : ["hiring", "local"];
+}
+
+/** Countries Tavily's `country` boost knows, by the names a "where" uses for them. */
+const TAVILY_COUNTRIES: Record<string, string> = {
+  germany: "germany", deutschland: "germany", "германия": "germany",
+  austria: "austria", "österreich": "austria", switzerland: "switzerland", schweiz: "switzerland",
+  netherlands: "netherlands", "the netherlands": "netherlands", france: "france", spain: "spain", italy: "italy",
+  poland: "poland", portugal: "portugal", ireland: "ireland", belgium: "belgium", sweden: "sweden", denmark: "denmark",
+  finland: "finland", norway: "norway", "czech republic": "czech republic", czechia: "czech republic",
+  "united kingdom": "united kingdom", uk: "united kingdom", england: "united kingdom",
+  "united states": "united states", usa: "united states", canada: "canada", japan: "japan", singapore: "singapore",
+  "united arab emirates": "united arab emirates", uae: "united arab emirates", australia: "australia",
+};
+const GERMAN_SPEAKING = /(?<!\p{L})(?:germany|deutschland|austria|österreich|switzerland|schweiz|berlin|münchen|munich|hamburg|köln|cologne|frankfurt|stuttgart|düsseldorf|leipzig|dresden|hannover|nürnberg|wien|vienna|zürich|zurich)(?!\p{L})|германи/iu;
+
+/** The country a "where" names, as Tavily's `country` parameter wants it ("germany"), or "". */
+export function tavilyCountry(where: string): string {
+  const text = where.toLowerCase();
+  for (const [name, country] of Object.entries(TAVILY_COUNTRIES)) {
+    if (new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}])`, "u").test(text)) return country;
+  }
+  // A German city alone ("Berlin") is Germany.
+  return GERMAN_SPEAKING.test(where) && !/austria|österreich|wien|vienna|switzerland|schweiz|zürich|zurich/i.test(where) ? "germany" : "";
+}
+
 /** One term as a keyword query: `"go developer" jobs Berlin remote senior`, never over `MAX_TAVILY_QUERY_LENGTH`. */
-export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "where" | "remoteOnly" | "grades">): string {
+export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "where" | "remoteOnly" | "grades">, variant: TavilyVariant = "jobs"): string {
   const phrase = term.replace(/["\s]+/g, " ").trim();
   const grades = JOB_GRADES.filter((g) => query.grades?.includes(g.id))
     .map((g) => g.label.toLowerCase())
     .filter((g) => !phrase.toLowerCase().includes(g));
-  const tail = ["jobs", query.where.trim().slice(0, MAX_WHERE_LENGTH), query.remoteOnly ? "remote" : "", ...grades].filter(Boolean).join(" ");
+  const where = query.where.trim().slice(0, MAX_WHERE_LENGTH);
+  const word = { jobs: "jobs", ats: "", hiring: "hiring", local: GERMAN_SPEAKING.test(where) ? "(m/w/d)" : "job opening" }[variant];
+  const tail = [word, where, query.remoteOnly ? "remote" : "", ...grades].filter(Boolean).join(" ");
   // The term gets whatever room the rest leaves; the final cut is a guarantee, not the plan.
   const room = Math.max(1, MAX_TAVILY_QUERY_LENGTH - tail.length - 3);
-  return `"${phrase.slice(0, room).trim()}" ${tail}`.slice(0, MAX_TAVILY_QUERY_LENGTH).trim();
+  const quoted = variant === "hiring" ? phrase.slice(0, room).trim() : `"${phrase.slice(0, room).trim()}"`;
+  return `${quoted} ${tail}`.slice(0, MAX_TAVILY_QUERY_LENGTH).trim();
 }
 
 /**
@@ -62,27 +110,31 @@ export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "wher
  * in the parse pass; only terms that are domains ("linkedin.com") are dropped
  * natively, through `exclude_domains`.
  */
-export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string): Record<string, unknown> {
+export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string, variant: TavilyVariant = "jobs"): Record<string, unknown> {
   const excludeDomains = negativeDomains(query.negative);
+  const country = tavilyCountry(query.where);
   return {
     api_key: apiKey,
-    query: buildTavilyQuery(term, query),
-    search_depth: "advanced",
+    query: buildTavilyQuery(term, query, variant),
+    // "advanced" (2 credits) for the broad query, where its better snippets matter most; "basic" for the rest.
+    search_depth: variant === "jobs" ? "advanced" : "basic",
     max_results: RESULTS_PER_QUERY,
     include_answer: false,
-    // Recency cut at the source: pages published or updated in the last
-    // month. Anything older is the main cause of dead links.
-    time_range: "month",
+    // Recency cut at the source: pages published or updated in the last month (this week for
+    // "hiring"). Anything older is the main cause of dead links.
+    time_range: variant === "hiring" ? "week" : "month",
     include_published_date: true,
-    // "prefer", not "restrict": rank the employers' own ATS postings first
-    // without losing career pages and boards outside the list.
+    // "ats": the employers' ATS only (direct postings). Otherwise "prefer": ranked first, without
+    // losing career pages and boards outside the list.
     include_domains: ATS_DOMAINS,
-    include_domains_mode: "prefer",
+    ...(variant === "ats" ? {} : { include_domains_mode: "prefer" }),
+    // Ranks pages from the searched country first ("germany").
+    ...(country ? { country } : {}),
     ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
   };
 }
 
-/** Tavily's "advanced" search usually answers in 3-8 s; the parse pass in 5-15 s. */
+/** Tavily's "advanced" search usually answers in 3-8 s; a parse pass in 5-15 s. */
 export const TAVILY_LIMITS = { searchTimeoutMs: 25_000, parseTimeoutMs: 40_000 } as const;
 
 export interface TavilySearchOutcome {
@@ -178,9 +230,9 @@ export function mergeTavilyHits(perTerm: TavilyResult[][], exclude: JobSearchRes
 }
 
 /**
- * One Tavily search per term (`searchTerms`; the caller resolves a CV-derived set when the user gave
- * none), a few at a time, then one parse pass over the merged hits. A term that fails is a warning;
- * every term failing is an error, not "no postings".
+ * Two Tavily searches per term (`tavilyVariants(page)`; the caller resolves a CV-derived set when the
+ * user gave none), a few at a time, then parse passes over the merged hits in chunks, all told where
+ * the search is. A query that fails is a warning; every query failing is an error, not "no postings".
  */
 export async function searchTavilyJobs(
   query: JobSearchQuery,
@@ -189,47 +241,73 @@ export async function searchTavilyJobs(
   excludeResults: JobSearchResult[] = [],
   stages?: JobSearchStageTiming[],
   signal?: AbortSignal,
+  page = 1,
 ): Promise<TavilySearchOutcome> {
   const all = searchTerms(query);
   if (all.length === 0) throw new Error("Tavily needs at least one search term.");
   const terms = all.slice(0, MAX_TAVILY_QUERIES);
   const warnings: string[] = [];
   if (all.length > terms.length) warnings.push(`Only the first ${terms.length} of ${all.length} search terms were searched with Tavily.`);
+  const variants = tavilyVariants(page);
+  const jobs = terms.flatMap((term) => variants.map((variant) => ({ term, variant })));
 
   const outcomes = await timeStage(stages, "Tavily search", () =>
-    mapLimit(terms, TAVILY_CONCURRENCY, async (term) => {
+    mapLimit(jobs, TAVILY_CONCURRENCY, async ({ term, variant }) => {
       try {
-        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey), signal);
-        return { term, hits: data.results ?? [] };
+        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey, variant), signal);
+        return { term, variant, hits: data.results ?? [] };
       } catch (err) {
         if (signal?.aborted) throw err;
-        return { term, hits: [] as TavilyResult[], error: err };
+        return { term, variant, hits: [] as TavilyResult[], error: err };
       }
     }),
   );
   const failed = outcomes.filter((o) => o.error !== undefined);
   if (failed.length === outcomes.length) throw failed[0].error;
-  for (const o of failed) warnings.push(`"${o.term}" — ${o.error instanceof Error ? o.error.message : "search failed"}`);
+  // One warning per term, not per query: a term that failed in both of its queries.
+  const failedTerms = [...new Set(failed.map((o) => o.term))].filter((t) => failed.filter((o) => o.term === t).length === variants.length);
+  for (const term of failedTerms) {
+    const o = failed.find((x) => x.term === term)!;
+    warnings.push(`"${term}" — ${o.error instanceof Error ? o.error.message : "search failed"}`);
+  }
 
   const hits = mergeTavilyHits(outcomes.map((o) => o.hits), excludeResults);
   if (hits.length === 0) return { results: [], warnings };
 
-  const rawText = hits
-    .map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${(r.content ?? "").slice(0, MAX_HIT_CONTENT)}`)
-    .join("\n\n---\n\n");
-  try {
-    const results = await timeStage(stages, "Parse results", () =>
-      extractJobListings(rawText, "tavily", candidateBackground, {
-        negative: query.negative,
-        reasoningEffort: "low",
-        timeoutMs: TAVILY_LIMITS.parseTimeoutMs,
-        signal,
-      }),
-    );
-    return { results, warnings };
-  } catch (err) {
-    if (signal?.aborted) throw err;
-    const reason = err instanceof Error ? err.message : "parse failed";
-    return { results: rawTavilyListings(hits), warnings: [...warnings, `Couldn't sort Tavily's results (${reason}) — showing them unfiltered.`] };
+  const chunks: TavilyResult[][] = [];
+  for (let i = 0; i < hits.length; i += PARSE_CHUNK) chunks.push(hits.slice(i, i + PARSE_CHUNK));
+  const text = (chunk: TavilyResult[]) =>
+    chunk.map((r) => `Title: ${r.title}\nURL: ${r.url}\n${r.published_date ? `Published: ${r.published_date}\n` : ""}${(r.content ?? "").slice(0, MAX_HIT_CONTENT)}`).join("\n\n---\n\n");
+  const parsed = await timeStage(stages, "Parse results", () =>
+    mapLimit(chunks, PARSE_CONCURRENCY, async (chunk) => {
+      try {
+        return {
+          results: await extractJobListings(text(chunk), "tavily", candidateBackground, {
+            negative: query.negative,
+            where: query.where,
+            remoteOnly: query.remoteOnly,
+            reasoningEffort: "low",
+            timeoutMs: TAVILY_LIMITS.parseTimeoutMs,
+            signal,
+          }),
+        };
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        return { results: rawTavilyListings(chunk), error: err };
+      }
+    }),
+  );
+  const seen = new Set<string>();
+  const results = parsed.flatMap((p) => p.results).filter((r) => {
+    const key = urlKey(r.url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const parseFailed = parsed.filter((p) => p.error !== undefined);
+  if (parseFailed.length) {
+    const reason = parseFailed[0].error instanceof Error ? parseFailed[0].error.message : "parse failed";
+    warnings.push(`Couldn't sort ${parseFailed.length === parsed.length ? "Tavily's results" : `${parseFailed.length} of ${parsed.length} batches of Tavily's results`} (${reason}) — showing those unfiltered.`);
   }
+  return { results, warnings };
 }
