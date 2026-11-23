@@ -56,20 +56,45 @@ const MAX_WHERE_LENGTH = 100;
 /**
  * How one term is searched. Each round ("page") runs other queries than the last, so "load more" and
  * the autopilot's next round reach postings the last one didn't (Tavily itself has no pages):
- *  - `jobs`: "term" jobs Germany — the open web, the employers' ATS ranked first;
- *  - `ats`: "term" Germany on the ATS hosts only — direct postings the agent can apply to;
- *  - `hiring`: term hiring Germany, published this week — the freshest postings;
+ *  - `ats`: term Germany on the employers' ATS hosts only (`hosts`: all of them, or one group a
+ *    query) — direct postings the agent can apply to. Each group answers with its own 20;
+ *  - `jobs`: "term" jobs Germany on the open web, the ATS ranked first, boosted to the country;
  *  - `local`: the local market's own wording ("(m/w/d)" in German-speaking countries);
- *  - `city`: "term" jobs Munich — a country's big cities, two per round (`TAVILY_CITIES`), where a
- *    country-wide query only ever reaches the same few pages.
+ *  - `city`: term Munich on the ATS hosts — a country's big cities, two per round (`TAVILY_CITIES`).
+ * Measured 2026-11-23 for "Backend Engineer Germany": `time_range: "month"` cut Tavily's 20 hits to
+ * 2-9 (most pages have no date Tavily knows), and `country` together with an ATS-only
+ * `include_domains` returned none at all — so no time range anywhere, and the country boost only on
+ * open-web queries. Stale postings are left to the parse pass (closed ones) and the run's HTTP check.
  */
-export type TavilyVariant = "jobs" | "ats" | "hiring" | "local" | "city";
+export type TavilyVariant = "jobs" | "ats" | "local" | "city";
 
-/** One query of a round: its kind, and the place it names when that isn't the search's own ("Munich"). */
+/** One query of a round: its kind, the place it names when that isn't the search's own ("Munich"), the ATS hosts it's limited to. */
 export interface TavilyQueryPlan {
   variant: TavilyVariant;
   place?: string;
+  hosts?: string[];
 }
+
+/** Every ATS host an `ats`/`city` query covers: the freshness list plus join.com (German startups, 20/20 hits in Germany). */
+export const TAVILY_ATS_HOSTS = [...ATS_DOMAINS, "join.com"];
+
+/** The ATS hosts in groups of one query each: one group's own 20 hits, where all hosts together share 20. */
+export const TAVILY_ATS_GROUPS: string[][] = [
+  ["job-boards.greenhouse.io", "boards.greenhouse.io"],
+  ["jobs.lever.co"],
+  ["jobs.ashbyhq.com"],
+  ["apply.workable.com"],
+  ["join.com"],
+  ["personio.de", "recruitee.com"],
+  ["jobs.smartrecruiters.com", "teamtailor.com", "myworkdayjobs.com"],
+];
+
+/** The rounds before the cities: the broad two, the ATS groups two at a time, then the local wording. */
+const BASE_ROUNDS: TavilyQueryPlan[][] = [
+  [{ variant: "jobs" }, { variant: "ats" }],
+  ...Array.from({ length: Math.floor(TAVILY_ATS_GROUPS.length / 2) }, (_, i) => TAVILY_ATS_GROUPS.slice(i * 2, i * 2 + 2).map((hosts) => ({ variant: "ats" as const, hosts }))),
+  [...TAVILY_ATS_GROUPS.slice(Math.floor(TAVILY_ATS_GROUPS.length / 2) * 2).map((hosts) => ({ variant: "ats" as const, hosts })), { variant: "local" }],
+];
 
 /** The big tech-job cities of the countries a search names most, in order of how many postings they have. */
 export const TAVILY_CITIES: Record<string, string[]> = {
@@ -90,19 +115,17 @@ export function tavilyCities(where: string): string[] {
   return country ? (TAVILY_CITIES[country] ?? []) : [];
 }
 
-/** How many different rounds a search has before they repeat: the two base rounds, then the cities two at a time. */
+/** How many different rounds a search has before they repeat: the base rounds, then the cities two at a time. */
 export function tavilyRounds(where: string): number {
-  return 2 + Math.ceil(tavilyCities(where).length / CITIES_PER_ROUND);
+  return BASE_ROUNDS.length + Math.ceil(tavilyCities(where).length / CITIES_PER_ROUND);
 }
 
 /** The queries of round `page` (1-based; past the last round they start over). */
 export function tavilyPlan(page: number, where = ""): TavilyQueryPlan[] {
   const round = (Math.max(1, page) - 1) % tavilyRounds(where);
-  if (round === 0) return [{ variant: "jobs" }, { variant: "ats" }];
-  if (round === 1) return [{ variant: "hiring" }, { variant: "local" }];
-  const cities = tavilyCities(where);
-  const from = (round - 2) * CITIES_PER_ROUND;
-  return cities.slice(from, from + CITIES_PER_ROUND).map((place) => ({ variant: "city" as const, place }));
+  if (round < BASE_ROUNDS.length) return BASE_ROUNDS[round];
+  const from = (round - BASE_ROUNDS.length) * CITIES_PER_ROUND;
+  return tavilyCities(where).slice(from, from + CITIES_PER_ROUND).map((place) => ({ variant: "city" as const, place }));
 }
 
 /** The kinds of query of round `page`, for a search without cities. */
@@ -147,11 +170,12 @@ export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "wher
     .map((g) => g.label.toLowerCase())
     .filter((g) => !phrase.toLowerCase().includes(g));
   const where = query.where.trim().slice(0, MAX_WHERE_LENGTH);
-  const word = { jobs: "jobs", city: "jobs", ats: "", hiring: "hiring", local: GERMAN_SPEAKING.test(where) ? "(m/w/d)" : "job opening" }[variant];
+  const word = { jobs: "jobs", city: "", ats: "", local: GERMAN_SPEAKING.test(where) ? "(m/w/d)" : "job opening" }[variant];
   const tail = [word, where, query.remoteOnly ? "remote" : "", ...grades].filter(Boolean).join(" ");
   // The term gets whatever room the rest leaves; the final cut is a guarantee, not the plan.
   const room = Math.max(1, MAX_TAVILY_QUERY_LENGTH - tail.length - 3);
-  const quoted = variant === "hiring" ? phrase.slice(0, room).trim() : `"${phrase.slice(0, room).trim()}"`;
+  // Open-web queries quote the term; on the ATS hosts the words alone match more titles.
+  const quoted = variant === "ats" || variant === "city" ? phrase.slice(0, room).trim() : `"${phrase.slice(0, room).trim()}"`;
   return `${quoted} ${tail}`.slice(0, MAX_TAVILY_QUERY_LENGTH).trim();
 }
 
@@ -160,26 +184,24 @@ export function buildTavilyQuery(term: string, query: Pick<JobSearchQuery, "wher
  * in the parse pass; only terms that are domains ("linkedin.com") are dropped
  * natively, through `exclude_domains`.
  */
-export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string, variant: TavilyVariant = "jobs", place?: string): Record<string, unknown> {
+export function buildTavilyRequest(query: JobSearchQuery, term: string, apiKey: string, variant: TavilyVariant = "jobs", place?: string, hosts?: string[]): Record<string, unknown> {
   const excludeDomains = negativeDomains(query.negative);
-  const country = tavilyCountry(query.where);
+  const onAts = variant === "ats" || variant === "city";
+  // The country boost only off the ATS: together with an ATS-only include_domains Tavily returns nothing.
+  const country = onAts ? "" : tavilyCountry(query.where);
   return {
     api_key: apiKey,
-    // A city round names the city in place of the country ("Munich"); the country stays the boost.
+    // A city round names the city in place of the country ("Munich").
     query: buildTavilyQuery(term, place ? { ...query, where: place } : query, variant),
-    // "advanced" (2 credits) for the broad query, where its better snippets matter most; "basic" for the rest.
+    // "advanced" (2 credits) for the open-web query, where its better snippets matter most; "basic" for the rest.
     search_depth: variant === "jobs" ? "advanced" : "basic",
     max_results: RESULTS_PER_QUERY,
     include_answer: false,
-    // Recency cut at the source: pages published or updated in the last month (this week for
-    // "hiring"). Anything older is the main cause of dead links.
-    time_range: variant === "hiring" ? "week" : "month",
     include_published_date: true,
-    // "ats": the employers' ATS only (direct postings). Otherwise "prefer": ranked first, without
+    // On the ATS: those hosts only (direct postings). Otherwise "prefer": ranked first, without
     // losing career pages and boards outside the list.
-    include_domains: ATS_DOMAINS,
-    ...(variant === "ats" ? {} : { include_domains_mode: "prefer" }),
-    // Ranks pages from the searched country first ("germany").
+    include_domains: onAts ? (hosts?.length ? hosts : TAVILY_ATS_HOSTS) : ATS_DOMAINS,
+    ...(onAts ? {} : { include_domains_mode: "prefer" }),
     ...(country ? { country } : {}),
     ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
   };
@@ -281,7 +303,7 @@ export function mergeTavilyHits(perTerm: TavilyResult[][], exclude: JobSearchRes
 }
 
 /**
- * Two Tavily searches per term (`tavilyPlan(page)`: base, fresh/local, then two cities a round; the caller resolves a CV-derived set when the
+ * Two Tavily searches per term (`tavilyPlan(page)`: broad, the ATS groups, local wording, then two cities a round; the caller resolves a CV-derived set when the
  * user gave none), a few at a time, then parse passes over the merged hits in chunks, all told where
  * the search is. A query that fails is a warning; every query failing is an error, not "no postings".
  */
@@ -300,12 +322,12 @@ export async function searchTavilyJobs(
   const warnings: string[] = [];
   if (all.length > terms.length) warnings.push(`Only the first ${terms.length} of ${all.length} search terms were searched with Tavily.`);
   const plan = tavilyPlan(page, query.where);
-  const jobs = terms.flatMap((term) => plan.map(({ variant, place }) => ({ term, variant, place })));
+  const jobs = terms.flatMap((term) => plan.map(({ variant, place, hosts }) => ({ term, variant, place, hosts })));
 
   const outcomes = await timeStage(stages, "Tavily search", () =>
-    mapLimit(jobs, TAVILY_CONCURRENCY, async ({ term, variant, place }) => {
+    mapLimit(jobs, TAVILY_CONCURRENCY, async ({ term, variant, place, hosts }) => {
       try {
-        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey, variant, place), signal);
+        const data = await fetchTavily(buildTavilyRequest(query, term, apiKey, variant, place, hosts), signal);
         return { term, variant, hits: data.results ?? [] };
       } catch (err) {
         if (signal?.aborted) throw err;
