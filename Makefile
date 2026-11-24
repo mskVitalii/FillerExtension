@@ -7,7 +7,7 @@ MANIFEST_JSON := $(EXT_DIR)/manifest.json
 .DEFAULT_GOAL := help
 
 .PHONY: help init install dev build build-release typecheck lint lint-fix test clean zip package \
-        version version-patch version-minor version-major release publish rebuild
+        version version-patch version-minor version-major release publish rebuild gh-release
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -88,3 +88,27 @@ publish: ## Bump version (PART=patch|minor|major, default patch), then full clea
 	@$(MAKE) install
 	@$(MAKE) zip
 	@echo "Published v$$(node -p "require('./$(PKG_JSON)').version") -> $(ZIP_FILE)"
+
+GH_REPO := mskVitalii/FillerExtension
+
+gh-release: ## After the "Release X.Y.Z: ..." commit: push main, publish GitHub release extension-vX.Y.Z with extension.zip (idempotent; docs/updates.md)
+	@set -e; \
+	version=$$(node -p "require('./$(PKG_JSON)').version"); \
+	tag="extension-v$$version"; \
+	subject=$$(git log -1 --format=%s HEAD); \
+	branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" != "main" ]; then echo "gh-release: refusing - on '$$branch', not main"; exit 1; fi; \
+	case "$$subject" in "Release $$version: "*) ;; *) echo "gh-release: refusing - HEAD is not a 'Release $$version: ...' commit (HEAD: $$subject)"; exit 1;; esac; \
+	if ! git diff --quiet HEAD -- $(PKG_JSON) $(MANIFEST_JSON); then echo "gh-release: refusing - uncommitted changes in $(PKG_JSON) or $(MANIFEST_JSON)"; exit 1; fi; \
+	manifest_version=$$(node -p "require('./$(MANIFEST_JSON)').version"); \
+	if [ "$$manifest_version" != "$$version" ]; then echo "gh-release: refusing - manifest.json is $$manifest_version, package.json is $$version"; exit 1; fi; \
+	if [ ! -f $(ZIP_FILE) ]; then echo "gh-release: refusing - $(ZIP_FILE) missing (run make publish first)"; exit 1; fi; \
+	zip_version=$$(unzip -p $(ZIP_FILE) manifest.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).version))"); \
+	if [ "$$zip_version" != "$$version" ]; then echo "gh-release: refusing - $(ZIP_FILE) is $$zip_version, not $$version (rebuild with make zip)"; exit 1; fi; \
+	if ! git diff --quiet HEAD -- $(ZIP_FILE); then echo "gh-release: refusing - $(ZIP_FILE) differs from the one committed in the release commit"; exit 1; fi; \
+	git push origin main; \
+	if gh release view "$$tag" --repo $(GH_REPO) >/dev/null 2>&1; then echo "gh-release: $$tag already exists - skipping"; exit 0; fi; \
+	summary="$${subject#Release $$version: }"; \
+	notes=$$(printf '%s\n\n%s' "$$summary" "Unpacked install: download extension.zip, unzip it over the folder you loaded Filler from, then click Reload on Filler in chrome://extensions."); \
+	gh release create "$$tag" $(ZIP_FILE) --repo $(GH_REPO) --target "$$(git rev-parse HEAD)" --title "Filler $$version" --notes "$$notes" --latest; \
+	echo "gh-release: published $$tag"

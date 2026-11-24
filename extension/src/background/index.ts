@@ -3,6 +3,7 @@ import { handleContextMenuClick, registerContextMenu } from "./context-menu";
 import { cancelElementPicker, routeMessage } from "./router";
 import { ensureContentScript } from "./inject-content-script";
 import { clearTabState } from "@/features/storage/session";
+import { registerUpdateCheck } from "./updates";
 
 const SIDE_PANEL_PATH = "src/sidepanel/index.html";
 
@@ -25,6 +26,9 @@ chrome.runtime.onInstalled.addListener(() => {
   // overriding the manifest's implicit "enabled for every tab" default.
   void chrome.sidePanel.setOptions({ enabled: false });
 });
+
+// Version check against GitHub releases (or the Web Store) + the NEW badge — docs/updates.md.
+registerUpdateCheck();
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   void handleContextMenuClick(info, tab);

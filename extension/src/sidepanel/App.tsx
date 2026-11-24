@@ -13,6 +13,7 @@ import { getOpenAiApiKey } from "@/features/storage/local";
 import { isGoogleConnected } from "@/features/google-drive/auth";
 import { refreshDriveCaches } from "@/features/storage/drive-cache";
 import { refreshModelCatalog } from "@/features/openai/model-catalog";
+import { runUpdateCheck } from "@/features/updates/check";
 import {
   getCustomFields,
   getCvMeta,
@@ -72,6 +73,8 @@ export function App() {
     if (connected) void syncFromDrive();
     // Model prices/capabilities (OpenRouter's public list) — at most once a day, never blocking.
     void refreshModelCatalog();
+    // Newer Filler out? Throttled to one GitHub/Web Store ask per 30 min; the badge and banner follow.
+    void runUpdateCheck().catch(() => undefined);
   }
 
   async function syncFromDrive() {

@@ -10,6 +10,7 @@ import { PinHint } from "@/components/PinHint";
 import { SetupBanner } from "@/components/SetupBanner";
 import { FrameAccessBanner } from "@/components/FrameAccessBanner";
 import { TabAccessBanner } from "@/components/TabAccessBanner";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { useToolbarPinned } from "../hooks/useToolbarPinned";
 import { useCvChoice } from "../hooks/useCvChoice";
 import { useI18n, useT } from "@/i18n/react";
@@ -1809,6 +1810,7 @@ export function MainView({
       )}
       <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
       {toolbarPinned === false && <PinHint />}
+      <UpdateBanner />
 
       {error && <AiErrorMessage text={error} />}
 

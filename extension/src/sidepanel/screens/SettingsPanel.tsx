@@ -70,6 +70,7 @@ import { FAQ_QUESTIONS } from "@/lib/faq-questions";
 import { LANGUAGES } from "@/lib/languages";
 import { sendMessage } from "@/types/messages";
 import { AiErrorMessage } from "@/components/AiErrorMessage";
+import { AboutCard } from "@/components/AboutCard";
 
 /** Grouped once at module load — `FAQ_QUESTIONS` is a fixed constant, not per-render state. */
 const FAQ_GROUPS = Object.entries(
@@ -1224,6 +1225,8 @@ export function SettingsPanel({
           </div>
         </CardContent>
       </Card>
+
+      <AboutCard />
     </div>
   );
 }
