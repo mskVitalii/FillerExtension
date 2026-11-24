@@ -14,18 +14,20 @@ import { formatPostedAgo } from "@/features/job-search/freshness";
 import { MAX_NEGATIVE_PROMPT_LENGTH, splitByNegative } from "@/features/job-search/negative";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { AiErrorMessage } from "@/components/AiErrorMessage";
+import { SourceChips } from "@/components/SourceChips";
+import { isGermanSearch, JOBSUCHE_ORIGIN } from "@/features/job-search/jobsuche-provider";
+import { mergeSourceResults } from "@/features/job-search/merge-sources";
+import { getProfile } from "@/features/profile/repository";
 
 /** `chrome.storage.sync` allows ~120 writes a minute — save once typing pauses, not per keystroke. */
 const SAVE_NEGATIVE_DELAY_MS = 800;
 
-/** Dedupes by listing URL — needed once "load more" starts appending to the same list. */
+/**
+ * Dedupes across pages and sources — needed once "load more" starts appending to the same list, and
+ * since a posting can come from two sources (Tavily and the Arbeitsagentur): it shows once, with both tags.
+ */
 function dedupeByUrl(jobs: JobSearchResult[]): JobSearchResult[] {
-  const seen = new Set<string>();
-  return jobs.filter((job) => {
-    if (seen.has(job.url)) return false;
-    seen.add(job.url);
-    return true;
-  });
+  return mergeSourceResults(jobs);
 }
 
 /** Groups Adzuna results by their originating search tag (spec_7 item 13), preserving first-seen tag order; untagged results (shouldn't normally happen) fall into one trailing "Other" group. */
@@ -107,6 +109,7 @@ const PROVIDER_LABELS: Record<JobSearchProvider, string> = {
   openai: "OpenAI web search",
   tavily: "Tavily",
   adzuna: "Adzuna",
+  jobsuche: "Arbeitsagentur (Germany)",
 };
 
 /**
@@ -143,6 +146,13 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
   const hasLoadedRef = useRef(false);
   const negativeLoadedRef = useRef(false);
   const searchIdRef = useRef<string | null>(null);
+  /** "Also search the Arbeitsagentur" (Settings) and whether Chrome lets the extension reach its API. */
+  const [jobsucheEnabled, setJobsucheEnabled] = useState(true);
+  const [jobsucheAccess, setJobsucheAccess] = useState(true);
+  const [profileCountry, setProfileCountry] = useState("");
+  /** Asked once per panel for the side search; picking the Arbeitsagentur as provider asks every time. */
+  const askedJobsucheRef = useRef(false);
+  const jobsucheWanted = provider === "jobsuche" || (jobsucheEnabled && isGermanSearch(where, profileCountry));
 
   // The offline negative filter runs here, not in the background, so editing
   // the field re-filters the results already on screen without a new search.
@@ -175,9 +185,41 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     })();
     void getPreferences().then((prefs) => {
       setNegative(prefs.jobSearchNegativePrompt);
+      setJobsucheEnabled(prefs.jobsucheEnabled);
       negativeLoadedRef.current = true;
     });
+    void getProfile()
+      .then((profile) => setProfileCountry(profile.country ?? ""))
+      .catch(() => {});
+    const checkAccess = () =>
+      void chrome.permissions
+        .contains({ origins: [JOBSUCHE_ORIGIN] })
+        .then(setJobsucheAccess)
+        .catch(() => setJobsucheAccess(false));
+    checkAccess();
+    // @types/chrome lists only addListener on these; the real events have removeListener too.
+    const events = [chrome.permissions.onAdded, chrome.permissions.onRemoved] as unknown as chrome.events.Event<() => void>[];
+    for (const event of events) event.addListener(checkAccess);
+    return () => {
+      for (const event of events) event.removeListener(checkAccess);
+    };
   }, []);
+
+  /**
+   * Must run before anything is awaited in a click handler: `permissions.request` needs the user
+   * gesture. Resolves with whether access is there now; the search goes on either way (without it the
+   * background skips the Arbeitsagentur with a warning, or errors when it's the chosen provider).
+   */
+  function requestJobsucheAccess(): Promise<boolean> {
+    askedJobsucheRef.current = true;
+    return chrome.permissions
+      .request({ origins: [JOBSUCHE_ORIGIN] })
+      .then((granted) => {
+        setJobsucheAccess(granted);
+        return granted;
+      })
+      .catch(() => false);
+  }
 
   // A durable preference (sync), unlike the rest of this screen's session state.
   useEffect(() => {
@@ -271,6 +313,9 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
    * more" consistent with page 1 instead of re-deriving independently.
    */
   async function handleSearch(loadMore: boolean) {
+    // First, with nothing awaited before it: the permission prompt needs this click's gesture.
+    const access =
+      jobsucheWanted && !jobsucheAccess && (provider === "jobsuche" || !askedJobsucheRef.current) ? requestJobsucheAccess() : null;
     (loadMore ? setLoadingMore : setSearching)(true);
     setError(null);
     setWarnings([]);
@@ -281,6 +326,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     searchIdRef.current = searchId;
     const nextPage = loadMore ? page + 1 : 1;
     try {
+      if (access) await access;
       const response = await sendMessage<MessageOf<"JOB_SEARCH_RESULTS">>({
         type: "SEARCH_JOBS",
         query: { provider, what, where, remoteOnly, grades, tags, negative: negative.trim() },
@@ -459,6 +505,15 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
 
       {error && <AiErrorMessage text={error} />}
 
+      {jobsucheWanted && !jobsucheAccess && (
+        <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+          {t("search.jobsucheAccess")}
+          <button onClick={() => void requestJobsucheAccess()} className="underline underline-offset-2 hover:text-foreground">
+            {t("search.jobsucheAllow")}
+          </button>
+        </p>
+      )}
+
       {warnings.length > 0 && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
           {t("search.partial", { warnings: warnings.join(" · ") })}
@@ -629,6 +684,7 @@ function JobResultCard({
             <ExternalLink className="h-4 w-4" />
           </a>
         </div>
+        <SourceChips result={job} />
         {(job.salary || formatPostedAgo(job.postedAt)) && (
           <p className="text-xs text-muted-foreground">
             {[job.salary, formatPostedAgo(job.postedAt)].filter(Boolean).join(" · ")}

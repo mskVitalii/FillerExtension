@@ -1,4 +1,11 @@
-/** spec_5 section C: one normalized result across all three search providers. */
+/**
+ * Where a search result came from — shown as a small chip on every result. The search providers,
+ * plus sources that aren't a search provider of their own (`linkedin`: links collected from LinkedIn
+ * pages). Labels live in `features/job-search/sources.ts`.
+ */
+export type JobSearchSource = JobSearchProvider | "linkedin";
+
+/** spec_5 section C: one normalized result across all search providers. */
 export interface JobSearchResult {
   title: string;
   company: string;
@@ -9,12 +16,26 @@ export interface JobSearchResult {
   snippet: string;
   /** When the posting was published (ISO date or timestamp), or "" / absent when the source didn't say. */
   postedAt?: string;
-  source: "openai" | "tavily" | "adzuna";
+  /** The source that found it first (the one whose fields the result carries). */
+  source: JobSearchSource;
+  /**
+   * Every source that found this same posting, `source` first — set once results from several
+   * sources were merged (`merge-sources.ts`); absent means just `source`. Read it with `resultSources`.
+   */
+  sources?: JobSearchSource[];
+  /**
+   * The posting has no employer/ATS link: `url` is the job board's own page (a Bundesagentur posting
+   * without `externeURL`). The agent can't apply there by itself; the UI tags it.
+   */
+  boardOnly?: boolean;
+  /** The job board's own page for this posting when `url` is the employer/ATS link (Jobsuche: the arbeitsagentur.de page). */
+  boardUrl?: string;
   /** Adzuna only: the search tag/category this result came from (spec_7 item 13) — lets the UI group results by category. */
   tag?: string;
 }
 
-export type JobSearchProvider = "openai" | "tavily" | "adzuna";
+/** `jobsuche`: the Bundesagentur für Arbeit's job board (Germany only, `jobsuche-provider.ts`). */
+export type JobSearchProvider = "openai" | "tavily" | "adzuna" | "jobsuche";
 
 /** Seniority levels a search can target; several can be selected at once. `keyword` is what Adzuna's literal keyword search gets prefixed with. */
 export const JOB_GRADES = [

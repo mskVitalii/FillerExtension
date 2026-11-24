@@ -1,0 +1,376 @@
+{
+  "12117-YF-48852-YF-S": {
+    "stellenangebotsart": "ARBEIT",
+    "stellenangebotsTitel": "Softwareentwickler (m/w/d)",
+    "quereinstiegGeeignet": false,
+    "stellenangebotsBeschreibung": "Die BAYOONET Group sucht \nMitdenker:innen Softwareentwickler (m/w/d) (Darmstadt, München, Berlin, Köln, Ludwigsburg – Festanstellung) \n\nDie BAYOONET Group gestaltet seit 25 Jahren maßgeschneiderte Software und Hardware in vielfältigsten Varianten. Mit Standorten in Darmstadt, München, Berlin, Ludwigsburg und Köln gehören wir zu den Top-IT-Unternehmen in Deutschland und sind verlässlicher Partner für agile und individuelle Softwareentwicklung sowie Hersteller von Softwareprodukten in den Bereichen IT-Security, IT-Management und in den regulierten Branchen Medizintechnik und Pharma. \n\nZur Verstä",
+    "arbeitszeitSchichtNachtWochenende": false,
+    "arbeitszeitTeilzeitAbend": false,
+    "arbeitszeitTeilzeitNachmittag": false,
+    "arbeitszeitTeilzeitVormittag": false,
+    "arbeitszeitTeilzeitFlexibel": false,
+    "arbeitszeitVollzeit": true,
+    "eintrittszeitraum": {
+      "von": "2026-11-09"
+    },
+    "verguetungsangabe": "KEINE_ANGABEN",
+    "vertragsdauer": "KEINE_ANGABE",
+    "istGeringfuegigeBeschaeftigung": false,
+    "istBehinderungGefordert": false,
+    "stellenlokationen": [
+      {
+        "adresse": {
+          "plz": "50667",
+          "ort": "Köln",
+          "region": "NORDRHEIN_WESTFALEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.938708,
+        "laenge": 6.952988
+      },
+      {
+        "adresse": {
+          "plz": "64293",
+          "ort": "Darmstadt",
+          "region": "HESSEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 49.8824595,
+        "laenge": 8.6305287
+      },
+      {
+        "adresse": {
+          "plz": "71634",
+          "ort": "Ludwigsburg, Württemberg",
+          "region": "BADEN_WUERTTEMBERG",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.9104818,
+        "laenge": 9.1715903
+      },
+      {
+        "adresse": {
+          "plz": "10115",
+          "ort": "Berlin",
+          "region": "BERLIN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 52.5319761,
+        "laenge": 13.3867379
+      },
+      {
+        "adresse": {
+          "plz": "80331",
+          "ort": "München",
+          "region": "BAYERN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.1355827,
+        "laenge": 11.5739758
+      }
+    ],
+    "homeofficemoeglich": false,
+    "istPrivateArbeitsvermittlung": false,
+    "istArbeitnehmerUeberlassung": false,
+    "veroeffentlichungszeitraum": {
+      "von": "2026-11-09"
+    },
+    "datumErsteVeroeffentlichung": "2026-11-09",
+    "aenderungsdatum": "2026-11-09T07:48:28.994",
+    "externeURL": "https://www.yourfirm.de/job/detail/YF-48852/?utm_source=bundesagentur&utm_medium=unpaid-partner&utm_campaign=000",
+    "istBetreut": false,
+    "hauptberuf": "Softwareentwickler/in",
+    "alternativBeruf1": "EDV-Fachkraft",
+    "alternativBeruf2": "Software-Architect",
+    "firma": "bayoonet AG",
+    "allianzpartnerUrl": "www.yourfirm.de",
+    "allianzpartnerName": "yourfirm.de",
+    "referenznummer": "12117-YF-48852-YF-S"
+  },
+  "13319-898750/1_5315CS-S": {
+    "stellenangebotsart": "ARBEIT",
+    "stellenangebotsTitel": "Softwareentwickler (m/w/d)",
+    "quereinstiegGeeignet": false,
+    "stellenangebotsBeschreibung": "- Unser Kunde ist ein erfolgreiches Unternehmen, das neben einer hervorragenden Positionierung auf dem Markt auf ein spannendes und dynamisches Arbeitsumfeld verweisen kann.\n\n### Ihre Vorteile:\n\n- 30 Tage Urlaub\n- 36-Stunden-Woche\n- Durch Ihre Kandidatur über Hays sind Sie Teil einer kleinen, passgenauen Auswahl, die dem Kunden für diese Position präsentiert wird\n- Persönliche Betreuung während Ihrer Arbeit beim Kundenunternehmen\n- Wir geben Sicherheit – attraktives Jahresgehalt, pünktliche Bezahlung, volle soziale Absicherung, Lohnfortzahlung bei Urlaub und Krankheit\n- Betriebliche Altersvors",
+    "arbeitszeitVollzeit": true,
+    "eintrittszeitraum": {
+      "von": "2026-11-17"
+    },
+    "verguetungsangabe": "KEINE_ANGABEN",
+    "vertragsdauer": "BEFRISTET",
+    "befristungInMonaten": 12,
+    "istGeringfuegigeBeschaeftigung": false,
+    "istBehinderungGefordert": false,
+    "stellenlokationen": [
+      {
+        "adresse": {
+          "plz": "85586",
+          "ort": "Poing bei München",
+          "region": "BAYERN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.170092301,
+        "laenge": 11.803029073
+      }
+    ],
+    "chiffrenummer": "898750/1",
+    "istPrivateArbeitsvermittlung": false,
+    "istArbeitnehmerUeberlassung": true,
+    "veroeffentlichungszeitraum": {
+      "von": "2026-11-17"
+    },
+    "datumErsteVeroeffentlichung": "2026-10-23",
+    "aenderungsdatum": "2026-11-17T13:36:40.091",
+    "istBetreut": false,
+    "hauptberuf": "Softwareentwickler/in",
+    "firma": "Hays Professional Solutions GmbH",
+    "arbeitgeberKundennummerHash": "woSoz4U6kKdp8j3D_9CjfXWtvL4W7INA_WjHP-M8nus=",
+    "allianzpartnerUrl": "www.hays.de",
+    "allianzpartnerName": "Hays AG",
+    "referenznummer": "13319-898750/1_5315CS-S"
+  },
+  "10001-1001883453-S": {
+    "stellenangebotsart": "ARBEIT",
+    "stellenangebotsTitel": "Softwareentwickler:in Java (Homeoffice möglich)",
+    "stellenangebotsBeschreibung": "Hast du Lust, in einem nicht mehr ganz so kleinem Team zu arbeiten und selbständig und proaktiv eigene Ideen einzubringen? Wir sind der stark wachsende Marktführer der Praxissoftware tomedo (www.tomedo.de) für Mac, iPhone und iPad und haben große Ziele und sind immer für neue Ideen offen – egal ob im Medizinbereich oder anderswo. Unser Anspruch liegt dabei darin, die Träume unserer nicht-technischen Anwender (i.d.R. Ärzte und andere medizinische Fachkräfte) mit Kreativität in technisch umsetzbare Konzepte umzuwandeln, um diese dann unter Beachtung von Bedienungsfreundlichkeit, Skalierbarkeit u",
+    "arbeitszeitVollzeit": true,
+    "eintrittszeitraum": {
+      "von": "2026-11-16"
+    },
+    "verguetungsangabe": "KEINE_ANGABEN",
+    "vertragsdauer": "UNBEFRISTET",
+    "stellenlokationen": [
+      {
+        "adresse": {
+          "strasse": "Ernst-Haeckel-Platz",
+          "hausnummer": "5/6",
+          "plz": "07745",
+          "ort": "Jena",
+          "region": "THUERINGEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.9034276,
+        "laenge": 11.5717883
+      },
+      {
+        "adresse": {
+          "ort": "Köln",
+          "region": "NORDRHEIN_WESTFALEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.9429544,
+        "laenge": 6.9662139
+      },
+      {
+        "adresse": {
+          "ort": "Dresden",
+          "region": "SACHSEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 51.0490732,
+        "laenge": 13.759348
+      },
+      {
+        "adresse": {
+          "ort": "München",
+          "region": "BAYERN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.1414674,
+        "laenge": 11.5615499
+      },
+      {
+        "adresse": {
+          "ort": "Hamburg",
+          "region": "HAMBURG",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 53.5717748,
+        "laenge": 10.0214102
+      },
+      {
+        "adresse": {
+          "ort": "Stuttgart",
+          "region": "BADEN_WUERTTEMBERG",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.779125,
+        "laenge": 9.178533
+      },
+      {
+        "adresse": {
+          "ort": "Frankfurt am Main",
+          "region": "HESSEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.119305,
+        "laenge": 8.6537856
+      },
+      {
+        "adresse": {
+          "ort": "Hannover",
+          "region": "NIEDERSACHSEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 52.3791704,
+        "laenge": 9.755193
+      },
+      {
+        "adresse": {
+          "ort": "Erfurt",
+          "region": "THUERINGEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.9863825,
+        "laenge": 11.0258455
+      },
+      {
+        "adresse": {
+          "ort": "Berlin",
+          "region": "BERLIN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 52.5030532,
+        "laenge": 13.3819522
+      }
+    ],
+    "homeofficemoeglich": true,
+    "homeofficetyp": "NACH_VEREINBARUNG",
+    "veroeffentlichungszeitraum": {
+      "von": "2026-11-16"
+    },
+    "datumErsteVeroeffentlichung": "2025-09-23",
+    "aenderungsdatum": "2026-11-16T10:43:18.930",
+    "istBetreut": false,
+    "hauptberuf": "Softwareentwickler/in",
+    "firma": "zollsoft GmbH    ",
+    "arbeitgeberKundennummerHash": "tpU2b8_iEK2tTuHBLXmgBxKc9J19yGytntSB3y6O1Yo=",
+    "allianzpartnerUrl": "http://www.arbeitsagentur.de",
+    "allianzpartnerName": "arbeitsagentur.de",
+    "referenznummer": "10001-1001883453-S"
+  },
+  "13644-246608-S": {
+    "stellenangebotsart": "ARBEIT",
+    "stellenangebotsTitel": "Senior Softwareentwickler (m/w/d)",
+    "quereinstiegGeeignet": false,
+    "stellenangebotsBeschreibung": "## Erfolg beginnt dort, wo Erfahrung auf Exzellenz trifft – und Daten echte Wirkung erzeugen.\n\nWir sind die AI & Data Performance Company – mit über 750 Datenenthusiastinnen und -enthusiasten in Deutschland, Österreich, der Schweiz, Polen und Rumänien, die Datenpotenzial entfesseln und den größtmöglichen Nutzen aus Daten schaffen. Unsere Teams arbeiten länderübergreifend daran, unsere Kunden in der datengetriebenen Weiterentwicklung ihrer Geschäftsmodelle zu unterstützen. Bei uns bringst Du Deine Erfahrung gezielt ein – und entwickelst sie weiter, zusammen mit Menschen, die Wissen teilen, Vera",
+    "arbeitszeitSchichtNachtWochenende": false,
+    "arbeitszeitTeilzeitAbend": false,
+    "arbeitszeitTeilzeitNachmittag": false,
+    "arbeitszeitTeilzeitVormittag": false,
+    "arbeitszeitTeilzeitFlexibel": false,
+    "arbeitszeitVollzeit": false,
+    "eintrittszeitraum": {
+      "von": "2026-11-18"
+    },
+    "verguetungsangabe": "KEINE_ANGABEN",
+    "vertragsdauer": "KEINE_ANGABE",
+    "istGeringfuegigeBeschaeftigung": false,
+    "istBehinderungGefordert": false,
+    "stellenlokationen": [
+      {
+        "adresse": {
+          "plz": "50676",
+          "ort": "Köln",
+          "region": "NORDRHEIN_WESTFALEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.9307423,
+        "laenge": 6.952315
+      },
+      {
+        "adresse": {
+          "plz": "70173",
+          "ort": "Stuttgart",
+          "region": "BADEN_WUERTTEMBERG",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.7812752,
+        "laenge": 9.1806188
+      },
+      {
+        "adresse": {
+          "plz": "80331",
+          "ort": "München",
+          "region": "BAYERN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.1355827,
+        "laenge": 11.5739758
+      },
+      {
+        "adresse": {
+          "plz": "60313",
+          "ort": "Frankfurt am Main",
+          "region": "HESSEN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 50.115356,
+        "laenge": 8.6832822
+      }
+    ],
+    "homeofficemoeglich": true,
+    "homeofficetyp": "NACH_VEREINBARUNG",
+    "chiffrenummer": "246608",
+    "istPrivateArbeitsvermittlung": false,
+    "istArbeitnehmerUeberlassung": false,
+    "veroeffentlichungszeitraum": {
+      "von": "2026-11-18"
+    },
+    "datumErsteVeroeffentlichung": "2026-11-17",
+    "aenderungsdatum": "2026-11-18T07:02:01.714",
+    "externeURL": "https://www.get-in-it.de/jobsuche/p246608?utm_source=arbeitsagentur&utm_medium=organic&utm_campaign=launch-premium",
+    "istBetreut": false,
+    "hauptberuf": "IT-Projektkoordinator/in",
+    "alternativBeruf1": "Anwendungsprogrammierer/in",
+    "alternativBeruf2": "Datenbankentwickler/in",
+    "firma": "Infomotion GmbH",
+    "allianzpartnerUrl": "www.get-in-IT.de",
+    "allianzpartnerName": "get in GmbH",
+    "referenznummer": "13644-246608-S"
+  },
+  "12265-347980_JB5303879-S": {
+    "stellenangebotsart": "ARBEIT",
+    "stellenangebotsTitel": "Softwareentwickler C# (m/w/d)",
+    "quereinstiegGeeignet": false,
+    "stellenangebotsBeschreibung": "Menschen und Technologien zu verbinden, den Perfect Match für unsere Kunden zu gestalten, immer die richtigen Expert:innen für die jeweilige Herausforderung zu finden - das ist unser Anspruch bei FERCHAU und dafür suchen wir dich: als ambitionierte:n Kolleg:in, der:die wie wir Technologien auf die nächste Stufe bringen möchte. Wir realisieren spannende Projekte für namhafte Kunden in allen Technologiebereichen und für alle Branchen und überzeugen täglich mit fundierter Expertise und fachlichem Know-how.\n\n## Softwareentwickler C# (m/w/d)\n\n**Diese Herausforderungen übernimmst du**\n* Entwicklungs",
+    "arbeitszeitVollzeit": true,
+    "eintrittszeitraum": {
+      "von": "2026-11-23"
+    },
+    "verguetungsangabe": "JAHRESGEHALT",
+    "artDerVerguetung": "GEHALTSSPANNE",
+    "gehaltsspanneVon": 65000.0,
+    "gehaltsspanneBis": 75000.0,
+    "vertragsdauer": "KEINE_ANGABE",
+    "istGeringfuegigeBeschaeftigung": false,
+    "istBehinderungGefordert": false,
+    "stellenlokationen": [
+      {
+        "adresse": {
+          "plz": "80687",
+          "ort": "München",
+          "region": "BAYERN",
+          "land": "DEUTSCHLAND"
+        },
+        "breite": 48.140433435,
+        "laenge": 11.506015614
+      }
+    ],
+    "chiffrenummer": "VA37-18891-MC",
+    "istPrivateArbeitsvermittlung": false,
+    "istArbeitnehmerUeberlassung": true,
+    "veroeffentlichungszeitraum": {
+      "von": "2026-11-23"
+    },
+    "datumErsteVeroeffentlichung": "2026-11-23",
+    "aenderungsdatum": "2026-11-23T07:41:11.526",
+    "istBetreut": false,
+    "hauptberuf": "Softwareentwickler/in",
+    "firma": "FERCHAU GmbH Niederlassung München Mobility",
+    "arbeitgeberKundennummerHash": "ufkpF47n0WlVnSWOu05UslNXOl0xb1KTvoxjP-2lFfM=",
+    "allianzpartnerUrl": "www.ferchau.de",
+    "allianzpartnerName": "FERCHAU Engineering GmbH",
+    "referenznummer": "12265-347980_JB5303879-S"
+  }
+}

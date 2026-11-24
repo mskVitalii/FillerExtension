@@ -1,6 +1,6 @@
 # Privacy Policy — Filler
 
-**Last updated:** August 23, 2026
+**Last updated:** November 24, 2026
 
 Filler ("the extension") is a Chrome extension that helps you apply to jobs faster: it extracts job posting details from the page you're viewing, drafts a tailored cover letter using your own OpenAI API key, and autofills that information plus your saved profile into application forms.
 
@@ -39,6 +39,7 @@ Filler talks only to the external services below, both initiated by you and auth
 - **Anthropic (`api.anthropic.com`)** — only if you add an Anthropic key in Settings → "Fallback to Claude". Then, depending on the option you pick there, a request OpenAI couldn't answer (overloaded, unreachable, or any error), or every request, goes to Claude instead, with the same content OpenAI would have received, using your key. Governed by [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy).
 - **OpenRouter (`openrouter.ai`)** — at most once a day Filler downloads OpenRouter's public model list (`GET https://openrouter.ai/api/v1/models`) to know which OpenAI and Claude models exist, their list prices and the request options each accepts. The request carries no API key and none of your data; Filler never sends prompts or content to OpenRouter.
 - **Google Drive (`www.googleapis.com`)** — stores your profile, CV, and cover letter drafts in your own Drive account's app-data folder, using the OAuth token Chrome obtains when you connect your Google account. Governed by [Google's Privacy Policy](https://policies.google.com/privacy).
+- **Bundesagentur für Arbeit — Jobsuche (`rest.arbeitsagentur.de`)** — only when you search for jobs with a location in Germany and leave "Also search the Arbeitsagentur" on in Settings (or pick it as the provider). Filler sends the search terms, the city and the filters of that search (remote only, "no agencies") to the German Federal Employment Agency's public job-board API and fetches the details of the postings it returns. The requests carry no account, no key of yours and none of your profile or CV data; the API's fixed public client id (`jobboerse-jobsuche`) is sent as a header. Governed by the [Bundesagentur's privacy notice](https://www.arbeitsagentur.de/datenschutz).
 - **LaTeX-On-HTTP (`latex.ytotech.com`)** — only if you upload a LaTeX CV. Browsers can't run a full TeX installation, so the files of your LaTeX project (sources, photo, other files in the .zip), with the placeholders filled in, are sent to this free open-source compile service ([source](https://github.com/YtoTech/latex-on-http)) each time the CV is compiled: once on upload, and when you preview, attach or download an adapted version. It returns the PDF. PDF and Word CVs are never sent there.
 
 No data is ever sent to a server operated by the developer of this extension — there isn't one.
@@ -55,7 +56,7 @@ Filler requests the following Chrome permissions, each used only for its stated 
 - `downloads` — save an exported cover letter PDF to your computer
 - `identity` — obtain the Google OAuth token used to access your own Drive `appDataFolder`
 
-Host permissions are limited to `api.openai.com` and `www.googleapis.com` — services described above. Anthropic's API and OpenRouter's public model list accept requests straight from a browser, so neither the optional Claude fallback nor the model list needs a host permission.
+Host permissions are limited to `api.openai.com` and `www.googleapis.com` — services described above. Access to `rest.arbeitsagentur.de` is an *optional* host permission: Chrome asks for it only when you turn on the Arbeitsagentur search (its API doesn't accept requests from other websites' or extensions' origins without it), and you can withdraw it any time in Chrome's extension settings. Anthropic's API and OpenRouter's public model list accept requests straight from a browser, so neither the optional Claude fallback nor the model list needs a host permission.
 
 ## Data retention and control
 

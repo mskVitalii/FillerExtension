@@ -37,6 +37,12 @@ export interface Preferences {
   claudeMainModel: string;
   /** Claude model for every support task — "" defers to `CLAUDE_MODEL_SUPPORT`. */
   claudeSupportModel: string;
+  /**
+   * Job Search: also search the Bundesagentur für Arbeit's job board (`jobsuche-provider.ts`) next to
+   * the chosen provider. On by default; it only runs when the search's place is in Germany, and needs
+   * the optional host permission for rest.arbeitsagentur.de (asked for when it's turned on).
+   */
+  jobsucheEnabled: boolean;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -55,6 +61,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   aiFallbackPolicy: "unavailable",
   claudeMainModel: "",
   claudeSupportModel: "",
+  jobsucheEnabled: true,
 };
 
 export async function getPreferences(): Promise<Preferences> {

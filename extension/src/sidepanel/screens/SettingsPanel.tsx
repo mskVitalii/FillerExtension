@@ -63,6 +63,7 @@ import {
   type JobSearchCredentials,
 } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
+import { JOBSUCHE_ORIGIN } from "@/features/job-search/jobsuche-provider";
 import { CV_FILE_ACCEPT, prepareCvFile } from "@/lib/cv-text";
 import { COUNTRIES } from "@/lib/countries";
 import { formatSalaryForStorage } from "@/lib/salary";
@@ -141,6 +142,8 @@ export function SettingsPanel({
   const [savingLegendContent, setSavingLegendContent] = useState(false);
 
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
+  const [jobsucheEnabled, setJobsucheEnabled] = useState(true);
+  const [jobsucheDenied, setJobsucheDenied] = useState(false);
   const [autoSelectCv, setAutoSelectCv] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
@@ -196,6 +199,7 @@ export function SettingsPanel({
   useEffect(() => {
     void getPreferences().then((prefs) => {
       setAutofillOnOpen(prefs.autofillOnOpen);
+      setJobsucheEnabled(prefs.jobsucheEnabled);
       setUiLanguage(prefs.uiLanguage);
       setAutoSelectCv(prefs.autoSelectCv);
       setAiChooseCv(prefs.aiChooseCv);
@@ -227,6 +231,15 @@ export function SettingsPanel({
     setUiLanguage(preference);
     applyUiLanguage(preference);
     await setPreferences({ uiLanguage: preference });
+  }
+
+  /** Turning it on asks Chrome for rest.arbeitsagentur.de first — in this click, before anything is awaited. */
+  async function handleToggleJobsuche(checked: boolean) {
+    const granted = checked ? await chrome.permissions.request({ origins: [JOBSUCHE_ORIGIN] }).catch(() => false) : true;
+    setJobsucheDenied(!granted);
+    const next = checked && granted;
+    setJobsucheEnabled(next);
+    await setPreferences({ jobsucheEnabled: next });
   }
 
   async function handleToggleAutofillOnOpen(checked: boolean) {
@@ -1082,6 +1095,11 @@ export function SettingsPanel({
           <p className="text-[11px] text-muted-foreground">
             {t("settings.adzunaHint")}
           </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={jobsucheEnabled} onChange={(e) => void handleToggleJobsuche(e.target.checked)} />
+            {t("settings.jobsuche")}
+          </label>
+          <p className="text-[11px] text-muted-foreground">{jobsucheDenied ? t("settings.jobsucheDenied") : t("settings.jobsucheHint")}</p>
           <Button size="sm" variant="outline" onClick={handleSaveJobSearchCredentials} disabled={savingJobSearchCredentials}>
             {savingJobSearchCredentials ? t("common.saving") : t("common.save")}
           </Button>

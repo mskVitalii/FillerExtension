@@ -1,0 +1,229 @@
+{
+  "ergebnisliste": [
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Softwareentwickler (m/w/d)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitSchichtNachtWochenende": false,
+      "arbeitszeitTeilzeitAbend": false,
+      "arbeitszeitTeilzeitNachmittag": false,
+      "arbeitszeitTeilzeitVormittag": false,
+      "arbeitszeitTeilzeitFlexibel": false,
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-11-09"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "KEINE_ANGABE",
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "80331",
+            "ort": "München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 48.1355827,
+          "laenge": 11.5739758
+        }
+      ],
+      "homeofficemoeglich": false,
+      "veroeffentlichungszeitraum": {
+        "von": "2026-11-09"
+      },
+      "datumErsteVeroeffentlichung": "2026-11-09",
+      "aenderungsdatum": "2026-11-09T07:48:28.994",
+      "externeURL": "https://www.yourfirm.de/job/detail/YF-48852/?utm_source=bundesagentur&utm_medium=unpaid-partner&utm_campaign=000",
+      "hauptberuf": "Softwareentwickler/in",
+      "alternativBeruf1": "EDV-Fachkraft",
+      "alternativBeruf2": "Software-Architect",
+      "firma": "bayoonet AG",
+      "referenznummer": "12117-YF-48852-YF-S",
+      "entfernung": 1,
+      "alleBerufe": [
+        "Softwareentwickler/in",
+        "Software-Architect",
+        "EDV-Fachkraft"
+      ]
+    },
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Softwareentwickler (m/w/d)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-11-17"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "BEFRISTET",
+      "befristungInMonaten": 12,
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "85586",
+            "ort": "Poing bei München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 48.170092301,
+          "laenge": 11.803029073
+        }
+      ],
+      "chiffrenummer": "898750/1",
+      "veroeffentlichungszeitraum": {
+        "von": "2026-11-17"
+      },
+      "datumErsteVeroeffentlichung": "2026-10-23",
+      "aenderungsdatum": "2026-11-17T13:36:40.091",
+      "hauptberuf": "Softwareentwickler/in",
+      "firma": "Hays Professional Solutions GmbH",
+      "arbeitgeberKundennummerHash": "woSoz4U6kKdp8j3D_9CjfXWtvL4W7INA_WjHP-M8nus=",
+      "referenznummer": "13319-898750/1_5315CS-S",
+      "entfernung": 17,
+      "alleBerufe": [
+        "Softwareentwickler/in"
+      ]
+    },
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Softwareentwickler:in Java (Homeoffice möglich)",
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-11-16"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "UNBEFRISTET",
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "ort": "München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 48.1414674,
+          "laenge": 11.5615499
+        }
+      ],
+      "homeofficemoeglich": true,
+      "homeofficetyp": "NACH_VEREINBARUNG",
+      "veroeffentlichungszeitraum": {
+        "von": "2026-11-16"
+      },
+      "datumErsteVeroeffentlichung": "2025-09-23",
+      "aenderungsdatum": "2026-11-16T10:43:18.930",
+      "hauptberuf": "Softwareentwickler/in",
+      "firma": "zollsoft GmbH    ",
+      "arbeitgeberKundennummerHash": "tpU2b8_iEK2tTuHBLXmgBxKc9J19yGytntSB3y6O1Yo=",
+      "referenznummer": "10001-1001883453-S",
+      "entfernung": 1,
+      "alleBerufe": [
+        "Softwareentwickler/in"
+      ]
+    },
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Senior Softwareentwickler (m/w/d)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitSchichtNachtWochenende": false,
+      "arbeitszeitTeilzeitAbend": false,
+      "arbeitszeitTeilzeitNachmittag": false,
+      "arbeitszeitTeilzeitVormittag": false,
+      "arbeitszeitTeilzeitFlexibel": false,
+      "arbeitszeitVollzeit": false,
+      "eintrittszeitraum": {
+        "von": "2026-11-18"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "KEINE_ANGABE",
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "80331",
+            "ort": "München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 48.1355827,
+          "laenge": 11.5739758
+        }
+      ],
+      "homeofficemoeglich": true,
+      "homeofficetyp": "NACH_VEREINBARUNG",
+      "chiffrenummer": "246608",
+      "veroeffentlichungszeitraum": {
+        "von": "2026-11-18"
+      },
+      "datumErsteVeroeffentlichung": "2026-11-17",
+      "aenderungsdatum": "2026-11-18T07:02:01.714",
+      "externeURL": "https://www.get-in-it.de/jobsuche/p246608?utm_source=arbeitsagentur&utm_medium=organic&utm_campaign=launch-premium",
+      "hauptberuf": "IT-Projektkoordinator/in",
+      "alternativBeruf1": "Anwendungsprogrammierer/in",
+      "alternativBeruf2": "Datenbankentwickler/in",
+      "firma": "Infomotion GmbH",
+      "referenznummer": "13644-246608-S",
+      "entfernung": 1,
+      "alleBerufe": [
+        "IT-Projektkoordinator/in",
+        "Anwendungsprogrammierer/in",
+        "Datenbankentwickler/in"
+      ]
+    },
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Softwareentwickler C# (m/w/d)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-11-23"
+      },
+      "verguetungsangabe": "JAHRESGEHALT",
+      "artDerVerguetung": "GEHALTSSPANNE",
+      "gehaltsspanneVon": 65000.0,
+      "gehaltsspanneBis": 75000.0,
+      "vertragsdauer": "KEINE_ANGABE",
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "80687",
+            "ort": "München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 48.140433435,
+          "laenge": 11.506015614
+        }
+      ],
+      "chiffrenummer": "VA37-18891-MC",
+      "veroeffentlichungszeitraum": {
+        "von": "2026-11-23"
+      },
+      "datumErsteVeroeffentlichung": "2026-11-23",
+      "aenderungsdatum": "2026-11-23T07:41:11.526",
+      "hauptberuf": "Softwareentwickler/in",
+      "firma": "FERCHAU GmbH Niederlassung München Mobility",
+      "arbeitgeberKundennummerHash": "ufkpF47n0WlVnSWOu05UslNXOl0xb1KTvoxjP-2lFfM=",
+      "referenznummer": "12265-347980_JB5303879-S",
+      "entfernung": 5,
+      "alleBerufe": [
+        "Softwareentwickler/in"
+      ]
+    }
+  ],
+  "maxErgebnisse": 223,
+  "page": 1,
+  "size": 25,
+  "woOutput": {
+    "bereinigterOrt": "München",
+    "suchmodus": "UMKREISSUCHE",
+    "koordinaten": [
+      {
+        "lat": 48.1476759,
+        "lon": 11.5695622
+      }
+    ]
+  }
+}
