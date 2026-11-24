@@ -2,6 +2,7 @@ import type { RuntimeMessage } from "@/types/messages";
 import { INSERT_FIELD_LABELS, INSERT_FIELD_ORDER, type InsertField } from "@/features/autofill/insert-field-labels";
 import { ensureContentScript } from "./inject-content-script";
 import { resolveInsertValue } from "./resolve-insert-value";
+import { readActiveProjectId, runInProject } from "@/features/projects/scope";
 
 const INSERT_PARENT_ID = "job-app-assistant-insert";
 // "generatePassword" reads as "Generated password" in the panel's own
@@ -53,7 +54,9 @@ export async function handleContextMenuClick(
   // "ReferenceError: document is not defined" immediately, before ever
   // reaching the content script — this module is tiny and used on every
   // click anyway, so there was no real benefit to splitting it out.
-  const value = await resolveInsertValue(field, tab.id);
+  // The active project's profile, even while another project's run holds the pin (projects/scope.ts).
+  const tabId = tab.id;
+  const value = await runInProject(await readActiveProjectId(), () => resolveInsertValue(field, tabId));
   // Deliberately NOT bailing out here when `value` is empty (e.g. no CV
   // uploaded yet, or that profile field was never filled in): the message
   // still goes to the content script so it can show an on-page toast

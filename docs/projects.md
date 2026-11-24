@@ -27,5 +27,14 @@ Migration is a no-op: what existed before projects *is* the Default project, rea
 was. A browser that hasn't updated keeps working on Default. Tests are in
 `extension/test/projects.test.ts`.
 
-Known limit: a cover letter still generating in the background when the user switches project
-may read the new project's caches.
+Runs stay in their project (`scope.ts`):
+
+- **Side Panel**: keeps the project it opened in.
+- **Requests**: `sendMessage` stamps it on each one, and `routeMessage` runs the
+  project-touching ones in `runInProject`. A cover letter still streaming when the user switches
+  keeps reading and writing its own project.
+- **Another project's runs**: they wait for it.
+- **Resume**: `CoverLetterRun.projectId` keeps a finished letter from being resumed by another
+  project's panel.
+
+Tests: `extension/test/projects-pin.test.ts`.

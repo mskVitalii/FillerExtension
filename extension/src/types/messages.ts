@@ -1,3 +1,4 @@
+import { currentProjectId } from "@/features/projects/scope";
 import type { Job, JobBrief, JobKeyword, JobLanguageInfo } from "./job";
 import type { CvMeta, FaqEntry, Profile } from "./profile";
 import type { CvChoice } from "@/features/cv-selection/select";
@@ -207,8 +208,14 @@ export type RuntimeMessageType = RuntimeMessage["type"];
 /** The `RuntimeMessage` member for one `type` — use it for a response type instead of restating its fields. */
 export type MessageOf<T extends RuntimeMessageType> = Extract<RuntimeMessage, { type: T }>;
 
+/** The project a request was sent from (`sendMessage` stamps it), so the background runs it there. */
+export type ProjectStamped<M> = M & { projectId?: string };
+
 export async function sendMessage<T = unknown>(message: RuntimeMessage): Promise<T> {
-  const response = (await chrome.runtime.sendMessage(message)) as T | Extract<RuntimeMessage, { type: "ERROR" }>;
+  // The Side Panel is bound to its project for life (it reloads on a switch), so the background
+  // runs this request in that project even if the user switches while it's still running.
+  const stamped: ProjectStamped<RuntimeMessage> = { ...message, projectId: await currentProjectId() };
+  const response = (await chrome.runtime.sendMessage(stamped)) as T | Extract<RuntimeMessage, { type: "ERROR" }>;
   if (response && typeof response === "object" && (response as { type?: string }).type === "ERROR") {
     const { error, code } = response as Extract<RuntimeMessage, { type: "ERROR" }>;
     const err = new Error(error || "Background request failed.");

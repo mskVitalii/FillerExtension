@@ -96,6 +96,8 @@ export async function setCvChoiceState(tabId: number, state: CvChoiceState): Pro
  */
 export interface CoverLetterRun {
   jobUrl: string;
+  /** The project the letter was written in (absent = Default): only that project's panel picks it up. */
+  projectId?: string;
   /** "applied" once a panel showed the finished letter — a later panel must not overwrite edits with it. */
   status: "generating" | "done" | "error" | "applied";
   /** The text so far while generating; the final, authoritative text once done. */

@@ -1,4 +1,5 @@
-import type { RuntimeMessage } from "@/types/messages";
+import type { ProjectStamped, RuntimeMessage } from "@/types/messages";
+import { currentProjectId, readActiveProjectId, runInProject } from "@/features/projects/scope";
 import type { CustomQuestion } from "@/features/autofill/custom-questions";
 import type { PageCheckbox } from "@/features/autofill/checkboxes";
 import type { JobSearchResult } from "@/types/job-search";
@@ -100,7 +101,41 @@ function groupByFrame<T extends { locator: ElementLocator }>(items: T[]): Map<nu
  * that avoids attributing a slow response to whichever tab happens to be
  * active by the time it resolves, if the user switched tabs meanwhile.
  */
-export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMessage | undefined> {
+export async function routeMessage(message: ProjectStamped<RuntimeMessage>): Promise<RuntimeMessage | undefined> {
+  if (!PROJECT_BOUND.has(message.type)) return handleMessage(message);
+  // Pinned before anything slow: the request runs in the project it was sent from (the panel's),
+  // or the active one when it was sent without one, even if the user switches meanwhile.
+  const projectId = message.projectId ?? (await readActiveProjectId());
+  return runInProject(projectId, () => handleMessage(message));
+}
+
+/**
+ * Requests that read or write project data (profile, CVs, legend, rules, FAQ, the last letter,
+ * search preferences). The rest — DOM plumbing, the element picker that waits on the user, the
+ * job cache, LinkedIn's collected links — run unpinned, so they never wait on another project's run.
+ */
+const PROJECT_BOUND = new Set<RuntimeMessage["type"]>([
+  "GET_PROFILE",
+  "DECIDE_FIELDS",
+  "COMPLETE_JOB",
+  "EXTRACT_JOB_FROM_TEXT",
+  "GENERATE_COVER_LETTER",
+  "REVISE_COVER_LETTER",
+  "TRANSLATE_COVER_LETTER",
+  "GENERATE_OUTREACH_MESSAGE",
+  "REVISE_OUTREACH_MESSAGE",
+  "ANSWER_CUSTOM_QUESTION",
+  "DECOMPOSE_BLOCK",
+  "DECIDE_PAGE_CONTENT",
+  "DETECT_JOB_BRIEF",
+  "GENERATE_FAQ_ANSWERS",
+  "SEARCH_JOBS",
+  "SUGGEST_SEARCH_QUERY",
+  "SUGGEST_CV_VALUES",
+  "CHOOSE_CV",
+]);
+
+async function handleMessage(message: RuntimeMessage): Promise<RuntimeMessage | undefined> {
   switch (message.type) {
     case "FILL_STATS_REPORT": {
       await recordFillRun(message.run);
@@ -192,12 +227,14 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
 
     case "GENERATE_COVER_LETTER": {
       const { tabId } = message;
+      // The run is pinned (routeMessage); the panel that resumes it must be of the same project.
+      const projectId = await currentProjectId();
       const jobUrl = message.job.url;
       // Progress is also kept in session storage, so a Side Panel that Chrome unloaded while the
       // user was on another tab picks the letter up (still streaming or finished) when they return.
       let streamed = "";
       let lastPersist = 0;
-      await setCoverLetterRun(tabId, { jobUrl, status: "generating", content: "" });
+      await setCoverLetterRun(tabId, { jobUrl, projectId, status: "generating", content: "" });
       let result: Awaited<ReturnType<typeof runCoverLetterPipeline>>;
       try {
         result = await runCoverLetterPipeline(message.job, message.postingLanguage, (delta) => {
@@ -209,16 +246,17 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
           streamed += delta;
           if (Date.now() - lastPersist > 400) {
             lastPersist = Date.now();
-            void setCoverLetterRun(tabId, { jobUrl, status: "generating", content: streamed }).catch(() => {});
+            void setCoverLetterRun(tabId, { jobUrl, projectId, status: "generating", content: streamed }).catch(() => {});
           }
         });
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        await setCoverLetterRun(tabId, { jobUrl, status: "error", content: "", error: reason }).catch(() => {});
+        await setCoverLetterRun(tabId, { jobUrl, projectId, status: "error", content: "", error: reason }).catch(() => {});
         throw error;
       }
       await setCoverLetterRun(tabId, {
         jobUrl,
+        projectId,
         status: "done",
         content: result.content,
         cleanedPatterns: result.cleaned ? Array.from(new Set(result.slopFindings.map((f) => f.pattern))) : [],

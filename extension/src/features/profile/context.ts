@@ -1,6 +1,6 @@
 import type { CustomField, FaqEntry, LanguageLevel, Profile } from "@/types/profile";
 import { baseStorageKey } from "@/features/projects/registry";
-import { ACTIVE_PROJECT_KEY } from "@/features/projects/scope";
+import { ACTIVE_PROJECT_KEY, currentProjectId } from "@/features/projects/scope";
 import { getCustomFields, getCvMeta, getFaqAnswers, getGenerationRules, getLanguageLevels, getOutreachRules, getPersonalLegend, getProfile } from "./repository";
 
 export interface ApplicantContext {
@@ -31,7 +31,8 @@ const CONTEXT_STORAGE_KEYS = new Set([
   "outreachRulesCache",
 ]);
 
-let cached: Promise<ApplicantContext> | null = null;
+/** Per project: runs of two projects can overlap (a pinned background run, the agent's jobs). */
+const cached = new Map<string, Promise<ApplicantContext>>();
 
 function fetchContext(): Promise<ApplicantContext> {
   return Promise.all([
@@ -66,17 +67,21 @@ function fetchContext(): Promise<ApplicantContext> {
  * time) — not a persistence layer, so a cold start just repays the cost
  * once, same as the cache-then-Drive reads it wraps.
  */
-export function getApplicantContext(): Promise<ApplicantContext> {
-  if (!cached) {
-    cached = fetchContext();
+export async function getApplicantContext(): Promise<ApplicantContext> {
+  const projectId = await currentProjectId();
+  let context = cached.get(projectId);
+  if (!context) {
+    context = fetchContext();
+    cached.set(projectId, context);
     // Don't pin a failed fetch (e.g. Drive not connected yet, transient
     // storage error) — the next call should retry, not keep replaying the
     // same rejection for the rest of the worker's lifetime.
-    cached.catch(() => {
-      cached = null;
+    const failed = context;
+    failed.catch(() => {
+      if (cached.get(projectId) === failed) cached.delete(projectId);
     });
   }
-  return cached;
+  return context;
 }
 
 // Guarded: this module is reachable from the Vitest/jsdom regression suite
@@ -88,6 +93,6 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
     // A project's own copy (`p:<id>:profileCache`) or a project switch changes the context too.
-    if (Object.keys(changes).some((key) => key === ACTIVE_PROJECT_KEY || CONTEXT_STORAGE_KEYS.has(baseStorageKey(key)))) cached = null;
+    if (Object.keys(changes).some((key) => key === ACTIVE_PROJECT_KEY || CONTEXT_STORAGE_KEYS.has(baseStorageKey(key)))) cached.clear();
   });
 }

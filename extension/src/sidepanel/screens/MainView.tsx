@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
+import { projectOf } from "@/features/projects/registry";
+import { currentProjectId } from "@/features/projects/scope";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { CheckCircle2, Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
@@ -1340,6 +1342,8 @@ export function MainView({
   async function resumeCoverLetterRun(jobUrl: string) {
     const run = await getCoverLetterRun(tabId);
     if (!run || run.jobUrl !== jobUrl || run.status === "applied") return;
+    // A letter written in another project stays there: it's picked up when the panel is back in it.
+    if (projectOf(run) !== (await currentProjectId())) return;
     if (run.status === "generating") resumedRunRef.current = true;
     applyCoverLetterRun(run);
   }
@@ -1350,7 +1354,9 @@ export function MainView({
       const run = changes[runKey]?.newValue as CoverLetterRun | undefined;
       if (!run || !resumedRunRef.current || ownRunRef.current) return;
       if (run.jobUrl !== jobRef.current.url) return;
-      applyCoverLetterRun(run);
+      void currentProjectId().then((projectId) => {
+        if (projectOf(run) === projectId) applyCoverLetterRun(run);
+      });
     }
     chrome.storage.session.onChanged.addListener(onSessionChanged);
     return () => chrome.storage.session.onChanged.removeListener(onSessionChanged);
