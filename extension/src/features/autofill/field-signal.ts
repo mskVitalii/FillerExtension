@@ -102,10 +102,29 @@ function fromLabelElement(el: HTMLElement): string {
 const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6, legend";
 const FIELD_SELECTOR = 'input:not([type="hidden"]), textarea, select';
 
+const INLINE_SELECTOR = "span, b, strong, em, i, small, sup, sub, font, abbr, br";
+
+/**
+ * The run of inline text right before `node` in its parent — "<span>* </span>Bitte teilen Sie uns Ihr
+ * frühestmögliches Eintrittsdatum mit.<br><textarea>" (Texmo's career form: the question is a bare
+ * text node, its <label> empty) — up to the first block or field.
+ */
+function inlineTextBefore(node: Node): string {
+  const parts: string[] = [];
+  for (let n = node.previousSibling; n; n = n.previousSibling) {
+    if (n.nodeType === Node.TEXT_NODE) parts.unshift(n.textContent ?? "");
+    else if (n instanceof HTMLElement && n.matches(INLINE_SELECTOR) && !n.querySelector(FIELD_SELECTOR)) parts.unshift(n.textContent ?? "");
+    else break;
+  }
+  return tidy(parts.join(" ").replace(/^[\s*]+/, ""));
+}
+
 function fromPrecedingText(el: HTMLElement, container: HTMLElement | null): string {
   let node: HTMLElement | null = el;
   const boundary = container && container !== el ? container : el.ownerDocument.body;
   for (let depth = 0; node && depth < 5; depth++) {
+    const inline = inlineTextBefore(node);
+    if (inline.split(" ").length >= 2) return inline;
     let sibling = node.previousElementSibling;
     while (sibling) {
       if (sibling instanceof HTMLElement && !sibling.matches("input, textarea, select, script, style")) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { autofillDocument } from "@/features/autofill/engine";
 import { detectSemanticField } from "@/features/autofill/field-detector";
+import { fieldQuestionText } from "@/features/autofill/field-signal";
 import { detectCustomQuestions } from "@/features/autofill/custom-questions";
 import { detectCheckboxes } from "@/features/autofill/checkboxes";
 import { injectFileIntoPage } from "@/features/file-upload/inject-file";
@@ -36,6 +37,18 @@ describe("field detection", () => {
   ])("%s → %s", (html, field) => {
     form(html);
     expect(detectSemanticField(el("input, select"))).toBe(field);
+  });
+
+  it("a question written as bare text right before its textarea, with an empty <label>, is its label", () => {
+    // Texmo's career form: the agent saw the start-date question as "answer1".
+    form(
+      '<ul><li><label>Weitere Informationen</label><textarea name="info"></textarea></li>' +
+        '<li class="question"><label></label><p><span class="red">* </span>Bitte teilen Sie uns Ihr frühestmögliches Eintrittsdatum mit.<br><textarea name="answer1"></textarea></p></li></ul>',
+    );
+    expect(fieldQuestionText(el('[name="answer1"]'))).toBe("Bitte teilen Sie uns Ihr frühestmögliches Eintrittsdatum mit.");
+    // A word between two fields isn't a label: "von <input> bis <input>".
+    form('<p>Zeitraum</p><p>von <input name="a"> bis <input name="b"></p>');
+    expect(fieldQuestionText(el('[name="b"]'))).not.toBe("bis");
   });
 
   it("a hidden select's options are not the label of the widget after it", () => {
