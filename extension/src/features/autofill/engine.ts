@@ -171,6 +171,11 @@ async function autofillDocumentUncached(
      * detector couldn't classify. Absent (FillerAgent, tests) → the offline fill only.
      */
     decideFields?: FieldDecider;
+    /**
+     * Awaited before each profile field is written (FillerAgent: a random pause between fills, like
+     * a person moving from field to field). Absent (the extension, tests) → no pause.
+     */
+    beforeFill?: () => Promise<void>;
   } = {},
 ): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const ats = activeAtsAdapter();
@@ -240,6 +245,7 @@ async function autofillDocumentUncached(
     const stat: FillFieldStat = { kind: fieldKind(el), field, label: fieldQuestionText(el).slice(0, 120), filler: "no-value" };
     stats.push(stat);
     if (!value) continue;
+    await options.beforeFill?.();
     const outcome = await fillProfileField(target, facade, field, value, profile, ats, stat, Boolean(decide));
     if (outcome.guard) {
       filled++;
