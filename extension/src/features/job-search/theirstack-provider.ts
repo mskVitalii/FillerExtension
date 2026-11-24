@@ -263,7 +263,7 @@ export async function searchTheirStackJobs(
   }
   const data = ((await res.json()) as TheirStackResponse).data ?? [];
   state.credits += data.length;
-  state.seen.push(...data.map((j) => j.id).filter((n) => Number.isInteger(n)));
+  state.seen = [...new Set([...state.seen, ...data.map((j) => j.id).filter((n) => Number.isInteger(n))])];
   await saveState(state);
   const results = dropStalePostings(data.map(mapTheirStackJob).filter((r) => r.url && r.title), now).filter((r) => !isKnownResult(r, options.exclude ?? []));
   return { results, warnings: [], credits: data.length };
