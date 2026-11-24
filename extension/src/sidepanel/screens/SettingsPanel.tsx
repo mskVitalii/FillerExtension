@@ -64,6 +64,7 @@ import {
 } from "@/features/storage/local";
 import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { JOBSUCHE_ORIGIN } from "@/features/job-search/jobsuche-provider";
+import { LOOPCV_ORIGIN } from "@/features/job-search/loopcv-provider";
 import { CV_FILE_ACCEPT, prepareCvFile } from "@/lib/cv-text";
 import { COUNTRIES } from "@/lib/countries";
 import { formatSalaryForStorage } from "@/lib/salary";
@@ -144,6 +145,9 @@ export function SettingsPanel({
   const [autofillOnOpen, setAutofillOnOpen] = useState(true);
   const [jobsucheEnabled, setJobsucheEnabled] = useState(true);
   const [jobsucheDenied, setJobsucheDenied] = useState(false);
+  const [theirstackEnabled, setTheirstackEnabled] = useState(true);
+  const [loopcvEnabled, setLoopcvEnabled] = useState(true);
+  const [loopcvDenied, setLoopcvDenied] = useState(false);
   const [autoSelectCv, setAutoSelectCv] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
@@ -175,6 +179,8 @@ export function SettingsPanel({
     tavilyApiKey: "",
     adzunaAppId: "",
     adzunaAppKey: "",
+    theirstackApiKey: "",
+    loopcvApiKey: "",
   });
   const [savingJobSearchCredentials, setSavingJobSearchCredentials] = useState(false);
   const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
@@ -200,6 +206,8 @@ export function SettingsPanel({
     void getPreferences().then((prefs) => {
       setAutofillOnOpen(prefs.autofillOnOpen);
       setJobsucheEnabled(prefs.jobsucheEnabled);
+      setTheirstackEnabled(prefs.theirstackEnabled);
+      setLoopcvEnabled(prefs.loopcvEnabled);
       setUiLanguage(prefs.uiLanguage);
       setAutoSelectCv(prefs.autoSelectCv);
       setAiChooseCv(prefs.aiChooseCv);
@@ -240,6 +248,20 @@ export function SettingsPanel({
     const next = checked && granted;
     setJobsucheEnabled(next);
     await setPreferences({ jobsucheEnabled: next });
+  }
+
+  async function handleToggleTheirstack(checked: boolean) {
+    setTheirstackEnabled(checked);
+    await setPreferences({ theirstackEnabled: checked });
+  }
+
+  /** LoopCV's API sends no CORS headers: turning it on asks Chrome for b2b-api.loopcv.com, in this click. */
+  async function handleToggleLoopcv(checked: boolean) {
+    const granted = checked ? await chrome.permissions.request({ origins: [LOOPCV_ORIGIN] }).catch(() => false) : true;
+    setLoopcvDenied(!granted);
+    const next = checked && granted;
+    setLoopcvEnabled(next);
+    await setPreferences({ loopcvEnabled: next });
   }
 
   async function handleToggleAutofillOnOpen(checked: boolean) {
@@ -502,8 +524,12 @@ export function SettingsPanel({
   }
 
   async function handleSaveJobSearchCredentials() {
+    // A LoopCV key is only usable with the host permission: ask in this click, before anything is awaited.
+    const askLoopcv = loopcvEnabled && jobSearchCreds.loopcvApiKey.trim() !== "";
+    const loopcvGrant = askLoopcv ? chrome.permissions.request({ origins: [LOOPCV_ORIGIN] }).catch(() => false) : null;
     setSavingJobSearchCredentials(true);
     try {
+      if (loopcvGrant) setLoopcvDenied(!(await loopcvGrant));
       await setJobSearchCredentials(jobSearchCreds);
     } finally {
       setSavingJobSearchCredentials(false);
@@ -1100,6 +1126,32 @@ export function SettingsPanel({
             {t("settings.jobsuche")}
           </label>
           <p className="text-[11px] text-muted-foreground">{jobsucheDenied ? t("settings.jobsucheDenied") : t("settings.jobsucheHint")}</p>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">TheirStack API key</label>
+            <Input
+              type="password"
+              value={jobSearchCreds.theirstackApiKey}
+              onChange={(e) => setJobSearchCreds((prev) => ({ ...prev, theirstackApiKey: e.target.value }))}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={theirstackEnabled} onChange={(e) => void handleToggleTheirstack(e.target.checked)} />
+            {t("settings.theirstack")}
+          </label>
+          <p className="text-[11px] text-muted-foreground">{t("settings.theirstackHint")}</p>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">LoopCV API key</label>
+            <Input
+              type="password"
+              value={jobSearchCreds.loopcvApiKey}
+              onChange={(e) => setJobSearchCreds((prev) => ({ ...prev, loopcvApiKey: e.target.value }))}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={loopcvEnabled} onChange={(e) => void handleToggleLoopcv(e.target.checked)} />
+            {t("settings.loopcv")}
+          </label>
+          <p className="text-[11px] text-muted-foreground">{loopcvDenied ? t("settings.loopcvDenied") : t("settings.loopcvHint")}</p>
           <Button size="sm" variant="outline" onClick={handleSaveJobSearchCredentials} disabled={savingJobSearchCredentials}>
             {savingJobSearchCredentials ? t("common.saving") : t("common.save")}
           </Button>

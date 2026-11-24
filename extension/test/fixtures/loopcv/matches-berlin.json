@@ -1,0 +1,35 @@
+[
+  {
+    "_id": "6740f1a2b3c4d5e6f7a8b9c0",
+    "title": "Backend Engineer",
+    "company": "ExampleData",
+    "location": "Berlin, Germany",
+    "summary": "We are hiring a backend developer.\nNode.js, AWS.",
+    "url": "https://www.linkedin.com/jobs/view/4079999999",
+    "job_type": "Full-time",
+    "applyLink": "https://boards.greenhouse.io/exampledata/jobs/7712345",
+    "email": "",
+    "domain": "exampledata.example"
+  },
+  {
+    "_id": "6740f1a2b3c4d5e6f7a8b9c1",
+    "title": "Node.js Developer",
+    "company": "ExampleAgency",
+    "location": "Berlin, Germany",
+    "summary": "For our client …",
+    "url": "https://de.indeed.com/viewjob?jk=def456",
+    "job_type": "Full-time",
+    "applyLink": "",
+    "email": "jobs@exampleagency.example",
+    "domain": "exampleagency.example"
+  },
+  {
+    "_id": "6740f1a2b3c4d5e6f7a8b9c2",
+    "title": "Platform Engineer",
+    "company": "ExampleCloud",
+    "location": "Berlin, Germany",
+    "summary": "Kubernetes and Go.",
+    "url": "https://examplecloud.example/careers/platform-engineer",
+    "job_type": "Full-time"
+  }
+]

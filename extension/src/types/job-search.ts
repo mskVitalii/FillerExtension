@@ -30,12 +30,20 @@ export interface JobSearchResult {
   boardOnly?: boolean;
   /** The job board's own page for this posting when `url` is the employer/ATS link (Jobsuche: the arbeitsagentur.de page). */
   boardUrl?: string;
+  /**
+   * Each source's own id for the posting (Jobsuche refnr, TheirStack job id, LoopCV `_id`), kept
+   * through the cross-source merge — so a later search can tell a paid API which ones it already has.
+   */
+  sourceIds?: Partial<Record<JobSearchSource, string>>;
   /** Adzuna only: the search tag/category this result came from (spec_7 item 13) — lets the UI group results by category. */
   tag?: string;
 }
 
-/** `jobsuche`: the Bundesagentur für Arbeit's job board (Germany only, `jobsuche-provider.ts`). */
-export type JobSearchProvider = "openai" | "tavily" | "adzuna" | "jobsuche";
+/**
+ * `jobsuche`: the Bundesagentur für Arbeit's job board (Germany only, `jobsuche-provider.ts`).
+ * `theirstack` / `loopcv`: job APIs with the user's own key (`theirstack-provider.ts`, `loopcv-provider.ts`).
+ */
+export type JobSearchProvider = "openai" | "tavily" | "adzuna" | "jobsuche" | "theirstack" | "loopcv";
 
 /** Seniority levels a search can target; several can be selected at once. `keyword` is what Adzuna's literal keyword search gets prefixed with. */
 export const JOB_GRADES = [

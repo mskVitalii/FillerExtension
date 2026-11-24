@@ -193,6 +193,7 @@ export function mapJobsucheListing(listing: JobsucheListing, details?: JobsucheD
     snippet: (description || clean(listing.hauptberuf)).slice(0, 300),
     postedAt: listing.veroeffentlichungszeitraum?.von ?? listing.aktuelleVeroeffentlichungsdatum ?? listing.datumErsteVeroeffentlichung ?? "",
     source: "jobsuche",
+    sourceIds: { jobsuche: refnr },
     ...(external ? { boardUrl: board } : { boardOnly: true }),
     ...(tag ? { tag } : {}),
   };
@@ -298,16 +299,21 @@ export async function searchJobsucheJobs(
 }
 
 /**
- * Whether this runtime may fetch the BA's API: the extension needs the optional host permission
- * (the API sends no CORS headers for other origins); outside the extension (FillerAgent's Node side,
- * no `chrome.permissions`) there's nothing to grant.
+ * Whether this runtime may fetch `origin` (a host-permission pattern): the extension needs the optional
+ * host permission for an API that sends no CORS headers for other origins; outside the extension
+ * (FillerAgent's Node side, no `chrome.permissions`) there's nothing to grant.
  */
-export async function hasJobsucheAccess(): Promise<boolean> {
+export async function hasOriginAccess(origin: string): Promise<boolean> {
   const permissions = (globalThis as { chrome?: { permissions?: { contains?: (p: { origins: string[] }) => Promise<boolean> } } }).chrome?.permissions;
   if (typeof permissions?.contains !== "function") return true;
   try {
-    return await permissions.contains({ origins: [JOBSUCHE_ORIGIN] });
+    return await permissions.contains({ origins: [origin] });
   } catch {
     return false;
   }
+}
+
+/** Whether this runtime may fetch the BA's API (`hasOriginAccess` for `JOBSUCHE_ORIGIN`). */
+export function hasJobsucheAccess(): Promise<boolean> {
+  return hasOriginAccess(JOBSUCHE_ORIGIN);
 }

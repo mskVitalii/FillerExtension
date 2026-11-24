@@ -16,6 +16,8 @@ import { getPreferences, setPreferences } from "@/features/storage/sync";
 import { AiErrorMessage } from "@/components/AiErrorMessage";
 import { SourceChips } from "@/components/SourceChips";
 import { isGermanSearch, JOBSUCHE_ORIGIN } from "@/features/job-search/jobsuche-provider";
+import { LOOPCV_ORIGIN } from "@/features/job-search/loopcv-provider";
+import { getJobSearchCredentials } from "@/features/storage/local";
 import { mergeSourceResults } from "@/features/job-search/merge-sources";
 import { getProfile } from "@/features/profile/repository";
 import { LinkedInCollected } from "./LinkedInCollected";
@@ -111,6 +113,8 @@ const PROVIDER_LABELS: Record<JobSearchProvider, string> = {
   tavily: "Tavily",
   adzuna: "Adzuna",
   jobsuche: "Arbeitsagentur (Germany)",
+  theirstack: "TheirStack",
+  loopcv: "LoopCV",
 };
 
 /**
@@ -154,6 +158,12 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
   /** Asked once per panel for the side search; picking the Arbeitsagentur as provider asks every time. */
   const askedJobsucheRef = useRef(false);
   const jobsucheWanted = provider === "jobsuche" || (jobsucheEnabled && isGermanSearch(where, profileCountry));
+  /** The same for LoopCV, whose API sends no CORS headers either (TheirStack's does, so it needs nothing). */
+  const [loopcvEnabled, setLoopcvEnabled] = useState(true);
+  const [loopcvKey, setLoopcvKey] = useState(false);
+  const [loopcvAccess, setLoopcvAccess] = useState(true);
+  const askedLoopcvRef = useRef(false);
+  const loopcvWanted = provider === "loopcv" || (loopcvEnabled && loopcvKey);
 
   // The offline negative filter runs here, not in the background, so editing
   // the field re-filters the results already on screen without a new search.
@@ -187,16 +197,25 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
     void getPreferences().then((prefs) => {
       setNegative(prefs.jobSearchNegativePrompt);
       setJobsucheEnabled(prefs.jobsucheEnabled);
+      setLoopcvEnabled(prefs.loopcvEnabled);
       negativeLoadedRef.current = true;
     });
+    void getJobSearchCredentials()
+      .then((creds) => setLoopcvKey(creds.loopcvApiKey.trim() !== ""))
+      .catch(() => {});
     void getProfile()
       .then((profile) => setProfileCountry(profile.country ?? ""))
       .catch(() => {});
-    const checkAccess = () =>
+    const checkAccess = () => {
       void chrome.permissions
         .contains({ origins: [JOBSUCHE_ORIGIN] })
         .then(setJobsucheAccess)
         .catch(() => setJobsucheAccess(false));
+      void chrome.permissions
+        .contains({ origins: [LOOPCV_ORIGIN] })
+        .then(setLoopcvAccess)
+        .catch(() => setLoopcvAccess(false));
+    };
     checkAccess();
     // @types/chrome lists only addListener on these; the real events have removeListener too.
     const events = [chrome.permissions.onAdded, chrome.permissions.onRemoved] as unknown as chrome.events.Event<() => void>[];
@@ -217,6 +236,36 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
       .request({ origins: [JOBSUCHE_ORIGIN] })
       .then((granted) => {
         setJobsucheAccess(granted);
+        return granted;
+      })
+      .catch(() => false);
+  }
+
+  function requestLoopcvAccess(): Promise<boolean> {
+    askedLoopcvRef.current = true;
+    return chrome.permissions
+      .request({ origins: [LOOPCV_ORIGIN] })
+      .then((granted) => {
+        setLoopcvAccess(granted);
+        return granted;
+      })
+      .catch(() => false);
+  }
+
+  /** Both missing origins in one prompt (one click = one gesture), each asked once per panel unless it's the provider. */
+  function requestSearchAccess(): Promise<boolean> | null {
+    const jobsuche = jobsucheWanted && !jobsucheAccess && (provider === "jobsuche" || !askedJobsucheRef.current);
+    const loopcv = loopcvWanted && !loopcvAccess && (provider === "loopcv" || !askedLoopcvRef.current);
+    if (!jobsuche && !loopcv) return null;
+    if (jobsuche && !loopcv) return requestJobsucheAccess();
+    if (loopcv && !jobsuche) return requestLoopcvAccess();
+    askedJobsucheRef.current = true;
+    askedLoopcvRef.current = true;
+    return chrome.permissions
+      .request({ origins: [JOBSUCHE_ORIGIN, LOOPCV_ORIGIN] })
+      .then((granted) => {
+        setJobsucheAccess(granted);
+        setLoopcvAccess(granted);
         return granted;
       })
       .catch(() => false);
@@ -315,8 +364,7 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
    */
   async function handleSearch(loadMore: boolean) {
     // First, with nothing awaited before it: the permission prompt needs this click's gesture.
-    const access =
-      jobsucheWanted && !jobsucheAccess && (provider === "jobsuche" || !askedJobsucheRef.current) ? requestJobsucheAccess() : null;
+    const access = requestSearchAccess();
     (loadMore ? setLoadingMore : setSearching)(true);
     setError(null);
     setWarnings([]);
@@ -512,6 +560,15 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
         <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
           {t("search.jobsucheAccess")}
           <button onClick={() => void requestJobsucheAccess()} className="underline underline-offset-2 hover:text-foreground">
+            {t("search.jobsucheAllow")}
+          </button>
+        </p>
+      )}
+
+      {loopcvWanted && !loopcvAccess && (
+        <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+          {t("search.loopcvAccess")}
+          <button onClick={() => void requestLoopcvAccess()} className="underline underline-offset-2 hover:text-foreground">
             {t("search.jobsucheAllow")}
           </button>
         </p>

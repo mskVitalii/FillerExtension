@@ -132,18 +132,25 @@ export async function setAnthropicApiKey(key: string): Promise<void> {
   else await removeLocal("anthropicApiKey");
 }
 
+/** The search providers' keys — global, not per project. An empty key turns its source off. */
 export interface JobSearchCredentials {
   tavilyApiKey: string;
   adzunaAppId: string;
   adzunaAppKey: string;
+  /** TheirStack Jobs API (`theirstack-provider.ts`): 1 credit per job returned. */
+  theirstackApiKey: string;
+  /** LoopCV B2B API (`loopcv-provider.ts`). */
+  loopcvApiKey: string;
 }
 
 export async function getJobSearchCredentials(): Promise<JobSearchCredentials> {
-  const result = await chrome.storage.local.get(["tavilyApiKey", "adzunaAppId", "adzunaAppKey"]);
+  const result = await chrome.storage.local.get(["tavilyApiKey", "adzunaAppId", "adzunaAppKey", "theirstackApiKey", "loopcvApiKey"]);
   return {
     tavilyApiKey: result.tavilyApiKey ?? "",
     adzunaAppId: result.adzunaAppId ?? "",
     adzunaAppKey: result.adzunaAppKey ?? "",
+    theirstackApiKey: result.theirstackApiKey ?? "",
+    loopcvApiKey: result.loopcvApiKey ?? "",
   };
 }
 

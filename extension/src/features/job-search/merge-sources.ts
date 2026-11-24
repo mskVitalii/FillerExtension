@@ -67,7 +67,9 @@ function combine(kept: JobSearchResult, other: JobSearchResult): JobSearchResult
     postedAt: base.postedAt || extra.postedAt,
     boardUrl: base.boardUrl ?? extra.boardUrl ?? (extra.boardOnly ? extra.url : undefined),
     sources,
+    sourceIds: { ...extra.sourceIds, ...base.sourceIds },
   };
+  if (Object.keys(merged.sourceIds!).length === 0) delete merged.sourceIds;
   if (!merged.boardUrl) delete merged.boardUrl;
   if (!merged.postedAt) delete merged.postedAt;
   if (!merged.boardOnly) delete merged.boardOnly;

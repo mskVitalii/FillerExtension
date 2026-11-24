@@ -45,6 +45,10 @@ export interface Preferences {
    * the optional host permission for rest.arbeitsagentur.de (asked for when it's turned on).
    */
   jobsucheEnabled: boolean;
+  /** Job Search: also ask TheirStack (with its key, `theirstack-provider.ts`) next to the chosen provider. */
+  theirstackEnabled: boolean;
+  /** Job Search: also read LoopCV (with its key, `loopcv-provider.ts`) next to the chosen provider. */
+  loopcvEnabled: boolean;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -64,6 +68,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   claudeMainModel: "",
   claudeSupportModel: "",
   jobsucheEnabled: true,
+  theirstackEnabled: true,
+  loopcvEnabled: true,
 };
 
 /**

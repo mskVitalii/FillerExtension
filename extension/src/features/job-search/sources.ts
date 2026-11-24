@@ -6,6 +6,8 @@ export const SOURCE_LABELS: Record<JobSearchSource, string> = {
   tavily: "Tavily",
   adzuna: "Adzuna",
   jobsuche: "Arbeitsagentur",
+  theirstack: "TheirStack",
+  loopcv: "LoopCV",
   linkedin: "LinkedIn",
 };
 

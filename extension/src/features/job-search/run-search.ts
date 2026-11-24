@@ -1,12 +1,14 @@
 import type { JobSearchQuery, JobSearchResult, JobSearchStageTiming } from "@/types/job-search";
 import { getPersonalLegend, getProfile } from "@/features/profile/repository";
-import { getJobSearchCredentials } from "@/features/storage/local";
+import { getJobSearchCredentials, type JobSearchCredentials } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
 import { searchOpenAiJobs } from "./openai-provider";
 import { searchTavilyJobs } from "./tavily-provider";
 import { searchAdzunaJobs } from "./adzuna-provider";
 import { adzunaCountryCode } from "./adzuna-country";
-import { hasJobsucheAccess, isGermanSearch, JOBSUCHE_MAX_PAGE, searchJobsucheJobs } from "./jobsuche-provider";
+import { hasJobsucheAccess, hasOriginAccess, isGermanSearch, JOBSUCHE_MAX_PAGE, JOBSUCHE_ORIGIN, searchJobsucheJobs } from "./jobsuche-provider";
+import { searchTheirStackJobs, THEIRSTACK_MAX_PAGE } from "./theirstack-provider";
+import { LOOPCV_ORIGIN, searchLoopCvJobs } from "./loopcv-provider";
 import { mergeSourceResults } from "./merge-sources";
 import { timeStage } from "./timing";
 import { getSearchSuggestion } from "./suggestion-cache";
@@ -38,61 +40,136 @@ export interface JobSearchOptions {
   onResults?: (partial: JobSearchResult[]) => void;
   signal?: AbortSignal;
   /**
-   * Also search the Bundesagentur's Jobsuche next to `query.provider` when the place is in Germany
-   * (the caller's per-source toggle: FillerAgent's `config.search.jobsuche`). Absent: the extension's
-   * `Preferences.jobsucheEnabled`.
+   * The per-source switches for the sources searched next to `query.provider` (FillerAgent passes
+   * its `config.search`; absent: the extension's `Preferences`). The Arbeitsagentur runs only for a
+   * place in Germany; TheirStack and LoopCV only with their key.
    */
   jobsuche?: boolean;
+  theirstack?: boolean;
+  loopcv?: boolean;
 }
 
-const NO_JOBSUCHE_ACCESS = "Arbeitsagentur skipped: allow Filler to reach rest.arbeitsagentur.de (Settings → Job search).";
+interface SideContext {
+  page: number;
+  terms: string[];
+  profileCountry: string;
+  creds: JobSearchCredentials;
+}
+
+/** A source searched next to the chosen provider, merged into its results. */
+interface SideSource {
+  label: string;
+  /** Pages past this one don't ask it again (the autopilot's Tavily cycle has 13 rounds). */
+  maxPage: number;
+  /** The host permission the extension needs, if any. */
+  origin?: string;
+  run(query: JobSearchQuery, ctx: SideContext, options: JobSearchOptions): Promise<{ results: JobSearchResult[]; warnings: string[] }>;
+}
+
+const SIDE_SOURCES = {
+  jobsuche: {
+    label: "Arbeitsagentur",
+    maxPage: JOBSUCHE_MAX_PAGE,
+    origin: JOBSUCHE_ORIGIN,
+    run: (query, ctx, options) =>
+      searchJobsucheJobs({ ...query, terms: ctx.terms }, ctx.page, { exclude: options.excludeResults, onResults: options.onResults, signal: options.signal }),
+  },
+  theirstack: {
+    label: "TheirStack",
+    maxPage: THEIRSTACK_MAX_PAGE,
+    run: (query, ctx, options) =>
+      searchTheirStackJobs({ ...query, terms: ctx.terms }, ctx.creds.theirstackApiKey, {
+        profileCountry: ctx.profileCountry,
+        exclude: options.excludeResults,
+        signal: options.signal,
+      }),
+  },
+  loopcv: {
+    label: "LoopCV",
+    maxPage: 1,
+    origin: LOOPCV_ORIGIN,
+    run: (query, ctx, options) =>
+      searchLoopCvJobs({ ...query, terms: ctx.terms }, ctx.creds.loopcvApiKey, {
+        page: ctx.page,
+        profileCountry: ctx.profileCountry,
+        exclude: options.excludeResults,
+        signal: options.signal,
+      }),
+  },
+} satisfies Record<string, SideSource>;
+
+const ACCESS_HINT: Record<string, string> = {
+  [JOBSUCHE_ORIGIN]: "rest.arbeitsagentur.de",
+  [LOOPCV_ORIGIN]: "b2b-api.loopcv.com",
+};
 
 /**
  * One job search with any provider — what the Side Panel's Job Search runs
  * (`SEARCH_JOBS` in `background/router.ts`) and what the local agent runs for
- * its own Search tab, so both find postings the same way. A search in Germany
- * also asks the Bundesagentur's job board (`withJobsuche`), merged in with the
- * same posting shown once and tagged with every source that found it.
+ * its own Search tab, so both find postings the same way. The side sources
+ * (`SIDE_SOURCES`: the Bundesagentur's job board in Germany, TheirStack and
+ * LoopCV with a key) run next to it, merged in with the same posting shown once
+ * and tagged with every source that found it.
  */
 export async function runJobSearch(query: JobSearchQuery, options: JobSearchOptions = {}): Promise<JobSearchRun> {
-  const enabled = query.provider !== "jobsuche" && (options.jobsuche ?? (await getPreferences().catch(() => null))?.jobsucheEnabled ?? true);
-  if (!enabled) return runProviderSearch(query, options);
-  const profile = await getProfile().catch(() => null);
-  if (!isGermanSearch(query.where, profile?.country ?? "")) return runProviderSearch(query, options);
-  return withJobsuche(query, options);
+  const [prefs, profile, creds] = await Promise.all([
+    getPreferences().catch(() => null),
+    getProfile().catch(() => null),
+    getJobSearchCredentials().catch(() => null),
+  ]);
+  const profileCountry = profile?.country ?? "";
+  const sides: SideSource[] = [];
+  if (query.provider !== "jobsuche" && (options.jobsuche ?? prefs?.jobsucheEnabled ?? true) && isGermanSearch(query.where, profileCountry)) {
+    sides.push(SIDE_SOURCES.jobsuche);
+  }
+  if (query.provider !== "theirstack" && creds?.theirstackApiKey && (options.theirstack ?? prefs?.theirstackEnabled ?? true)) sides.push(SIDE_SOURCES.theirstack);
+  if (query.provider !== "loopcv" && creds?.loopcvApiKey && (options.loopcv ?? prefs?.loopcvEnabled ?? true)) sides.push(SIDE_SOURCES.loopcv);
+  if (sides.length === 0 || !creds) return runProviderSearch(query, options);
+  return withSideSources(query, options, sides, { profileCountry, creds });
 }
 
 /**
- * The chosen provider and the Jobsuche side by side. Jobsuche searches the same terms (typed, or the
- * CV-derived set — cached, so no second AI call) and pages along up to `JOBSUCHE_MAX_PAGE` (the
- * autopilot's Tavily rounds go further; past that page only the provider searches). A Jobsuche that
- * fails or isn't allowed is a warning, never the search's error.
+ * The chosen provider and the side sources at once. They search the same terms (typed, or the
+ * CV-derived set — cached, so no second AI call). A side source that fails or isn't allowed is a
+ * warning, never the search's error.
  */
-async function withJobsuche(query: JobSearchQuery, options: JobSearchOptions): Promise<JobSearchRun> {
+async function withSideSources(
+  query: JobSearchQuery,
+  options: JobSearchOptions,
+  sides: SideSource[],
+  base: { profileCountry: string; creds: JobSearchCredentials },
+): Promise<JobSearchRun> {
   const page = options.page ?? 1;
-  const extra = (async (): Promise<{ results: JobSearchResult[]; warnings: string[]; ms: number }> => {
+  let termsPromise: Promise<string[]> | null = null;
+  const terms = () =>
+    (termsPromise ??= (async () => {
+      const own = query.tags?.length ? query.tags : searchTerms(query);
+      return cleanTerms(own.length > 0 ? own : ((await getSearchSuggestion(true)).tags ?? []));
+    })());
+  const runSide = async (side: SideSource) => {
     const started = performance.now();
-    if (page > JOBSUCHE_MAX_PAGE) return { results: [], warnings: [], ms: 0 };
-    if (!(await hasJobsucheAccess())) return { results: [], warnings: [NO_JOBSUCHE_ACCESS], ms: 0 };
-    try {
-      let terms = query.tags?.length ? query.tags : searchTerms(query);
-      if (terms.length === 0) terms = (await getSearchSuggestion(true)).tags ?? [];
-      const outcome = await searchJobsucheJobs({ ...query, terms: cleanTerms(terms) }, page, {
-        exclude: options.excludeResults,
-        onResults: options.onResults,
-        signal: options.signal,
-      });
-      return { ...outcome, ms: performance.now() - started };
-    } catch (err) {
-      return { results: [], warnings: [`Arbeitsagentur — ${err instanceof Error ? err.message : "search failed"}`], ms: performance.now() - started };
+    if (page > side.maxPage) return { side, results: [] as JobSearchResult[], warnings: [] as string[], ms: 0 };
+    if (side.origin && !(await hasOriginAccess(side.origin))) {
+      return { side, results: [], warnings: [`${side.label} skipped: allow Filler to reach ${ACCESS_HINT[side.origin]} (Settings → Job search).`], ms: 0 };
     }
-  })();
-  const [main, ba] = await Promise.all([runProviderSearch(query, options), extra]);
-  if (ba.ms > 0) main.stages.push({ label: "Arbeitsagentur search", ms: ba.ms });
-  const warnings = [...(main.warnings ?? []), ...ba.warnings];
+    try {
+      const outcome = await side.run(query, { page, terms: await terms(), ...base }, options);
+      return { side, ...outcome, ms: performance.now() - started };
+    } catch (err) {
+      return { side, results: [], warnings: [`${side.label} — ${err instanceof Error ? err.message : "search failed"}`], ms: performance.now() - started };
+    }
+  };
+  const [main, ...extras] = await Promise.all([runProviderSearch(query, options), ...sides.map(runSide)]);
+  const warnings = [...(main.warnings ?? [])];
+  for (const extra of extras) {
+    if (extra.ms > 0) main.stages.push({ label: `${extra.side.label} search`, ms: extra.ms });
+    warnings.push(...extra.warnings);
+    // TheirStack/LoopCV answer all at once: hand their batch over like the providers' own.
+    if (extra.side !== SIDE_SOURCES.jobsuche && extra.results.length > 0) options.onResults?.(extra.results);
+  }
   return {
     ...main,
-    results: mergeSourceResults(main.results, ba.results),
+    results: mergeSourceResults(main.results, ...extras.map((e) => e.results)),
     ...(warnings.length ? { warnings } : {}),
   };
 }
@@ -117,6 +194,28 @@ async function runProviderSearch(query: JobSearchQuery, options: JobSearchOption
     const { results, warnings } = await timeStage(stages, "Arbeitsagentur search", () =>
       searchJobsucheJobs(resolved, options.page ?? 1, { exclude: options.excludeResults, onResults: options.onResults, signal: options.signal }),
     );
+    return { results, resolvedQuery: resolved, ...(warnings.length ? { warnings } : {}), ...timing() };
+  }
+
+  if (query.provider === "theirstack" || query.provider === "loopcv") {
+    // Job APIs with the user's own key: keyword searches over the same term set as the others.
+    const [creds, profile] = await Promise.all([getJobSearchCredentials(), getProfile().catch(() => null)]);
+    const key = query.provider === "theirstack" ? creds.theirstackApiKey : creds.loopcvApiKey;
+    const label = query.provider === "theirstack" ? "TheirStack" : "LoopCV";
+    if (!key) throw new Error(`Add your ${label} API key in Settings first.`);
+    if (query.provider === "loopcv" && !(await hasOriginAccess(LOOPCV_ORIGIN))) throw new Error("Allow Filler to reach b2b-api.loopcv.com first (Settings → Job search).");
+    let resolved = query;
+    if (searchTerms(resolved).length === 0) {
+      const suggestion = await suggestTerms(stages, "Suggest terms");
+      resolved = { ...resolved, terms: suggestion.terms, where: resolved.where.trim() || suggestion.where };
+    }
+    const common = { profileCountry: profile?.country ?? "", exclude: options.excludeResults, signal: options.signal };
+    const { results, warnings } = await timeStage(stages, `${label} search`, () =>
+      query.provider === "theirstack"
+        ? searchTheirStackJobs(resolved, key, common)
+        : searchLoopCvJobs(resolved, key, { ...common, page: options.page ?? 1 }),
+    );
+    if (results.length > 0) options.onResults?.(results);
     return { results, resolvedQuery: resolved, ...(warnings.length ? { warnings } : {}), ...timing() };
   }
 
