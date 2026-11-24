@@ -102,7 +102,23 @@ export async function checkWithAgent(settings: AgentBridgeSettings, url: string,
   return data;
 }
 
+/**
+ * The agent drives a browser on its own, and LinkedIn bans accounts it takes for bots — a LinkedIn
+ * link never goes to the agent, whatever the agent's own `blockedHosts` say. A job collected on
+ * LinkedIn goes as the employer's own posting (features/linkedin-collector/employer-posting.ts).
+ */
+export function isLinkedInUrl(url: string): boolean {
+  try {
+    return /(?:^|\.)linkedin\.[a-z.]+$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function applyViaAgent(settings: AgentBridgeSettings, url: string, job: Job): Promise<{ id: string; status: string }> {
+  if (isLinkedInUrl(url) || isLinkedInUrl(job.url)) {
+    throw new Error("LinkedIn links never go to the agent — find the employer's own posting (Job Search → From LinkedIn) and send that.");
+  }
   const { status, data } = await call<{ id: string; status: string; error?: string; reasons?: string[] }>(settings, "/api/jobs", { url, job }, 8000);
   if (status !== 201 || !data) throw new Error(data?.reasons?.join(" ") || data?.error || `Agent answered ${status}.`);
   return data;

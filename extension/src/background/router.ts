@@ -4,7 +4,7 @@ import type { PageCheckbox } from "@/features/autofill/checkboxes";
 import type { JobSearchResult } from "@/types/job-search";
 import { getFaqAnswers, getProfile, saveFaqAnswers } from "@/features/profile/repository";
 import { fillMissingFaqAnswers } from "@/features/openai/generate-faq";
-import { getCachedJob, setCachedJob, setLocal } from "@/features/storage/local";
+import { getCachedJob, getJobSearchCredentials, setCachedJob, setLocal } from "@/features/storage/local";
 import { runJobSearch } from "@/features/job-search/run-search";
 import { recordFillRun } from "@/features/fill-stats/repository";
 import { getSearchSuggestion } from "@/features/job-search/suggestion-cache";
@@ -24,6 +24,8 @@ import { chooseCvWithAi } from "@/features/openai/choose-cv";
 import { suggestCvValues } from "@/features/openai/suggest-cv-values";
 import { ensureContentScript, findBlockedFrameOrigins } from "./inject-content-script";
 import { setCoverLetterRun } from "@/features/storage/session";
+import { addCollectedLinkedInJobs, getCollectedLinkedInJobs, sanitizeIncoming } from "@/features/linkedin-collector/store";
+import { findEmployerPosting } from "@/features/linkedin-collector/employer-posting";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 
 /** Tell every frame's element picker to dismiss its overlay. Also used when the Side Panel port disconnects. */
@@ -525,6 +527,23 @@ export async function routeMessage(message: RuntimeMessage): Promise<RuntimeMess
       // Cached per CV/legend/profile (`getSearchSuggestion`), so a repeat costs no AI call.
       const { what, where, tags } = await getSearchSuggestion(message.provider === "adzuna");
       return { type: "SEARCH_QUERY_SUGGESTION", what, where, ...(message.provider === "adzuna" ? { tags } : {}) };
+    }
+
+    case "LINKEDIN_ADD_JOBS": {
+      // From a content script on a LinkedIn page: rebuilt from the job ids, never stored as sent.
+      const result = await addCollectedLinkedInJobs(sanitizeIncoming(message.jobs));
+      return { type: "LINKEDIN_JOBS_ADDED", ...result };
+    }
+
+    case "GET_LINKEDIN_COLLECTED": {
+      const jobs = await getCollectedLinkedInJobs();
+      return { type: "LINKEDIN_COLLECTED", ids: jobs.map((job) => job.id) };
+    }
+
+    case "FIND_EMPLOYER_POSTING": {
+      const { tavilyApiKey } = await getJobSearchCredentials();
+      const candidates = await findEmployerPosting(message, tavilyApiKey);
+      return { type: "EMPLOYER_POSTING_CANDIDATES", candidates };
     }
 
     case "SUGGEST_CV_VALUES": {

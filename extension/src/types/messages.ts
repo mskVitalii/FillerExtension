@@ -14,6 +14,7 @@ import type { InsertField } from "@/features/autofill/insert-field-labels";
 import type { DateInputKind } from "@/lib/date-format";
 import type { FillRun } from "@/features/fill-stats/stats";
 import type { FieldDecisionRequest, FieldDecisionResult } from "@/features/autofill/ai-assist";
+import type { LinkedInJobLink } from "@/features/linkedin-collector/links";
 
 /**
  * Typed runtime message protocol shared by Side Panel, Background Service
@@ -180,6 +181,17 @@ export type RuntimeMessage =
       /** Per-step breakdown (e.g. web search vs. AI parse) — `totalMs` also covers the untimed glue between them. */
       stages: JobSearchStageTiming[];
     }
+  /** LinkedIn collector (content script) → background: jobs the user clicked "Add" on, re-validated there. */
+  | { type: "LINKEDIN_ADD_JOBS"; jobs: LinkedInJobLink[] }
+  | { type: "LINKEDIN_JOBS_ADDED"; added: number; total: number; ids: string[] }
+  /** LinkedIn collector → background: which job ids are already collected (to mark their cards "Added"). */
+  | { type: "GET_LINKEDIN_COLLECTED" }
+  | { type: "LINKEDIN_COLLECTED"; ids: string[] }
+  /** Background → LinkedIn tabs: the collector was switched off, take the on-page buttons down. */
+  | { type: "LINKEDIN_COLLECTOR_OFF" }
+  /** Side Panel → background: the employer's own posting (career site / ATS) for a job collected on LinkedIn. */
+  | { type: "FIND_EMPLOYER_POSTING"; title: string; company: string; location: string }
+  | { type: "EMPLOYER_POSTING_CANDIDATES"; candidates: JobSearchResult[] }
   | { type: "SUGGEST_SEARCH_QUERY"; provider?: JobSearchProvider }
   | { type: "SEARCH_QUERY_SUGGESTION"; what: string; where: string; tags?: string[] }
   | { type: "SUGGEST_CV_VALUES"; job: Job; template: CvTemplate }

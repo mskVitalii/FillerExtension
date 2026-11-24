@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Senior Go Engineer | Acme Robotics | LinkedIn</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: #f4f2ee; color: #1d2226; }
+    header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+    header p { margin: 4px 0 0; color: #555; font-size: 13px; }
+    .layout { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 16px; padding: 16px; height: calc(100vh - 120px); }
+    .list { overflow-y: auto; background: #fff; border-radius: 8px; border: 1px solid #ddd; }
+    .list ul { list-style: none; margin: 0; padding: 0; }
+    .list li, .card { border-bottom: 1px solid #eee; padding: 12px 16px; min-height: 96px; }
+    .list li[data-occludable-job-id]:empty { min-height: 120px; background: repeating-linear-gradient(45deg, #fafafa, #fafafa 10px, #f2f2f2 10px, #f2f2f2 20px); }
+    .details { overflow-y: auto; background: #fff; border-radius: 8px; border: 1px solid #ddd; padding: 16px; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    a { color: #0a66c2; }
+    .muted { color: #666; font-size: 12px; }
+    #log { white-space: pre-wrap; font: 12px ui-monospace, monospace; background: #111; color: #9fe; padding: 8px 16px; margin: 0; max-height: 120px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Synthetic LinkedIn job search — Filler collector test page</strong>
+    <p>
+      Not LinkedIn: hand-written markup mimicking its card variants. jsdom suite:
+      <code>extension/test/linkedin-collector.test.ts</code>. Manual check: <code>make build</code>, then serve the repo
+      root (<code>python3 -m http.server 8000</code>) and open
+      <code>http://localhost:8000/test-pages/linkedin-jobs-test.html</code>. The script below stubs
+      <code>chrome.runtime</code> and loads <code>extension/dist/linkedin-collector.js</code> as if this were
+      <code>linkedin.com/jobs/search/?currentJobId=4100000003</code>. Expect: a "Filler" box bottom-right with
+      "Add all jobs from this page", a "+ Add" pill on each rendered card (not on the grey occluded placeholder, not
+      on the details pane), and 6 unique jobs in the log after "Add all" (4100000001–4100000006).
+    </p>
+  </header>
+
+  <div class="layout">
+    <section class="list" aria-label="Search results">
+      <ul class="scaffold-layout__list-container">
+        <!-- 1. Classic card: li[data-occludable-job-id] > div[data-job-id], a11y duplicates, badges. -->
+        <li class="jobs-search-results__list-item" data-occludable-job-id="4100000001">
+          <div class="job-card-container job-card-list" data-job-id="4100000001">
+            <a class="job-card-list__title--link job-card-container__link" href="/jobs/view/4100000001/?eBP=CwEAAA&amp;refId=abc%3D%3D&amp;trackingId=xyz" aria-label="Staff Backend Engineer with verification">
+              <span aria-hidden="true"><strong>Staff Backend Engineer</strong></span>
+              <span class="visually-hidden">Staff Backend Engineer with verification</span>
+            </a>
+            <div class="artdeco-entity-lockup__subtitle"><span>Globex GmbH</span></div>
+            <ul class="job-card-container__metadata-wrapper"><li><span>Berlin, Germany (Hybrid)</span></li></ul>
+            <ul class="job-card-list__footer-wrapper">
+              <li>Promoted</li>
+              <li><span>Easy Apply</span></li>
+            </ul>
+            <button aria-label="Dismiss Staff Backend Engineer job">×</button>
+          </div>
+        </li>
+
+        <!-- 2. Classic card, virtualized away: only the id is in the DOM. -->
+        <li class="jobs-search-results__list-item" data-occludable-job-id="4100000002"></li>
+
+        <!-- 3. Server-driven card: no data-job-id, obfuscated classes, link to the search page with currentJobId. -->
+        <li>
+          <div componentkey="job-card-component-ref-4100000003" role="button" class="_a1b2 _c3d4">
+            <a class="_e5f6" href="https://www.linkedin.com/jobs/search-results/?currentJobId=4100000003&amp;eBP=NOT_ELIGIBLE&amp;refId=r3">
+              <div class="_g7"><p class="_h8">Senior Go Engineer</p></div>
+            </a>
+            <div class="_i9"><p class="_j0">Acme Robotics</p></div>
+            <p class="_k1">Munich, Bavaria, Germany (Remote)</p>
+            <p class="_l2"><span>3 days ago</span> · <span>Over 100 applicants</span></p>
+            <p class="_m3">€80K/yr - €95K/yr</p>
+          </div>
+        </li>
+
+        <!-- 4. Server-driven card linking to /jobs/view/<slug>-<id> on a country subdomain. -->
+        <li>
+          <div componentkey="job-card-component-ref-4100000004">
+            <a href="https://de.linkedin.com/jobs/view/platform-engineer-at-initech-4100000004?refId=r4&amp;trackingId=t4">
+              <strong>Platform Engineer (m/w/d)</strong>
+            </a>
+            <p>Initech SE</p>
+            <p>Hamburg, Germany</p>
+            <p>Be an early applicant</p>
+          </div>
+        </li>
+
+        <!-- 5. Logged-out (guest) card: data-entity-urn. -->
+        <li>
+          <div class="base-card base-search-card" data-entity-urn="urn:li:jobPosting:4100000005">
+            <a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/frontend-developer-at-umbrella-4100000005?position=5&amp;pageNum=0">
+              <span class="sr-only">Frontend Developer</span>
+            </a>
+            <div class="base-search-card__info">
+              <h3 class="base-search-card__title">Frontend Developer</h3>
+              <h4 class="base-search-card__subtitle"><a href="https://www.linkedin.com/company/umbrella">Umbrella Corp</a></h4>
+              <span class="job-search-card__location">Köln, Nordrhein-Westfalen, Deutschland</span>
+            </div>
+          </div>
+        </li>
+
+        <!-- 6. Duplicate of 1 with different markup (e.g. a "Recommended" strip): one entry. -->
+        <li>
+          <div componentkey="job-card-component-ref-dup1">
+            <a href="https://www.linkedin.com/jobs/view/4100000001/?trk=recommended">Staff Backend Engineer</a>
+            <p>Globex GmbH</p>
+          </div>
+        </li>
+
+        <!-- 7. Duplicate of 3 through a /jobs/view/ link, plus a non-Latin location. -->
+        <li>
+          <div componentkey="job-card-component-ref-dup3">
+            <a href="/jobs/view/4100000003/">Senior Go Engineer</a>
+            <p>Acme Robotics</p>
+          </div>
+        </li>
+
+        <!-- 8. A card with Cyrillic text (checks the noise filter keeps non-Latin lines). -->
+        <li>
+          <div data-job-id="4100000006" class="job-card-container">
+            <a class="job-card-container__link" href="/jobs/view/4100000006/"><strong>Разработчик Python</strong></a>
+            <div class="artdeco-entity-lockup__subtitle"><span>Рога и Копыта</span></div>
+            <ul class="job-card-container__metadata-wrapper"><li><span>Москва</span></li></ul>
+            <ul class="job-card-list__footer-wrapper"><li>Viewed</li><li>Applied</li></ul>
+          </div>
+        </li>
+
+        <!-- 9. Not jobs: company, profile, search links, a non-numeric data-job-id. -->
+        <li>
+          <a href="https://www.linkedin.com/company/acme-robotics/">Acme Robotics — company page</a>
+          <a href="https://www.linkedin.com/in/someone/">Someone's profile</a>
+          <a href="https://www.linkedin.com/jobs/search/?keywords=go">Search for Go jobs</a>
+          <a href="https://example.com/jobs/view/4100009999/">Not LinkedIn</a>
+          <div data-job-id="search-ad">An ad slot</div>
+        </li>
+      </ul>
+    </section>
+
+    <!-- The selected job's details pane: its /jobs/view/ title link is not a card. -->
+    <section class="details" data-sdui-screen="com.linkedin.sdui.flagshipnav.jobs.SemanticJobDetails">
+      <div>
+        <p><a href="https://www.linkedin.com/jobs/view/4100000003/">Senior Go Engineer</a></p>
+        <p><span>Munich, Bavaria, Germany</span> · <span>3 days ago</span></p>
+        <div aria-label="Company, Acme Robotics."><a href="/company/acme-robotics/">Acme Robotics</a></div>
+        <button>Hybrid</button>
+        <button>Easy Apply</button>
+      </div>
+      <div componentkey="JobDetails_AboutTheJob_4100000003">
+        <div data-testid="expandable-text-box">
+          <p>We build warehouse robots. You'll own our Go services.</p>
+          <ul><li>5+ years of Go</li><li>Kubernetes</li></ul>
+        </div>
+      </div>
+      <h3>More jobs like this</h3>
+      <div><a href="/jobs/view/4100000077/">Similar job inside the pane (not collected from the list)</a></div>
+    </section>
+  </div>
+
+  <pre id="log">Log — what the collector sent to the (stubbed) background:</pre>
+
+  <script>
+    // Manual check only: pretend to be a LinkedIn search page and stand in for the extension runtime.
+    (function () {
+      if (!document.getElementById("log")) return;
+      const log = (line) => (document.getElementById("log").textContent += "\n" + line);
+      const collected = new Map();
+      window.__fillerLinkedInTestHref = "https://www.linkedin.com/jobs/search/?currentJobId=4100000003&keywords=engineer";
+      const runtime = {
+        onMessage: { addListener() {} },
+        sendMessage(message) {
+          if (message.type === "GET_LINKEDIN_COLLECTED") return Promise.resolve({ type: "LINKEDIN_COLLECTED", ids: [...collected.keys()] });
+          if (message.type === "LINKEDIN_ADD_JOBS") {
+            let added = 0;
+            for (const job of message.jobs) {
+              if (!collected.has(job.id)) added++;
+              collected.set(job.id, job);
+              log(JSON.stringify(job));
+            }
+            return Promise.resolve({ type: "LINKEDIN_JOBS_ADDED", added, total: collected.size, ids: [...collected.keys()] });
+          }
+          return Promise.resolve(undefined);
+        },
+      };
+      try {
+        window.chrome = Object.assign(window.chrome || {}, { runtime });
+      } catch (err) {
+        log("Couldn't stub chrome.runtime: " + err);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "../extension/dist/linkedin-collector.js";
+      script.onerror = () => log("extension/dist/linkedin-collector.js not found — run `make build` first.");
+      document.body.appendChild(script);
+    })();
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { cancelElementPicker, routeMessage } from "./router";
 import { ensureContentScript } from "./inject-content-script";
 import { clearTabState } from "@/features/storage/session";
 import { registerUpdateCheck } from "./updates";
+import { isLinkedInCollectorSettingsChange, syncLinkedInCollector } from "@/features/linkedin-collector/registration";
 
 const SIDE_PANEL_PATH = "src/sidepanel/index.html";
 
@@ -25,6 +26,23 @@ chrome.runtime.onInstalled.addListener(() => {
   // No tabId = sets the fallback for tabs without tab-specific options,
   // overriding the manifest's implicit "enabled for every tab" default.
   void chrome.sidePanel.setOptions({ enabled: false });
+  void syncLinkedInCollector().catch((error) => console.error("LinkedIn collector sync failed", error));
+});
+
+/**
+ * The on-page LinkedIn collector is registered only while the user has it switched on and the
+ * `https://www.linkedin.com/*` host permission is granted (features/linkedin-collector/registration.ts).
+ * Re-checked whenever either can have changed — and on browser start, since an extension update
+ * can drop dynamically registered scripts.
+ */
+function resyncLinkedInCollector(): void {
+  void syncLinkedInCollector().catch((error) => console.error("LinkedIn collector sync failed", error));
+}
+chrome.runtime.onStartup.addListener(resyncLinkedInCollector);
+chrome.permissions.onAdded.addListener(resyncLinkedInCollector);
+chrome.permissions.onRemoved.addListener(resyncLinkedInCollector);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (isLinkedInCollectorSettingsChange(changes, area)) resyncLinkedInCollector();
 });
 
 // Version check against GitHub releases (or the Web Store) + the NEW badge — docs/updates.md.

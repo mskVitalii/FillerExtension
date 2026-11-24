@@ -15,7 +15,7 @@ export interface TavilyResult {
   published_date?: string;
 }
 
-interface TavilyResponse {
+export interface TavilyResponse {
   results: TavilyResult[];
 }
 
@@ -215,7 +215,7 @@ export interface TavilySearchOutcome {
   warnings: string[];
 }
 
-async function fetchTavily(body: Record<string, unknown>, signal?: AbortSignal): Promise<TavilyResponse> {
+export async function fetchTavily(body: Record<string, unknown>, signal?: AbortSignal): Promise<TavilyResponse> {
   for (let attempt = 1; ; attempt++) {
     const timeout = AbortSignal.timeout(TAVILY_LIMITS.searchTimeoutMs);
     let res: Response;

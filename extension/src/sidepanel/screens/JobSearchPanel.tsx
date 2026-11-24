@@ -18,6 +18,7 @@ import { SourceChips } from "@/components/SourceChips";
 import { isGermanSearch, JOBSUCHE_ORIGIN } from "@/features/job-search/jobsuche-provider";
 import { mergeSourceResults } from "@/features/job-search/merge-sources";
 import { getProfile } from "@/features/profile/repository";
+import { LinkedInCollected } from "./LinkedInCollected";
 
 /** `chrome.storage.sync` allows ~120 writes a minute — save once typing pauses, not per keystroke. */
 const SAVE_NEGATIVE_DELAY_MS = 800;
@@ -383,6 +384,8 @@ export function JobSearchPanel({ hasApiKey, personalLegend, onBack, onOpenSettin
           {personalLegend ? t("search.editInSettings") : t("search.writeInSettings")}
         </button>
       </div>
+
+      <LinkedInCollected />
 
       <Card>
         <CardContent className="flex flex-col gap-3 p-3">
