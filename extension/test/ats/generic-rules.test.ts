@@ -54,6 +54,19 @@ describe("autofill", () => {
     expect(el<HTMLInputElement>("#w2").value).toBe("");
   });
 
+  it("never fills a honeypot that says so in its label or is Workday's beecatcher", async () => {
+    // Workday's create-account page: a visible "website" box whose label tells humans to leave it alone.
+    form(
+      '<label for="w1">Website</label><input id="w1" name="homepage">' +
+        '<label for="hp">Enter website. This input is for robots only, do not enter if you\'re human.</label><input data-automation-id="beecatcher" id="hp" name="website" type="text">' +
+        '<label for="hp2">Website</label><input data-automation-id="beecatcher" id="hp2" name="url" type="text">',
+    );
+    await autofillDocument(testProfile());
+    expect(el<HTMLInputElement>("#w1").value).toBe("https://ada.dev");
+    expect(el<HTMLInputElement>("#hp").value).toBe("");
+    expect(el<HTMLInputElement>("#hp2").value).toBe("");
+  });
+
   it("maps the salutation onto the form's own words, in a select and as radios", async () => {
     form(`
       <label for="a">Anrede</label><select id="a"><option value="">--</option><option value="m">Herr</option><option value="f">Frau</option></select>

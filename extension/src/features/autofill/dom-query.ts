@@ -20,7 +20,26 @@ export function queryFillableDeep(selector: string, root: ParentNode = document)
   return found;
 }
 
-const HONEYPOT_NAME_RE = /honeypot|hpot|\bhp[_-]|bot[_-]?trap|leave[_-]?(this[_-]?)?(blank|empty)|do[_-]?not[_-]?fill/i;
+const HONEYPOT_NAME_RE = /honeypot|hpot|\bhp[_-]|bot[_-]?trap|beecatcher|leave[_-]?(this[_-]?)?(blank|empty)|do[_-]?not[_-]?fill/i;
+/** What a honeypot tells people who do see it: Workday's "This input is for robots only, do not enter if you're human." */
+const HONEYPOT_TEXT_RE = /for robots only|(only|just) for (bots|robots)|do not (enter|fill|type)[^.]{0,30}(if you('re| are)|human)|if you('re| are) (a )?human|leave (this )?(field )?(blank|empty)|(dieses|das) feld (bitte )?leer (lassen|bleiben)|nicht ausfüllen/i;
+
+/** The field's own label text: its <label>s, aria-label and placeholder — never the text around it. */
+function ownLabelText(el: HTMLInputElement | HTMLTextAreaElement): string {
+  const labels = Array.from(el.labels ?? []).map((l) => l.textContent ?? "");
+  return [...labels, el.getAttribute("aria-label") ?? "", el.getAttribute("placeholder") ?? ""].join(" ");
+}
+
+/**
+ * An anti-spam honeypot by its name or its own label (not by an aria-hidden box: see `isGhostField`).
+ * Filling one gets the application thrown away as a bot's.
+ */
+export function isHoneypot(el: HTMLElement): boolean {
+  const textLike = el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && el.type !== "file");
+  if (!textLike) return false;
+  if (HONEYPOT_NAME_RE.test(`${el.getAttribute("name") ?? ""} ${el.id} ${el.className} ${el.getAttribute("data-automation-id") ?? ""}`)) return true;
+  return HONEYPOT_TEXT_RE.test(ownLabelText(el));
+}
 
 /**
  * A field no applicant can type into, so autofill must neither fill it nor ask a question
@@ -32,7 +51,9 @@ const HONEYPOT_NAME_RE = /honeypot|hpot|\bhp[_-]|bot[_-]?trap|leave[_-]?(this[_-
  *    reach, which bots fill and the server then rejects the submission for (rexx's
  *    `<div aria-hidden="true" tabindex="-1"><label for="website">Website</label><input
  *    name="website">` at the end of every form — its "Website" label matched the profile's
- *    website), or one named like a honeypot;
+ *    website), or one named like a honeypot (Workday's `data-automation-id="beecatcher"`), or one
+ *    whose own label tells humans to leave it alone ("This input is for robots only, do not enter
+ *    if you're human.");
  *  - a read-only text box a widget writes for itself (softgarden's pick lists keep their choice
  *    in one). A read-only `role="combobox"` is excluded: react-select marks its own input that way.
  * A native `<select>` merely *inside* an `aria-hidden` box (under a select2 facade) is a real
@@ -42,7 +63,7 @@ export function isGhostField(el: HTMLElement): boolean {
   if (el.getAttribute("aria-hidden") === "true") return true;
   const textLike = el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && el.type !== "file");
   if (textLike && el.closest('[aria-hidden="true"]')) return true;
-  if (textLike && HONEYPOT_NAME_RE.test(`${el.getAttribute("name") ?? ""} ${el.id} ${el.className}`)) return true;
+  if (isHoneypot(el)) return true;
   const readOnly = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly;
   return readOnly && el.getAttribute("role") !== "combobox";
 }
