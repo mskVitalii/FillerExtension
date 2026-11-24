@@ -495,6 +495,16 @@ export const en = {
   "update.checkedAt": "Last checked {time}",
   "update.checkNow": "Check for updates",
   "update.checking": "Checking…",
+  "projects.label": "Project",
+  "projects.default": "Default",
+  "projects.new": "New project",
+  "projects.namePlaceholder": "Project name, e.g. Backend Berlin",
+  "projects.rename": "Rename project",
+  "projects.delete": "Delete project",
+  "projects.deleteConfirm": "Delete project “{name}”? It disappears from every browser and the agent; its files stay in your Drive.",
+  "projects.deleteYes": "Delete",
+  "projects.allProjects": "All projects",
+  "projects.created": "Project “{name}” created. Fill in its profile, CVs and Personal Legend here — each project keeps its own.",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -1,4 +1,6 @@
 import type { CustomField, FaqEntry, LanguageLevel, Profile } from "@/types/profile";
+import { baseStorageKey } from "@/features/projects/registry";
+import { ACTIVE_PROJECT_KEY } from "@/features/projects/scope";
 import { getCustomFields, getCvMeta, getFaqAnswers, getGenerationRules, getLanguageLevels, getOutreachRules, getPersonalLegend, getProfile } from "./repository";
 
 export interface ApplicantContext {
@@ -85,6 +87,7 @@ export function getApplicantContext(): Promise<ApplicantContext> {
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
-    if (Object.keys(changes).some((key) => CONTEXT_STORAGE_KEYS.has(key))) cached = null;
+    // A project's own copy (`p:<id>:profileCache`) or a project switch changes the context too.
+    if (Object.keys(changes).some((key) => key === ACTIVE_PROJECT_KEY || CONTEXT_STORAGE_KEYS.has(baseStorageKey(key)))) cached = null;
   });
 }

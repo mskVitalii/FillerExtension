@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy, type DragEvent } from "react";
+import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { CheckCircle2, Download, Eye, FileText, FileUser, GripVertical, ListChecks, Loader2, Mail, Paperclip, Pencil, RotateCcw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1746,9 +1747,12 @@ export function MainView({
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-base font-semibold">Filler</h1>
-        <div className="-mr-1.5 flex items-center gap-0.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="text-base font-semibold">Filler</h1>
+          <ProjectSwitcher />
+        </div>
+        <div className="-mr-1.5 flex shrink-0 items-center gap-0.5">
           <IconButton onClick={() => void handleReset()} label={t("nav.reset")}>
             <RotateCcw />
           </IconButton>

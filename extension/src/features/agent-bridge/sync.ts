@@ -1,11 +1,12 @@
 import { buildExport } from "@/features/export/data-export";
 import { isGoogleConnected } from "@/features/google-drive/auth";
-import { agentBaseUrl, pushFillRuns, type AgentBridgeSettings } from "@/features/agent-bridge/client";
+import { agentBaseUrl, projectHeaders, pushFillRuns, type AgentBridgeSettings } from "@/features/agent-bridge/client";
 import { getJobSearchCredentials } from "@/features/storage/local";
 import { getPreferences } from "@/features/storage/sync";
 import { getFillRuns } from "@/features/fill-stats/repository";
 import { getFaqAnswers, saveFaqAnswers } from "@/features/profile/repository";
 import type { FaqEntry } from "@/types/profile";
+import { projectStorageKey } from "@/features/projects/scope";
 
 /**
  * Keeps the local agent's copy of the user's data in step with the extension,
@@ -61,13 +62,16 @@ async function sha256(text: string): Promise<string> {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The active project's copies of the synced caches (each project syncs into its own project in the agent). */
 async function fingerprint(): Promise<string> {
-  const values = await chrome.storage.local.get([...SYNCED_CACHE_KEYS]);
-  return sha256(JSON.stringify(SYNCED_CACHE_KEYS.map((key) => values[key] ?? null)));
+  const keys = await Promise.all(SYNCED_CACHE_KEYS.map((key) => projectStorageKey(key)));
+  const values = await chrome.storage.local.get(keys);
+  return sha256(JSON.stringify(keys.map((key) => values[key] ?? null)));
 }
 
 async function readState(): Promise<SyncState | null> {
-  return ((await chrome.storage.local.get(STATE_KEY))[STATE_KEY] as SyncState | undefined) ?? null;
+  const key = await projectStorageKey(STATE_KEY);
+  return ((await chrome.storage.local.get(key))[key] as SyncState | undefined) ?? null;
 }
 
 export async function lastAgentSync(): Promise<number | null> {
@@ -76,7 +80,7 @@ export async function lastAgentSync(): Promise<number | null> {
 
 async function agentSyncState(settings: AgentBridgeSettings): Promise<{ hash: string; agentFaq: FaqEntry[] }> {
   const res = await fetch(`${agentBaseUrl(settings)}/api/sync`, {
-    headers: { Authorization: `Bearer ${settings.token}` },
+    headers: { Authorization: `Bearer ${settings.token}`, ...(await projectHeaders()) },
     signal: AbortSignal.timeout(4000),
   });
   if (!res.ok) throw new Error(`Agent answered ${res.status}.`);
@@ -141,15 +145,16 @@ async function pushSearchSettings(settings: AgentBridgeSettings): Promise<void> 
   const [creds, prefs] = await Promise.all([getJobSearchCredentials(), getPreferences()]);
   const search = { ...creds, negative: prefs.jobSearchNegativePrompt ?? "" };
   const hash = await sha256(JSON.stringify(search));
-  const sent = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY];
+  const settingsKey = await projectStorageKey(SETTINGS_KEY);
+  const sent = (await chrome.storage.local.get(settingsKey))[settingsKey];
   if (sent === `${settings.port}:${hash}`) return;
   const res = await fetch(`${agentBaseUrl(settings)}/api/sync/settings`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json", ...(await projectHeaders()) },
     body: JSON.stringify({ search }),
     signal: AbortSignal.timeout(4000),
   });
-  if (res.ok) await chrome.storage.local.set({ [SETTINGS_KEY]: `${settings.port}:${hash}` });
+  if (res.ok) await chrome.storage.local.set({ [settingsKey]: `${settings.port}:${hash}` });
 }
 
 const FILL_RUNS_KEY = "agentBridgeFillRunsSent";
@@ -206,8 +211,9 @@ async function runSync(settings: AgentBridgeSettings, force: boolean): Promise<A
     return { outcome: "skipped", message: `Not synced — couldn't read your CV files (${missingCvFiles[0]}). Is Google Drive connected?`, syncedAt: state?.syncedAt ?? null };
   }
 
+  const stateKey = await projectStorageKey(STATE_KEY);
   const save = (hash: string, applicationsSyncedAt: number) =>
-    chrome.storage.local.set({ [STATE_KEY]: { fingerprint: print, hash, applicationsSyncedAt, syncedAt: now } satisfies SyncState });
+    chrome.storage.local.set({ [stateKey]: { fingerprint: print, hash, applicationsSyncedAt, syncedAt: now } satisfies SyncState });
 
   if (!applicationsDue && result.contentHash === agentHash) {
     await save(agentHash, state?.applicationsSyncedAt ?? 0);
@@ -216,7 +222,7 @@ async function runSync(settings: AgentBridgeSettings, force: boolean): Promise<A
 
   const res = await fetch(`${agentBaseUrl(settings)}/api/sync?hash=${result.contentHash}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/zip" },
+    headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/zip", ...(await projectHeaders()) },
     body: new Blob([result.zip as Uint8Array<ArrayBuffer>], { type: "application/zip" }),
     signal: AbortSignal.timeout(120000),
   });

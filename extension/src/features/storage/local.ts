@@ -16,6 +16,8 @@ import type { Job } from "@/types/job";
 import type { ModelCatalog } from "@/features/openai/model-catalog";
 import { mergeBackfilledActivations } from "@/features/applications/stats";
 import { todayISO } from "@/lib/date-format";
+import { projectStorageKey } from "@/features/projects/scope";
+import { scopedStorageKey } from "@/features/projects/registry";
 
 /**
  * chrome.storage.local — small local-only data: the user's OpenAI API key
@@ -84,22 +86,28 @@ export interface JobSearchSuggestionCacheEntry {
   tags?: string[];
 }
 
+/**
+ * Keys holding project data (`PROJECT_STORAGE_KEYS`: the Drive caches, the last cover letter, …)
+ * are stored per project — `profileCache` in Default, `p:<id>:profileCache` in another one
+ * (`features/projects/`). Callers use the plain key; the active project picks the stored one.
+ */
 export async function getLocal<K extends keyof LocalStorageSchema>(
   key: K,
 ): Promise<LocalStorageSchema[K] | undefined> {
-  const result = await chrome.storage.local.get(key);
-  return result[key];
+  const stored = await projectStorageKey(key);
+  const result = await chrome.storage.local.get(stored);
+  return result[stored];
 }
 
 export async function setLocal<K extends keyof LocalStorageSchema>(
   key: K,
   value: LocalStorageSchema[K],
 ): Promise<void> {
-  await chrome.storage.local.set({ [key]: value });
+  await chrome.storage.local.set({ [await projectStorageKey(key)]: value });
 }
 
 export async function removeLocal<K extends keyof LocalStorageSchema>(key: K): Promise<void> {
-  await chrome.storage.local.remove(key);
+  await chrome.storage.local.remove(await projectStorageKey(key));
 }
 
 export async function getOpenAiApiKey(): Promise<string | undefined> {
@@ -160,6 +168,18 @@ export async function recordUrlActivation(url: string): Promise<void> {
 
 export async function getUrlActivations(): Promise<UrlActivation[]> {
   return (await getLocal("activationLog")) ?? [];
+}
+
+/** Every project's activations together (Applications → "All projects"), one entry per URL — the earliest. */
+export async function getAllProjectsActivations(projectIds: string[]): Promise<UrlActivation[]> {
+  const keys = projectIds.map((id) => scopedStorageKey("activationLog", id));
+  const stored = await Promise.all(keys.map(async (key) => ((await chrome.storage.local.get(key))?.[key] as UrlActivation[] | undefined) ?? []));
+  const byUrl = new Map<string, UrlActivation>();
+  for (const entry of stored.flat()) {
+    const prev = byUrl.get(entry.url);
+    if (!prev || entry.date < prev.date) byUrl.set(entry.url, entry);
+  }
+  return [...byUrl.values()];
 }
 
 /** Removes one URL's activation entry — used when the user deletes it from the Applications list. */

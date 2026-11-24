@@ -1,5 +1,7 @@
 import type { Job } from "@/types/job";
 import type { FillRun } from "@/features/fill-stats/stats";
+import { currentProjectId } from "@/features/projects/scope";
+import { listProjects } from "@/features/projects/store";
 
 /**
  * Experimental bridge to the local Filler agent (the separate FillerAgent
@@ -74,10 +76,20 @@ export function agentDashboardUrl(settings: AgentBridgeSettings): string {
   return `${agentBaseUrl(settings)}/`;
 }
 
+/**
+ * The project this browser works in (FillerAgent `docs/projects.md`): the agent syncs it into, and
+ * queues a posting in, the project with the same id — creating it under this name if it's new there.
+ */
+export async function projectHeaders(): Promise<Record<string, string>> {
+  const id = await currentProjectId();
+  const project = (await listProjects()).find((p) => p.id === id);
+  return { "X-Filler-Project": id, ...(project ? { "X-Filler-Project-Name": encodeURIComponent(project.name) } : {}) };
+}
+
 async function call<T>(settings: AgentBridgeSettings, path: string, body?: unknown, timeoutMs = 4000): Promise<{ status: number; data: T | null }> {
   const res = await fetch(`${agentBaseUrl(settings)}${path}`, {
     method: body === undefined ? "GET" : "POST",
-    headers: { Authorization: `Bearer ${settings.token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { Authorization: `Bearer ${settings.token}`, ...(await projectHeaders()), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });

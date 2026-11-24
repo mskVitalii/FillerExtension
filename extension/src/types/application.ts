@@ -38,6 +38,12 @@ export interface Application {
   jobPosting?: JobPostingRecord;
   /** Kept in sync with `coverLetter` (spec_2 item 3) — always the latest translation, not a snapshot. */
   translation?: { language: string; content: string };
+  /**
+   * The project it was made in (FillerAgent `docs/projects.md`); absent = Default. Records live in
+   * Drive `applications/` for every project — the duplicate check spans all of them — and keep the
+   * project they were first saved in.
+   */
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
   status: ApplicationStatus;

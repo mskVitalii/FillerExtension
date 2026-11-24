@@ -14,6 +14,10 @@ import { isGoogleConnected } from "@/features/google-drive/auth";
 import { refreshDriveCaches } from "@/features/storage/drive-cache";
 import { refreshModelCatalog } from "@/features/openai/model-catalog";
 import { runUpdateCheck } from "@/features/updates/check";
+import { refreshProjects } from "@/features/projects/store";
+import { ACTIVE_PROJECT_KEY } from "@/features/projects/scope";
+import { NEW_PROJECT_FLAG } from "@/components/ProjectSwitcher";
+import { useT } from "@/i18n/react";
 import {
   getCustomFields,
   getCvMeta,
@@ -50,11 +54,25 @@ export function App() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const activeTab = useActiveTab();
   const visitedTabs = useVisitedTabs(activeTab);
+  const t = useT();
+  /** Set right after a project was created here: Settings opens with a line saying what to fill in. */
+  const [newProject, setNewProject] = useState<string | null>(null);
 
   useEffect(() => {
     void bootstrap();
     // Runs once on mount only — `bootstrap` reads storage state, not props/state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Another project picked (here, in another panel, or one deleted from another browser): every
+  // screen's data belongs to the old one, so the panel starts over in the new project. Work still
+  // running in the background (a cover letter) is picked up again by its tab.
+  useEffect(() => {
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "local" && ACTIVE_PROJECT_KEY in changes) location.reload();
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
   // Job extraction (DOM/JSON-LD, in MainView) needs neither an OpenAI key nor
@@ -67,7 +85,13 @@ export function App() {
     const connected = await isGoogleConnected();
     setGoogleConnected(connected);
     await loadUserData();
-    setStep("main");
+    // A project just created: its own setup — the profile, CVs and Personal Legend live in Settings.
+    const created = sessionStorage.getItem(NEW_PROJECT_FLAG);
+    if (created !== null) {
+      sessionStorage.removeItem(NEW_PROJECT_FLAG);
+      setNewProject(created);
+      setStep("settings");
+    } else setStep("main");
     // The panel opens on the local caches; then pull what another browser
     // saved to Drive since, and reload only if something actually changed.
     if (connected) void syncFromDrive();
@@ -78,6 +102,8 @@ export function App() {
   }
 
   async function syncFromDrive() {
+    // Projects first: one deleted elsewhere switches this panel to Default (and reloads it).
+    await refreshProjects();
     if (await refreshDriveCaches()) await loadUserData();
   }
 
@@ -133,7 +159,7 @@ export function App() {
         onConnected={() => {
           setGoogleConnected(true);
           // Caches written before connecting may predate this Drive's data (e.g. a new browser).
-          void refreshDriveCaches().then(loadUserData);
+          void syncFromDrive().then(loadUserData);
           setStep("main");
         }}
         onSkip={() => setStep("main")}
@@ -173,6 +199,12 @@ export function App() {
 
   if (step === "settings") {
     screen = (
+      <>
+      {newProject !== null && (
+        <p role="status" className="mx-4 mt-4 rounded-md bg-muted px-3 py-2 text-xs">
+          {t("projects.created", { name: newProject })}
+        </p>
+      )}
       <SettingsPanel
         profile={profile}
         cvMeta={cvMeta}
@@ -181,7 +213,10 @@ export function App() {
         faqAnswers={faqAnswers}
         generationRules={generationRules}
         outreachRules={outreachRules}
-        onBack={() => setStep("main")}
+        onBack={() => {
+          setNewProject(null);
+          setStep("main");
+        }}
         onProfileChange={setProfile}
         onCvChange={setCvMeta}
         onCustomFieldsChange={setCustomFields}
@@ -199,6 +234,7 @@ export function App() {
           setStep("connect-google");
         }}
       />
+      </>
     );
   }
 

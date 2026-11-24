@@ -18,7 +18,10 @@ import {
 } from "@/features/applications/repository";
 import { computeSubmissionStats, ROLLING_WINDOW_DAYS, type SubmissionStats } from "@/features/applications/stats";
 import { downloadFile, openPdfPreview, renderCoverLetterPdf } from "@/features/pdf/export";
-import { getUrlActivationsWithBackfill, getWorkStart, removeUrlActivation } from "@/features/storage/local";
+import { getAllProjectsActivations, getUrlActivationsWithBackfill, getWorkStart, removeUrlActivation } from "@/features/storage/local";
+import { projectOf } from "@/features/projects/registry";
+import { currentProjectId } from "@/features/projects/scope";
+import { listProjects } from "@/features/projects/store";
 import type { AdaptedCvRecord, Application, ApplicationStatus, UrlActivation } from "@/types/application";
 import { AiErrorMessage } from "@/components/AiErrorMessage";
 
@@ -124,21 +127,26 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
   /** `${application id}:${"posting" | "letter" | "cv"}` of the file currently being fetched/rendered. */
   const [busyFile, setBusyFile] = useState<string | null>(null);
   const [chartTab, setChartTab] = useState<"volume" | "time" | "fill">("volume");
+  /** The current project's applications and statistics, or every project's. */
+  const [allProjects, setAllProjects] = useState(false);
+  const [hasProjects, setHasProjects] = useState(false);
 
   useEffect(() => {
-    void load();
-    // Once on mount.
+    void load(allProjects);
+    // On mount and when the project scope toggles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [allProjects]);
 
-  async function load() {
+  async function load(all: boolean) {
     setLoading(true);
     setError(null);
     try {
       // Backfill depends on the just-fetched application list, so this can't
       // run in parallel with it the way the original two fetches did.
-      const apps = await getAllApplications();
-      const activations = await getUrlActivationsWithBackfill(apps);
+      const [every, projectId, projects] = await Promise.all([getAllApplications(), currentProjectId(), listProjects()]);
+      setHasProjects(projects.length > 1);
+      const apps = all ? every : every.filter((app) => projectOf(app) === projectId);
+      const activations = all ? await getAllProjectsActivations(projects.map((p) => p.id)) : await getUrlActivationsWithBackfill(apps);
       setApplications(apps);
       setActivations(activations);
       setStats(computeSubmissionStats(activations));
@@ -215,7 +223,14 @@ export function ApplicationsList({ onBack }: ApplicationsListProps) {
           <ArrowLeft className="h-4 w-4" /> {t("common.back")}
         </button>
         <h1 className="text-base font-semibold">{t("nav.applications")}</h1>
-        <span />
+        {hasProjects ? (
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            <input type="checkbox" checked={allProjects} onChange={(e) => setAllProjects(e.target.checked)} />
+            {t("projects.allProjects")}
+          </label>
+        ) : (
+          <span />
+        )}
       </div>
 
       {loading && <p className="text-sm text-muted-foreground">{t("apps.loading")}</p>}

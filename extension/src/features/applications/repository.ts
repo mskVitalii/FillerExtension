@@ -3,6 +3,8 @@ import type { Job } from "@/types/job";
 import * as drive from "@/features/google-drive/client";
 import { applicationIdForUrl } from "./id";
 import { formatJobPosting, jobPostingFileName } from "./job-posting";
+import { DEFAULT_PROJECT_ID, projectOf } from "@/features/projects/registry";
+import { currentProjectId } from "@/features/projects/scope";
 
 function fileName(id: string): string {
   return `applications/${id}.json`;
@@ -37,12 +39,15 @@ function updateApplication<T>(id: string, update: () => Promise<T>): Promise<T> 
 }
 
 /** A fresh record for `job`, or `existing` with the job details refreshed — every other field carries over. */
-function baseRecord(id: string, job: Job, existing: Application | null, now: string): Application {
+function baseRecord(id: string, job: Job, existing: Application | null, now: string, projectId: string): Application {
+  // A record stays in the project it was first saved in.
+  const owner = existing ? projectOf(existing) : projectId;
   return {
     coverLetter: "",
     createdAt: now,
     status: "draft",
     ...existing,
+    ...(owner !== DEFAULT_PROJECT_ID ? { projectId: owner } : {}),
     id,
     company: job.company,
     position: job.position,
@@ -100,7 +105,7 @@ export async function saveCoverLetterDraft(
     const existing = await drive.readJsonFile<Application>(fileName(id));
     const now = new Date().toISOString();
     const application: Application = {
-      ...baseRecord(id, job, existing, now),
+      ...baseRecord(id, job, existing, now, await currentProjectId()),
       coverLetter,
       translation: translation ?? existing?.translation,
       jobPosting: await syncJobPosting(id, job, existing, now),
@@ -128,7 +133,7 @@ export async function saveAdaptedCv(
     const record: AdaptedCvRecord = { driveName, fileName: pdf.name, ...source, savedAt: now };
     const existing = await drive.readJsonFile<Application>(fileName(id));
     const jobPosting = await syncJobPosting(id, job, existing, now);
-    await drive.writeJsonFile(fileName(id), { ...baseRecord(id, job, existing, now), adaptedCv: record, jobPosting });
+    await drive.writeJsonFile(fileName(id), { ...baseRecord(id, job, existing, now, await currentProjectId()), adaptedCv: record, jobPosting });
     return record;
   });
 }
@@ -188,7 +193,7 @@ export async function markJobApplied(job: Job, startedAt: string | undefined): P
     const existing = await drive.readJsonFile<Application>(fileName(id));
     const now = new Date();
     const iso = now.toISOString();
-    const base = baseRecord(id, job, existing, existing?.createdAt ?? startedAt ?? iso);
+    const base = baseRecord(id, job, existing, existing?.createdAt ?? startedAt ?? iso, await currentProjectId());
     const application: Application = {
       ...base,
       status: "applied",

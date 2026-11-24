@@ -1,5 +1,7 @@
 import type { UiLanguagePreference } from "@/i18n/core";
 import type { AiFallbackPolicy } from "@/features/openai/fallback";
+import { DEFAULT_PROJECT_ID } from "@/features/projects/registry";
+import { currentProjectId } from "@/features/projects/scope";
 
 /**
  * chrome.storage.sync — small cross-device preferences only
@@ -64,12 +66,47 @@ const DEFAULT_PREFERENCES: Preferences = {
   jobsucheEnabled: true,
 };
 
+/**
+ * Preferences that belong to a project (FillerAgent `docs/projects.md`): "what I don't want" is
+ * part of a project's search. Default keeps them in `preferences`, as before projects; another
+ * project in its own `projectPrefs:<id>` item (each sync item has its own 8 KB).
+ */
+const PROJECT_PREFERENCES = ["jobSearchNegativePrompt"] as const satisfies readonly (keyof Preferences)[];
+type ProjectPreferences = Pick<Preferences, (typeof PROJECT_PREFERENCES)[number]>;
+
+const projectPrefsKey = (projectId: string) => `projectPrefs:${projectId}`;
+
 export async function getPreferences(): Promise<Preferences> {
+  const projectId = await currentProjectId();
   const result = await chrome.storage.sync.get("preferences");
-  return { ...DEFAULT_PREFERENCES, ...(result.preferences as Partial<Preferences> | undefined) };
+  const prefs = { ...DEFAULT_PREFERENCES, ...(result.preferences as Partial<Preferences> | undefined) };
+  if (projectId === DEFAULT_PROJECT_ID) return prefs;
+  const key = projectPrefsKey(projectId);
+  const own = ((await chrome.storage.sync.get(key))?.[key] ?? {}) as Partial<ProjectPreferences>;
+  for (const name of PROJECT_PREFERENCES) prefs[name] = own[name] ?? DEFAULT_PREFERENCES[name];
+  return prefs;
 }
 
 export async function setPreferences(preferences: Partial<Preferences>): Promise<void> {
-  const current = await getPreferences();
-  await chrome.storage.sync.set({ preferences: { ...current, ...preferences } });
+  const projectId = await currentProjectId();
+  const result = await chrome.storage.sync.get("preferences");
+  const shared = { ...DEFAULT_PREFERENCES, ...(result.preferences as Partial<Preferences> | undefined) };
+  if (projectId === DEFAULT_PROJECT_ID) {
+    await chrome.storage.sync.set({ preferences: { ...shared, ...preferences } });
+    return;
+  }
+  const own: Partial<ProjectPreferences> = {};
+  const rest: Partial<Preferences> = { ...preferences };
+  for (const name of PROJECT_PREFERENCES) {
+    if (name in rest) {
+      own[name] = rest[name];
+      delete rest[name];
+    }
+  }
+  if (Object.keys(rest).length > 0) await chrome.storage.sync.set({ preferences: { ...shared, ...rest } });
+  if (Object.keys(own).length > 0) {
+    const key = projectPrefsKey(projectId);
+    const current = ((await chrome.storage.sync.get(key))?.[key] ?? {}) as Partial<ProjectPreferences>;
+    await chrome.storage.sync.set({ [key]: { ...current, ...own } });
+  }
 }

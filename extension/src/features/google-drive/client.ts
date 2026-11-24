@@ -1,4 +1,5 @@
 import { getGoogleToken } from "./auth";
+import { projectDriveName } from "@/features/projects/scope";
 
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
@@ -19,11 +20,17 @@ async function authHeaders(): Promise<HeadersInit> {
   return { Authorization: `Bearer ${token}` };
 }
 
+/**
+ * Callers name a file as the Default project knows it (`profile.json`); another project's copy is
+ * `projects/<id>/profile.json`. Applications and their documents, and `projects.json`, are shared
+ * (`isGlobalDriveName`). See `features/projects/`.
+ */
 async function findFileByName(name: string): Promise<string | null> {
   const headers = await authHeaders();
+  const scoped = await projectDriveName(name);
   const params = new URLSearchParams({
     spaces: "appDataFolder",
-    q: `name = '${name}' and trashed = false`,
+    q: `name = '${scoped.replace(/'/g, "\\'")}' and trashed = false`,
     fields: "files(id, name)",
   });
   const res = await fetch(`${DRIVE_FILES_URL}?${params.toString()}`, { headers });
@@ -59,9 +66,10 @@ export async function readTextFile(name: string): Promise<string | null> {
   return res.text();
 }
 
-async function upsertFile(name: string, blob: Blob, mimeType: string): Promise<string> {
+async function upsertFile(plainName: string, blob: Blob, mimeType: string): Promise<string> {
   const headers = await authHeaders();
-  const existingId = await findFileByName(name);
+  const existingId = await findFileByName(plainName);
+  const name = await projectDriveName(plainName);
 
   const metadata = existingId ? { name, mimeType } : { name, mimeType, parents: ["appDataFolder"] };
   const form = new FormData();

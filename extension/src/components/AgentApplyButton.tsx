@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { baseStorageKey } from "@/features/projects/registry";
 import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { Bot, Loader2 } from "lucide-react";
 import type { Job } from "@/types/job";
@@ -160,7 +161,7 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
     if (!online) return;
     const watched = new Set<string>(SYNCED_CACHE_KEYS);
     const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area !== "local" || !Object.keys(changes).some((key) => watched.has(key))) return;
+      if (area !== "local" || !Object.keys(changes).some((key) => watched.has(baseStorageKey(key)))) return;
       if (debounce.current) clearTimeout(debounce.current);
       debounce.current = setTimeout(() => void sync(), SYNC_DEBOUNCE_MS);
     };
