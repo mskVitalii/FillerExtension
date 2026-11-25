@@ -29,14 +29,17 @@
       root (<code>python3 -m http.server 8000</code>) and open
       <code>http://localhost:8000/test-pages/linkedin-jobs-test.html</code>. The script below stubs
       <code>chrome.runtime</code> and loads <code>extension/dist/linkedin-collector.js</code> as if this were
-      <code>linkedin.com/jobs/search/?currentJobId=4100000003</code>. Expect: a "Filler" box bottom-right with
-      "Add all jobs from this page", a "+ Add" pill on each rendered card (not on the grey occluded placeholder, not
-      on the details pane), and 6 unique jobs in the log after "Add all" (4100000001–4100000006).
+      <code>linkedin.com/jobs/search/?currentJobId=4100000003</code>. Expect: "+ Add all (4)" in the list's
+      "6 results" row (nothing bottom-right, where LinkedIn's messaging dock is); a "+ Add" pill on cards 3–6 only
+      (not on the Easy Apply card 1 or its duplicate, not on the grey occluded placeholder, not on the details pane);
+      "Add all" logs 4100000003–4100000006 and says 1 Easy Apply skipped, 1 not loaded; a glowing
+      "✦ Apply via Filler AI" right of the pane's "Apply", which logs the job with the unwrapped ashbyhq.com link.
     </p>
   </header>
 
   <div class="layout">
     <section class="list" aria-label="Search results">
+      <div class="list-header" style="display:flex;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee"><span>Engineer in Germany</span><small>6 results</small></div>
       <ul class="scaffold-layout__list-container">
         <!-- 1. Classic card: li[data-occludable-job-id] > div[data-job-id], a11y duplicates, badges. -->
         <li class="jobs-search-results__list-item" data-occludable-job-id="4100000001">
@@ -177,6 +180,10 @@
               log(JSON.stringify(job));
             }
             return Promise.resolve({ type: "LINKEDIN_JOBS_ADDED", added, total: collected.size, ids: [...collected.keys()] });
+          }
+          if (message.type === "LINKEDIN_APPLY_VIA_AGENT") {
+            log("Apply via Filler AI → " + message.applyUrl + " " + JSON.stringify(message.job));
+            return Promise.resolve({ type: "LINKEDIN_AGENT_RESULT", ok: true, message: "Queued in the agent (stub)." });
           }
           return Promise.resolve(undefined);
         },

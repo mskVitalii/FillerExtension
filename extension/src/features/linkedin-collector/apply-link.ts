@@ -10,12 +10,13 @@
  * Extension only — FillerAgent must not import anything from `linkedin-collector/`.
  */
 
+import { EASY_APPLY_RE } from "./links";
+
 const LINKEDIN_HOST_RE = /(?:^|\.)linkedin\.[a-z.]+$/i;
 /** LinkedIn's own redirect wrappers, whose `url` parameter is the destination. */
 const WRAPPER_PATH_RE = /^\/(?:safety\/go|redir\/redirect|jobs\/view\/externalApply)(?:\/|$)/;
 /** "Apply", "Apply on company website", "Bewerben", "Jetzt bewerben", "Откликнуться", "Postuler"… */
 const APPLY_LABEL_RE = /\b(?:apply|bewerb\w*|postuler|candidat\w*|solicitar|candidatura)\b|откликнуться/i;
-const EASY_APPLY_RE = /easy apply|einfach bewerben|candidature simplifiée|solicitud sencilla|простой отклик/i;
 /** Tracking parameters that only tell the employer where the click came from. */
 const TRACKING_PARAM_RE = /^(?:utm_\w+|trk|trackingId|refId|lipi|gclid|fbclid)$/i;
 
@@ -62,17 +63,22 @@ function labelOf(el: Element): string {
   return `${el.getAttribute("aria-label") ?? ""} ${el.textContent ?? ""}`.replace(/\s+/g, " ").trim();
 }
 
-/** The employer's application URL of the selected / shown job, from its "Apply" link; "" when there is none (Easy Apply). */
-export function employerApplyUrl(doc: Document): string {
+/** The selected / shown job's own "Apply ↗" link and the employer URL behind it; null for Easy Apply (or a pane not loaded yet). */
+export function findApplyLink(doc: Document): { link: HTMLElement; url: string } | null {
   const roots = [...doc.querySelectorAll(DETAILS_SELECTOR)];
   for (const root of roots.length ? roots : [doc.body ?? doc.documentElement]) {
-    for (const link of root.querySelectorAll("a[href]")) {
+    for (const link of root.querySelectorAll<HTMLElement>("a[href]")) {
       if (link.closest(DESCRIPTION_SELECTOR)) continue;
       const label = labelOf(link);
       if (!APPLY_LABEL_RE.test(label) || EASY_APPLY_RE.test(label)) continue;
       const url = unwrapLinkedInRedirect(link.getAttribute("href") ?? "");
-      if (url) return url;
+      if (url) return { link, url };
     }
   }
-  return "";
+  return null;
+}
+
+/** The employer's application URL of the selected / shown job, from its "Apply" link; "" when there is none (Easy Apply). */
+export function employerApplyUrl(doc: Document): string {
+  return findApplyLink(doc)?.url ?? "";
 }

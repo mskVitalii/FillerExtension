@@ -9,12 +9,13 @@ import {
   findJobCards,
   jobIdFromHref,
   linkedInPageKind,
+  readCard,
 } from "@/features/linkedin-collector/links";
-import { bootLinkedInCollector, jobsForPage } from "@/features/linkedin-collector/collector";
+import { bootLinkedInCollector, currentJob, jobsForPage } from "@/features/linkedin-collector/collector";
 import { mergeCollected, sanitizeIncoming } from "@/features/linkedin-collector/store";
 import { isJobBoardUrl, rankEmployerHits, scoreEmployerHit } from "@/features/linkedin-collector/employer-posting";
 import { applyViaAgent, isLinkedInUrl } from "@/features/agent-bridge/client";
-import { cleanEmployerUrl, employerApplyUrl, unwrapLinkedInRedirect } from "@/features/linkedin-collector/apply-link";
+import { cleanEmployerUrl, employerApplyUrl, findApplyLink, unwrapLinkedInRedirect } from "@/features/linkedin-collector/apply-link";
 import { EMPTY_JOB } from "@/types/job";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -65,15 +66,51 @@ describe("LinkedIn job links", () => {
     expect(classic[0].card.tagName).toBe("LI");
   });
 
-  it("adds the selected job's pane details on a list page, and only the posting on a view page", () => {
-    const jobs = jobsForPage(document, SEARCH_HREF, "list");
-    expect(ids(jobs)).toHaveLength(6);
-    expect(jobs.find((job) => job.id === "4100000003")).toMatchObject({ title: "Senior Go Engineer", company: "Acme Robotics" });
+  it("Add all takes only rendered, off-LinkedIn cards, with the selected job's pane details", () => {
+    const scan = jobsForPage(document, SEARCH_HREF);
+    // Card 1 is Easy Apply (Filler never applies on LinkedIn), card 2 isn't rendered yet.
+    expect(ids(scan.jobs)).toEqual(["4100000003", "4100000004", "4100000005", "4100000006"]);
+    expect(scan).toMatchObject({ easyApply: 1, notLoaded: 1 });
+    expect(scan.jobs.find((job) => job.id === "4100000003")).toMatchObject({ title: "Senior Go Engineer", company: "Acme Robotics" });
+  });
 
+  it("reads the posting of a /jobs/view/ page", () => {
     document.body.innerHTML = "<main><h1>Senior Go Engineer</h1></main>";
     document.title = "Senior Go Engineer | Acme Robotics | LinkedIn";
-    const view = jobsForPage(document, "https://www.linkedin.com/jobs/view/4100000009/?refId=x", "view");
-    expect(view).toEqual([{ id: "4100000009", url: "https://www.linkedin.com/jobs/view/4100000009/", title: "Senior Go Engineer", company: "Acme Robotics", location: "" }]);
+    expect(currentJob(document, "https://www.linkedin.com/jobs/view/4100000009/?refId=x")).toEqual({
+      id: "4100000009",
+      url: "https://www.linkedin.com/jobs/view/4100000009/",
+      title: "Senior Go Engineer",
+      company: "Acme Robotics",
+      location: "",
+    });
+  });
+
+  it("finds cards whose id is only in a tracking attribute (server-driven list)", () => {
+    document.body.innerHTML = `<main><div>239 results</div><ul>
+      ${[1, 2, 3]
+        .map(
+          (n) => `<li><div componentkey="job-card-component-ref-410000010${n}" data-view-tracking="x">
+            <a href="https://www.linkedin.com/jobs/search-results/?keywords=go"><p>Engineer ${n}</p></a><p>Company ${n}</p><p>Berlin</p>
+          </div></li>`,
+        )
+        .join("")}
+    </ul></main>`;
+    const cards = findJobCards(document);
+    expect(ids(cards)).toEqual(["4100000101", "4100000102", "4100000103"]);
+    expect(cards.every(({ card }) => card.tagName === "LI")).toBe(true);
+    expect(readCard(cards[1].card, "4100000102").title).toBe("Engineer 2");
+  });
+
+  it("never takes the whole list as one card when only one card carries an id", () => {
+    document.body.innerHTML = `<ul>
+      <li><a href="/jobs/view/4100000201/">One</a><p>Acme</p></li>
+      <li><a href="/jobs/search-results/">Two</a><p>Initech</p></li>
+      <li><a href="/jobs/search-results/">Three</a><p>Globex</p></li>
+    </ul>`;
+    const cards = findJobCards(document);
+    expect(ids(cards)).toEqual(["4100000201"]);
+    expect(cards[0].card.tagName).toBe("LI");
   });
 });
 
@@ -217,6 +254,7 @@ describe("on-page collector", () => {
         onMessage: { addListener: vi.fn() },
         sendMessage: vi.fn(async (message: { type: string; jobs?: { id: string }[] }) => {
           sent.push(message);
+          if (message.type === "LINKEDIN_APPLY_VIA_AGENT") return { type: "LINKEDIN_AGENT_RESULT", ok: true, message: "Queued in the agent (queued)." };
           if (message.type === "LINKEDIN_ADD_JOBS") return { type: "LINKEDIN_JOBS_ADDED", added: message.jobs!.length, total: message.jobs!.length, ids: message.jobs!.map((j) => j.id) };
           return { type: "LINKEDIN_COLLECTED", ids: [] };
         }),
@@ -253,12 +291,25 @@ describe("on-page collector", () => {
     expect(sent.map((m) => (m as { type: string }).type)).toEqual(["GET_LINKEDIN_COLLECTED"]);
 
     const primary = roots[0].querySelector<HTMLButtonElement>("button.primary")!;
-    expect(primary.textContent).toBe("Add all jobs from this page");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(primary.textContent).toBe("+ Add all (4)");
     primary.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const add = sent.find((m) => (m as { type: string }).type === "LINKEDIN_ADD_JOBS") as { jobs: { id: string }[] };
-    expect(add.jobs.map((job) => job.id)).toEqual(["4100000001", "4100000002", "4100000003", "4100000004", "4100000005", "4100000006"]);
-    expect(roots[0].querySelector(".status")!.textContent).toContain("6 found on this page; scroll or open the next page to collect more.");
+    expect(add.jobs.map((job) => job.id)).toEqual(["4100000003", "4100000004", "4100000005", "4100000006"]);
+    const toast = roots[0].querySelector(".toast")!.textContent;
+    expect(toast).toContain("Added 4 new · 4 in Filler.");
+    expect(toast).toContain("1 Easy Apply skipped");
+    expect(toast).toContain("1 not loaded yet");
+
+    // "Apply via Filler AI": the selected job and the employer's link behind LinkedIn's Apply.
+    roots[0].querySelector<HTMLButtonElement>("button.agent")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const handoff = sent.find((m) => (m as { type: string }).type === "LINKEDIN_APPLY_VIA_AGENT") as { job: { id: string; title: string }; applyUrl: string; description: string };
+    expect(handoff.job).toMatchObject({ id: "4100000003", title: "Senior Go Engineer" });
+    expect(handoff.applyUrl).toBe("https://jobs.ashbyhq.com/acme-robotics/b2a28043-1f79-4557-8239-de62277a0e3f?Inbound=LinkedIn+Job+Wrapping");
+    expect(handoff.description).toContain("warehouse robots");
+    expect(roots[0].querySelector(".toast")!.textContent).toBe("Queued in the agent (queued).");
     // Our click never reached LinkedIn's own document listeners.
     expect(pageClicks).not.toHaveBeenCalled();
     document.removeEventListener("click", pageClicks);
@@ -293,6 +344,13 @@ describe("employer link behind LinkedIn's Apply button", () => {
     expect(employerApplyUrl(document)).toBe(
       "https://jobs.ashbyhq.com/acme-robotics/b2a28043-1f79-4557-8239-de62277a0e3f?Inbound=LinkedIn+Job+Wrapping",
     );
+  });
+
+  it("returns the Apply element itself, for the button placed next to it", () => {
+    loadLinkedInFixture();
+    const found = findApplyLink(document)!;
+    expect(found.link.getAttribute("aria-label")).toBe("Apply on company website");
+    expect(found.url).toContain("jobs.ashbyhq.com");
   });
 
   it("finds none for an Easy Apply job", () => {

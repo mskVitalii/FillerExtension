@@ -58,25 +58,27 @@ export function canonicalizeJobLink(value: string): string {
 }
 
 const URN_RE = /urn:li:(?:fsd_)?job(?:Posting|PostingCard)?:(\d{5,20})/;
+/**
+ * A job id in any other attribute: LinkedIn's server-driven UI changes its markup often and may carry
+ * the id in a `componentkey`, a tracking or URN attribute rather than a link. Only next to a word
+ * that says "job", so a random number (an image size, an ember id) never counts.
+ */
+const JOB_ATTR_RE = /(?:jobPosting|job[-_]?card|JobCard|currentJobId|jobs\/view\/(?:[^/"?]*-)?|jobId|job[-_]id)\D{0,40}?(\d{6,20})/i;
 
-/** The id the card element itself carries, without looking at its links. */
-function ownId(el: Element): string {
-  for (const attr of ["data-job-id", "data-occludable-job-id"]) {
-    const value = el.getAttribute(attr)?.trim();
-    if (value && ID_RE.test(value)) return value;
-  }
-  const urn = el.getAttribute("data-entity-urn") ?? el.getAttribute("data-urn") ?? "";
-  return urn.match(URN_RE)?.[1] ?? "";
+/** The job id one attribute carries, or "". */
+function idFromAttribute(el: Element, name: string, value: string): string {
+  if (!value || value.length > 2000) return "";
+  if (name === "data-job-id" || name === "data-occludable-job-id") return ID_RE.test(value.trim()) ? value.trim() : "";
+  if (name === "href") return el.tagName === "A" ? jobIdFromHref(value) : "";
+  if (name === "src" || name === "srcset" || name === "style" || name === "class") return "";
+  return value.match(URN_RE)?.[1] ?? value.match(JOB_ATTR_RE)?.[1] ?? "";
 }
-
-const ID_ATTR_SELECTOR = "[data-job-id], [data-occludable-job-id], [data-entity-urn*='obPosting:'], [data-urn*='obPosting:']";
-const JOB_LINK_SELECTOR = "a[href*='/jobs/view/'], a[href*='currentJobId=']";
 
 /**
  * The details pane of the selected job (search pages) and the single posting (`/jobs/view/`):
  * its title link is a `/jobs/view/` link too, but it isn't a card in the list.
  */
-const DETAILS_SELECTOR = [
+export const DETAILS_SELECTOR = [
   "[data-sdui-screen*='JobDetails']",
   ".jobs-search__job-details",
   ".jobs-search__job-details--container",
@@ -86,51 +88,69 @@ const DETAILS_SELECTOR = [
   ".job-details-jobs-unified-top-card__container--two-pane",
 ].join(", ");
 
-/** Card wrappers, most specific first, for a job link without an id-carrying ancestor. */
-const CARD_WRAPPERS = "li, [componentkey], [data-view-name*='job-card'], [role='listitem'], [role='button'], article";
-
-/** Card containers for every job on the page that LinkedIn has put in the DOM, in document order. */
-export function findJobCards(root: ParentNode): { id: string; card: Element }[] {
-  const seen = new Set<Element>();
-  const found: { id: string; card: Element }[] = [];
-  const add = (id: string, card: Element) => {
-    if (!id || seen.has(card) || card.closest(DETAILS_SELECTOR)) return;
-    // Nested id carriers (`li[data-occludable-job-id] > div[data-job-id]`): keep the outermost.
-    for (const other of seen) if (other.contains(card)) return;
-    for (const inner of [...seen]) {
-      if (card.contains(inner)) {
-        seen.delete(inner);
-        const index = found.findIndex((entry) => entry.card === inner);
-        if (index >= 0) found.splice(index, 1);
+/** Every element carrying a job id (attribute or link), outside the details pane, in document order. */
+function idCarriers(root: ParentNode): { el: Element; id: string }[] {
+  const details = [...root.querySelectorAll(DETAILS_SELECTOR)];
+  const hits: { el: Element; id: string }[] = [];
+  for (const el of root.querySelectorAll("*")) {
+    if (details.some((pane) => pane.contains(el))) continue;
+    for (const attr of el.attributes) {
+      const id = idFromAttribute(el, attr.name, attr.value);
+      if (id) {
+        hits.push({ el, id });
+        break;
       }
     }
-    seen.add(card);
-    found.push({ id, card });
-  };
-
-  for (const el of root.querySelectorAll(ID_ATTR_SELECTOR)) add(ownId(el), el);
-  for (const link of root.querySelectorAll(JOB_LINK_SELECTOR)) {
-    if (link.closest(ID_ATTR_SELECTOR) || link.closest(DETAILS_SELECTOR)) continue;
-    const id = jobIdFromHref(link.getAttribute("href"));
-    if (!id) continue;
-    add(id, cardFor(link));
   }
-  return found.sort((a, b) => (a.card.compareDocumentPosition(b.card) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  return hits;
 }
 
 /**
- * The card around a bare job link: the nearest wrapper that holds this link's job and no other
- * job, so a list `ul` (or the whole results column) is never mistaken for one card.
+ * The card around an id carrier: climbs while the ancestor holds no other job, and stops at the
+ * first element that is one item of a list (its parent has 3+ children of its tag) — so the list
+ * itself, or the whole results column, is never taken for one card, even when only one card in it
+ * carries an id.
  */
-function cardFor(link: Element): Element {
-  const id = jobIdFromHref(link.getAttribute("href"));
-  let best: Element = link;
-  for (let el = link.parentElement; el && el !== link.ownerDocument.body; el = el.parentElement) {
-    const ids = new Set([...el.querySelectorAll(JOB_LINK_SELECTOR)].map((a) => jobIdFromHref(a.getAttribute("href"))).filter(Boolean));
-    if (ids.size > 1 || (ids.size === 1 && !ids.has(id))) break;
-    if (el.matches(CARD_WRAPPERS)) best = el;
+function cardFor(start: Element, id: string, carriers: { el: Element; id: string }[]): Element {
+  let el = start;
+  for (let parent = el.parentElement; parent && parent !== start.ownerDocument.body; parent = el.parentElement) {
+    if (parent.matches(DETAILS_SELECTOR)) break;
+    const alike = [...parent.children].filter((child) => child.tagName === el.tagName).length;
+    // A link among 3+ links in one block isn't a list item; any other element is.
+    if (alike >= 3 && (el !== start || el.tagName !== "A")) return el;
+    if (carriers.some((carrier) => carrier.id !== id && parent!.contains(carrier.el))) return el;
+    el = parent;
   }
-  return best;
+  return el;
+}
+
+/** Card containers for every job on the page that LinkedIn has put in the DOM, in document order. */
+export function findJobCards(root: ParentNode): { id: string; card: Element }[] {
+  const carriers = idCarriers(root);
+  const byCard = new Map<Element, string>();
+  for (const { el, id } of carriers) {
+    const card = cardFor(el, id, carriers);
+    if (!byCard.has(card)) byCard.set(card, id);
+  }
+  // Nested results (a card inside another's card, which can't be two jobs): keep the outermost.
+  const cards = [...byCard.entries()].filter(([card]) => ![...byCard.keys()].some((other) => other !== card && other.contains(card)));
+  return cards
+    .map(([card, id]) => ({ id, card }))
+    .sort((a, b) => (a.card.compareDocumentPosition(b.card) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+}
+
+const JOB_LINK_SELECTOR = "a[href*='/jobs/view/'], a[href*='currentJobId=']";
+
+/** "Easy Apply" — LinkedIn's own application form. Filler never applies on LinkedIn, so these are skipped. */
+export const EASY_APPLY_RE = /easy apply|einfach bewerben|candidature simplifiée|solicitud sencilla|candidatura semplificata|простой отклик/i;
+
+export function isEasyApplyCard(card: Element): boolean {
+  return EASY_APPLY_RE.test(card.textContent ?? "") || EASY_APPLY_RE.test(card.getAttribute("aria-label") ?? "");
+}
+
+/** A virtualized placeholder: LinkedIn keeps only the id of a card far off screen. */
+export function isRenderedCard(card: Element): boolean {
+  return Boolean(card.textContent?.trim());
 }
 
 function clean(text: string | null | undefined): string {
@@ -200,9 +220,33 @@ export function dedupeJobLinks(links: LinkedInJobLink[]): LinkedInJobLink[] {
   return [...byId.values()];
 }
 
-/** Every job on the page LinkedIn has put in the DOM, deduped by id. */
+/** Every job on the page LinkedIn has put in the DOM, deduped by id (Easy Apply and not-yet-rendered ones included). */
 export function collectJobLinks(root: ParentNode): LinkedInJobLink[] {
   return dedupeJobLinks(findJobCards(root).map(({ id, card }) => readCard(card, id)));
+}
+
+export interface PageScan {
+  /** What "Add all" adds: rendered cards that apply off LinkedIn. */
+  jobs: LinkedInJobLink[];
+  /** Skipped: Easy Apply cards (LinkedIn's own form — Filler never applies there). */
+  easyApply: number;
+  /** Skipped: cards LinkedIn hasn't rendered yet (virtualized) — scroll to load them. */
+  notLoaded: number;
+}
+
+export function scanJobCards(root: ParentNode): PageScan {
+  // One job can show up as several cards (a "Recommended" strip, a placeholder and its rendered
+  // twin): it's Easy Apply when any of them says so, and loaded when any of them is rendered.
+  const byId = new Map<string, Element[]>();
+  for (const { id, card } of findJobCards(root)) byId.set(id, [...(byId.get(id) ?? []), card]);
+  const scan: PageScan = { jobs: [], easyApply: 0, notLoaded: 0 };
+  for (const [id, cards] of byId) {
+    const rendered = cards.filter(isRenderedCard);
+    if (rendered.length === 0) scan.notLoaded++;
+    else if (rendered.some(isEasyApplyCard)) scan.easyApply++;
+    else scan.jobs.push(dedupeJobLinks(rendered.map((card) => readCard(card, id)))[0]);
+  }
+  return scan;
 }
 
 export type LinkedInPageKind = "list" | "view" | null;

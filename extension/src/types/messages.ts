@@ -191,6 +191,9 @@ export type RuntimeMessage =
   /** Side Panel → background → the tab's top frame: the employer link behind LinkedIn's "Apply" button ("" for Easy Apply). */
   | { type: "GET_LINKEDIN_APPLY_URL"; tabId: number }
   | { type: "LINKEDIN_APPLY_URL"; url: string }
+  /** LinkedIn collector → background: "Apply via Filler AI" — keep the job and queue its employer link in the local agent. */
+  | { type: "LINKEDIN_APPLY_VIA_AGENT"; job: LinkedInJobLink; applyUrl: string; description: string }
+  | { type: "LINKEDIN_AGENT_RESULT"; ok: boolean; message: string }
   /** Background → LinkedIn tabs: the collector was switched off, take the on-page buttons down. */
   | { type: "LINKEDIN_COLLECTOR_OFF" }
   /** Side Panel → background: the employer's own posting (career site / ATS) for a job collected on LinkedIn. */

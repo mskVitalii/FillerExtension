@@ -8,8 +8,19 @@ desktop app that drives a browser, imports none of it and must never touch Linke
 
 On `linkedin.com/jobs/search*`, `/jobs/search-results*`, `/jobs/collections*` and `/jobs/view/<id>`:
 
-- a floating box (bottom-right) with **"Add all jobs from this page"** (on a single posting: **"Add this job"**);
+- **"✦ Apply via Filler AI"** (brand gradient, glowing like the panel's AI buttons), right of the
+  selected job's own "Apply ↗" / "Save" row, in the search pane and on `/jobs/view/`. One click keeps
+  the job in Filler and queues the employer's link behind LinkedIn's Apply in the local agent
+  (`LINKEDIN_APPLY_VIA_AGENT` → `agent-handoff.ts`: sync, then `applyViaAgent`); the answer shows as
+  a small toast under the button. Not shown for Easy Apply (no employer link).
+- **"+ Add all (N)"** on list pages, in the list's "N results" header row, right-aligned to the
+  list column (bottom-*left* corner when that row isn't found or is scrolled away — never
+  bottom-right, where LinkedIn's messaging dock is). A × hides it until the next page.
 - a small **"+ Add"** pill on each job card that is on screen (bottom-right of the card).
+
+Easy Apply jobs are never added: Filler doesn't apply on LinkedIn. A job counts as Easy Apply when
+any of its cards says so (`EASY_APPLY_RE`: en/de/fr/es/it/ru). Those cards get no pill, and
+"Add all" reports how many it skipped.
 
 A click saves canonical links, `https://www.linkedin.com/jobs/view/<id>/`, deduped by job id, plus
 the title/company/location the card shows, to `chrome.storage.local` (`linkedinCollected`). They
@@ -49,8 +60,8 @@ does Job Search → From LinkedIn.
 - One host element (`<filler-linkedin>`, closed shadow root, top-layer popover). Nothing is inserted
   into LinkedIn's own markup; our clicks are stopped at the shadow root, so LinkedIn's document
   listeners never see them. No `web_accessible_resources`, so a page can't probe for the extension.
-- The virtualized list is not scrolled for the user: the box says
-  "N found on this page; scroll or open the next page to collect more."
+- The virtualized list is not scrolled for the user: "Add all" says how many cards aren't loaded
+  yet and to scroll or open the next page.
 - `applyViaAgent` refuses any `linkedin.*` URL (in the posting URL or the job's own URL), on top of
   FillerAgent's own `blockedHosts`.
 
@@ -99,8 +110,12 @@ the script mounts nothing and only listens for navigation (`navigation` `navigat
   classic cards (nested `data-occludable-job-id` / `data-job-id`), an occluded card (id only),
   server-driven cards (no id attribute, `currentJobId` and slug links, a country subdomain), a guest
   card (`data-entity-urn`), duplicates, non-job links and a details pane. It also covers id parsing,
-  the store's re-validation and merge, the employer ranking, the agent guard, and the on-page box
-  (one host, nothing sent before a click, 6 jobs after, our click never reaches page listeners).
+  the store's re-validation and merge, the employer ranking, the agent guard, and the on-page UI
+  (one host, nothing sent before a click, 4 jobs after "Add all" with Easy Apply and the unloaded
+  card skipped, "Apply via Filler AI" sending the unwrapped employer link, our click never reaching
+  page listeners). Server-driven lists whose id is only in a tracking attribute, and a list where
+  one card has an id (the list must not become one card), are covered too.
+- `extension/test/linkedin-agent-handoff.test.ts`: the background half of "Apply via Filler AI".
 - Manual: `make build`, serve the repo root (`python3 -m http.server 8000`), open
   `http://localhost:8000/test-pages/linkedin-jobs-test.html` — it stubs `chrome.runtime` and loads
   `extension/dist/linkedin-collector.js` as if on a LinkedIn search page.

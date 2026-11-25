@@ -27,6 +27,7 @@ import { ensureContentScript, findBlockedFrameOrigins } from "./inject-content-s
 import { setCoverLetterRun } from "@/features/storage/session";
 import { addCollectedLinkedInJobs, getCollectedLinkedInJobs, sanitizeIncoming } from "@/features/linkedin-collector/store";
 import { findEmployerPosting } from "@/features/linkedin-collector/employer-posting";
+import { handOffLinkedInJobToAgent } from "@/features/linkedin-collector/agent-handoff";
 import type { ElementLocator } from "@/features/autofill/element-locator";
 
 /** Tell every frame's element picker to dismiss its overlay. Also used when the Side Panel port disconnects. */
@@ -571,6 +572,11 @@ async function handleMessage(message: RuntimeMessage): Promise<RuntimeMessage | 
       // From a content script on a LinkedIn page: rebuilt from the job ids, never stored as sent.
       const result = await addCollectedLinkedInJobs(sanitizeIncoming(message.jobs));
       return { type: "LINKEDIN_JOBS_ADDED", ...result };
+    }
+
+    case "LINKEDIN_APPLY_VIA_AGENT": {
+      const result = await handOffLinkedInJobToAgent(message);
+      return { type: "LINKEDIN_AGENT_RESULT", ...result };
     }
 
     case "GET_LINKEDIN_COLLECTED": {
