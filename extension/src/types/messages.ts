@@ -188,6 +188,9 @@ export type RuntimeMessage =
   /** LinkedIn collector → background: which job ids are already collected (to mark their cards "Added"). */
   | { type: "GET_LINKEDIN_COLLECTED" }
   | { type: "LINKEDIN_COLLECTED"; ids: string[] }
+  /** Side Panel → background → the tab's top frame: the employer link behind LinkedIn's "Apply" button ("" for Easy Apply). */
+  | { type: "GET_LINKEDIN_APPLY_URL"; tabId: number }
+  | { type: "LINKEDIN_APPLY_URL"; url: string }
   /** Background → LinkedIn tabs: the collector was switched off, take the on-page buttons down. */
   | { type: "LINKEDIN_COLLECTOR_OFF" }
   /** Side Panel → background: the employer's own posting (career site / ATS) for a job collected on LinkedIn. */

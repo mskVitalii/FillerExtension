@@ -13,6 +13,7 @@ import { PinHint } from "@/components/PinHint";
 import { SetupBanner } from "@/components/SetupBanner";
 import { FrameAccessBanner } from "@/components/FrameAccessBanner";
 import { TabAccessBanner } from "@/components/TabAccessBanner";
+import { LinkedInCollectorBanner } from "@/components/LinkedInCollectorBanner";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useToolbarPinned } from "../hooks/useToolbarPinned";
 import { useCvChoice } from "../hooks/useCvChoice";
@@ -1819,6 +1820,7 @@ export function MainView({
         />
       )}
       <FrameAccessBanner tabId={tabId} onGranted={() => void runAutofill(setupComplete)} />
+      <LinkedInCollectorBanner url={tabUrl} />
       {toolbarPinned === false && <PinHint />}
       <UpdateBanner />
 
@@ -2065,7 +2067,7 @@ export function MainView({
       {/* `display: contents` keeps the layout as if the fieldset weren't there; `disabled` still
           reaches every button inside, so the agent hand-over waits for the scan like the rest. */}
       <fieldset disabled={isAnalyzingJob} title={scanTitle} className="contents">
-        <AgentApplyButton job={job} url={tabUrl} />
+        <AgentApplyButton job={job} url={tabUrl} tabId={tabId} />
       </fieldset>
 
       {setupComplete && job.contact && (

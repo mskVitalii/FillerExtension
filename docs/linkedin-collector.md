@@ -21,6 +21,23 @@ appear in the Side Panel under **Job Search → From LinkedIn**, with:
 - **Send to agent** on a candidate: hands the *employer's* URL to the local FillerAgent queue
   (`applyViaAgent`), after a sync, like "Apply via AI agent". The agent then applies on the ATS.
 
+## "Apply via AI agent" on a LinkedIn job
+
+On a LinkedIn job (search pane or `/jobs/view/`), the agent button doesn't send the LinkedIn page.
+It asks the tab's content script (`GET_LINKEDIN_APPLY_URL` → `apply-link.ts` `employerApplyUrl`)
+for the href of the job's own "Apply ↗" link, as rendered. That link is never clicked. LinkedIn wraps
+the employer's page as `https://www.linkedin.com/safety/go/?url=<employer URL>&urlhash=…` (also
+`/redir/redirect/?url=`, `/jobs/view/externalApply/<id>?url=`). The `url` parameter is decoded,
+`utm_*`/`trk`/`lipi`… are dropped, and that URL is what the agent checks and opens, directly, never
+through LinkedIn. Links inside the description ("About the job") don't count. An Easy Apply job has
+no such link: the button stays off and says so.
+
+## Where to switch it on
+
+Off by default. A banner on LinkedIn job pages in the main panel view
+(`components/LinkedInCollectorBanner.tsx`) has the "Show Filler's buttons on LinkedIn" button. So
+does Job Search → From LinkedIn.
+
 ## Safety rules (the account matters more than any link)
 
 - Reads only DOM LinkedIn has already rendered, only on a user click. No LinkedIn/voyager API call,

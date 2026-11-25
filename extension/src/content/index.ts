@@ -1,4 +1,5 @@
 import { sendMessage, type MessageOf, type RuntimeMessage } from "@/types/messages";
+import { employerApplyUrl } from "@/features/linkedin-collector/apply-link";
 import { extractJob, isExtractionSufficient } from "@/features/job-extraction/extractor";
 import { pageMainText } from "@/features/job-extraction/dom-heuristics";
 import { autofillDocument } from "@/features/autofill/engine";
@@ -247,6 +248,13 @@ function registerMessageListener(): void {
             sendResponse({ type: "CUSTOM_QUESTION_FILL_RESULT", filled: 0, unfilled: [] });
           });
         return true;
+      }
+
+      case "GET_LINKEDIN_APPLY_URL": {
+        // Read only: the Apply link's href as rendered, never a click on it.
+        const response: RuntimeMessage = { type: "LINKEDIN_APPLY_URL", url: employerApplyUrl(document) };
+        sendResponse(response);
+        return false;
       }
 
       case "DETECT_CHECKBOXES": {

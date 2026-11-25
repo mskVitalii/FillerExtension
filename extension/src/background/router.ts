@@ -578,6 +578,13 @@ async function handleMessage(message: RuntimeMessage): Promise<RuntimeMessage | 
       return { type: "LINKEDIN_COLLECTED", ids: jobs.map((job) => job.id) };
     }
 
+    case "GET_LINKEDIN_APPLY_URL": {
+      // The top frame only: LinkedIn's job pane isn't in an iframe.
+      await ensureContentScript(message.tabId);
+      const reply = (await chrome.tabs.sendMessage(message.tabId, message, { frameId: 0 }).catch(() => undefined)) as RuntimeMessage | undefined;
+      return { type: "LINKEDIN_APPLY_URL", url: reply?.type === "LINKEDIN_APPLY_URL" ? reply.url : "" };
+    }
+
     case "FIND_EMPLOYER_POSTING": {
       const { tavilyApiKey } = await getJobSearchCredentials();
       const candidates = await findEmployerPosting(message, tavilyApiKey);

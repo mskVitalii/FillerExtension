@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { baseStorageKey } from "@/features/projects/registry";
 import { PICKER_GRADIENT } from "@/lib/brand-gradient";
 import { Bot, Loader2 } from "lucide-react";
@@ -14,6 +14,7 @@ import {
   applyViaAgent,
   checkWithAgent,
   getAgentSettings,
+  isLinkedInUrl,
   pairWithAgent,
   requestAgentPermission,
   type AgentBridgeSettings,
@@ -22,6 +23,7 @@ import {
 } from "@/features/agent-bridge/client";
 import { SYNCED_CACHE_KEYS, lastAgentSync, syncWithAgent } from "@/features/agent-bridge/sync";
 import { connectAgentLive } from "@/features/agent-bridge/live";
+import { sendMessage, type MessageOf } from "@/types/messages";
 
 /** Polling only stands in for the push channel: often while it's down, rarely as a safety net. */
 const POLL_MS = { live: 5 * 60 * 1000, fallback: 15000 };
@@ -48,8 +50,26 @@ function timeLabel(at: number): string {
  * (`agent-bridge/sync.ts`): on panel open, after local changes, and always
  * right before handing over a posting.
  */
-export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
+export function AgentApplyButton({ job, url: tabUrl, tabId }: { job: Job; url: string; tabId?: number }) {
   const t = useT();
+  // On LinkedIn the agent gets the employer's own link behind the "Apply ↗" button (read from the
+  // page, never clicked), not the LinkedIn page: it applies on the employer's site and must never
+  // open LinkedIn. Re-read when the selected job changes (URL) or its pane finishes loading (title).
+  const onLinkedIn = isLinkedInUrl(tabUrl);
+  const [employer, setEmployer] = useState<{ for: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!onLinkedIn || tabId === undefined) return;
+    let cancelled = false;
+    sendMessage<MessageOf<"LINKEDIN_APPLY_URL">>({ type: "GET_LINKEDIN_APPLY_URL", tabId })
+      .then((reply) => !cancelled && setEmployer({ for: tabUrl, url: reply?.url ?? "" }))
+      .catch(() => !cancelled && setEmployer({ for: tabUrl, url: "" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [onLinkedIn, tabId, tabUrl, job.position]);
+  const linkedInResolved = onLinkedIn && employer?.for === tabUrl;
+  const url = onLinkedIn ? (linkedInResolved ? employer.url : "") : tabUrl;
+  const targetJob = useMemo(() => (onLinkedIn && url ? { ...job, url } : job), [onLinkedIn, url, job]);
   const [settings, setSettings] = useState<AgentBridgeSettings | null>(null);
   const [health, setHealth] = useState<AgentHealth>("offline");
   const [check, setCheck] = useState<AgentCheck | null>(null);
@@ -99,16 +119,16 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
       next = "unauthorized";
     }
     setHealth(next);
-    if (next !== "online" || !url || !job.position) {
+    if (next !== "online" || !url || !targetJob.position) {
       setCheck(null);
       return;
     }
     try {
-      setCheck(await checkWithAgent(settings, url, job));
+      setCheck(await checkWithAgent(settings, url, targetJob));
     } catch {
       setCheck(null);
     }
-  }, [settings, url, job]);
+  }, [settings, url, targetJob]);
 
   useEffect(() => {
     if (!settings) return;
@@ -200,7 +220,7 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
     try {
       // Sync first, then use: the agent must apply with the data as it is now.
       if (!(await sync(true))) return;
-      const created = await applyViaAgent(settings, url, job);
+      const created = await applyViaAgent(settings, url, targetJob);
       setMessage(t("agent.queued", { status: created.status }));
       await refresh();
     } catch (err) {
@@ -273,6 +293,8 @@ export function AgentApplyButton({ job, url }: { job: Job; url: string }) {
           </button>
         )}
       </div>
+      {linkedInResolved && url && <span className="text-xs text-muted-foreground">{t("agent.linkedinEmployer", { host: new URL(url).hostname })}</span>}
+      {linkedInResolved && !url && <span className="text-xs text-muted-foreground">{t("agent.linkedinNoLink")}</span>}
       {syncError && <span className="text-xs text-destructive">{syncError}</span>}
       {existing && <span className="text-xs text-muted-foreground">{t("agent.existing", { status: existing.status, step: existing.step })}</span>}
       {!existing && reasons.length > 0 && <span className="text-xs text-muted-foreground">{reasons[0]}</span>}

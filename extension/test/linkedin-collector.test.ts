@@ -14,6 +14,7 @@ import { bootLinkedInCollector, jobsForPage } from "@/features/linkedin-collecto
 import { mergeCollected, sanitizeIncoming } from "@/features/linkedin-collector/store";
 import { isJobBoardUrl, rankEmployerHits, scoreEmployerHit } from "@/features/linkedin-collector/employer-posting";
 import { applyViaAgent, isLinkedInUrl } from "@/features/agent-bridge/client";
+import { cleanEmployerUrl, employerApplyUrl, unwrapLinkedInRedirect } from "@/features/linkedin-collector/apply-link";
 import { EMPTY_JOB } from "@/types/job";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -267,5 +268,40 @@ describe("on-page collector", () => {
     window.__fillerLinkedInTestHref = "https://www.linkedin.com/feed/";
     bootLinkedInCollector();
     expect(document.querySelectorAll("filler-linkedin")).toHaveLength(0);
+  });
+});
+
+describe("employer link behind LinkedIn's Apply button", () => {
+  it("unwraps /safety/go/, /redir/redirect/ and externalApply, dropping tracking parameters", () => {
+    expect(
+      unwrapLinkedInRedirect(
+        "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fbolt.eu%2Fen%2Fcareers%2Fpositions%2F%3Fashby_jid%3Db2a28043-1f79-4557-8239-de62277a0e3f%26utm_source%3DK2Jpl6vlvB%26Inbound%3DLinkedIn%2BJob%2BWrapping&urlhash=QQDq&mt=dFY5&isSdui=true&lipi=urn%3Ali%3Apage%3Ad_flagship3_nlsearch_srp_jobs%3B0NP7udjrRhWiL4AeHTnwCA%3D%3D",
+      ),
+    ).toBe("https://bolt.eu/en/careers/positions/?ashby_jid=b2a28043-1f79-4557-8239-de62277a0e3f&Inbound=LinkedIn+Job+Wrapping");
+    expect(unwrapLinkedInRedirect("/redir/redirect/?url=https%3A%2F%2Fjobs.lever.co%2Facme%2F1&urlhash=x")).toBe("https://jobs.lever.co/acme/1");
+    expect(unwrapLinkedInRedirect("https://www.linkedin.com/jobs/view/externalApply/4100000001?url=https%3A%2F%2Facme.example%2Fjobs%2F1")).toBe("https://acme.example/jobs/1");
+    expect(unwrapLinkedInRedirect("https://boards.greenhouse.io/acme/jobs/1?utm_medium=linkedin")).toBe("https://boards.greenhouse.io/acme/jobs/1");
+    // Never back to LinkedIn, never a non-web URL, never another LinkedIn page.
+    expect(unwrapLinkedInRedirect("https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fde.linkedin.com%2Fjobs%2Fview%2F1")).toBe("");
+    expect(unwrapLinkedInRedirect("https://www.linkedin.com/safety/go/?url=javascript%3Aalert(1)")).toBe("");
+    expect(unwrapLinkedInRedirect("https://www.linkedin.com/jobs/view/4100000001/")).toBe("");
+    expect(cleanEmployerUrl("ftp://acme.example/")).toBe("");
+  });
+
+  it("reads the selected job's Apply link, not a link in its description", () => {
+    loadLinkedInFixture();
+    expect(employerApplyUrl(document)).toBe(
+      "https://jobs.ashbyhq.com/acme-robotics/b2a28043-1f79-4557-8239-de62277a0e3f?Inbound=LinkedIn+Job+Wrapping",
+    );
+  });
+
+  it("finds none for an Easy Apply job", () => {
+    document.body.innerHTML = `<div data-sdui-screen="com.linkedin.sdui.jobs.SemanticJobDetails">
+      <a href="/jobs/view/4100000001/">Engineer</a>
+      <a href="https://www.linkedin.com/jobs/view/4100000001/apply/?openSDUIApplyFlow=true">Easy Apply</a>
+      <button>Easy Apply</button>
+      <div componentkey="JobDetails_AboutTheJob_1"><a href="https://www.linkedin.com/safety/go/?url=https%3A%2F%2Facme.example%2Fapply">Apply here</a></div>
+    </div>`;
+    expect(employerApplyUrl(document)).toBe("");
   });
 });
