@@ -79,7 +79,7 @@ function profileValue(profile: Profile, field: ProfileFieldKey): string {
 async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value: string, profile: Profile): Promise<boolean> {
   if (field === "phone") {
     const fill = resolvePhoneFill(el, value, profile.country);
-    if (!fill) return fillElement(el, value);
+    if (!fill) return writeText(el, value);
     return fillPhoneField(el, fill);
   }
 
@@ -118,7 +118,7 @@ async function fillSemanticField(el: HTMLElement, field: ProfileFieldKey, value:
     return false;
   }
 
-  return fillElement(el, value);
+  return writeText(el, value);
 }
 
 /**
@@ -176,7 +176,35 @@ async function autofillDocumentUncached(
      * a person moving from field to field). Absent (the extension, tests) → no pause.
      */
     beforeFill?: () => Promise<void>;
+    /**
+     * Writes a profile value into a plain text box another way (FillerAgent: clicked and typed with
+     * real keyboard input). False → written by script as usual. Absent (the extension) → by script.
+     */
+    writeText?: TextWriter;
   } = {},
+): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
+  textWriter = options.writeText ?? null;
+  try {
+    return await autofillRun(profile, options);
+  } finally {
+    textWriter = null;
+  }
+}
+
+type TextWriter = (el: HTMLElement, value: string) => Promise<boolean>;
+
+/** This run's `writeText`; null outside a run (the refill guard's later refills go by script). */
+let textWriter: TextWriter | null = null;
+
+/** A profile value into a text box: through this run's `writeText` when it takes it, else by script. */
+async function writeText(el: HTMLElement, value: string): Promise<boolean> {
+  if (textWriter && (await textWriter(el, value).catch(() => false))) return true;
+  return fillElement(el, value);
+}
+
+async function autofillRun(
+  profile: Profile,
+  options: Parameters<typeof autofillDocumentUncached>[1] & object,
 ): Promise<{ filled: number; total: number; generatedPassword: string | null }> {
   const ats = activeAtsAdapter();
   const elements = fillableElements(ats);
