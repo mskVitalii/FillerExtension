@@ -49,7 +49,20 @@ export function isLinkedInCollectorSettingsChange(changes: Record<string, unknow
  * registered, also injects it into LinkedIn tabs already open (a registered script only reaches
  * pages loaded after it), so the buttons appear without a reload.
  */
-export async function syncLinkedInCollector(): Promise<"registered" | "unregistered" | "unchanged"> {
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * One sync at a time. Switching the buttons on fires `permissions.onAdded` (access granted) and
+ * `storage.onChanged` (switch on) within milliseconds; two concurrent syncs both saw "not
+ * registered yet" and the second `registerContentScripts` failed with "Duplicate script ID".
+ */
+export function syncLinkedInCollector(): Promise<"registered" | "unregistered" | "unchanged"> {
+  const run = queue.then(runSync, runSync);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function runSync(): Promise<"registered" | "unregistered" | "unchanged"> {
   const [granted, settings, existing] = await Promise.all([
     hasLinkedInPermission(),
     getLinkedInCollectorSettings(),
@@ -68,7 +81,10 @@ export async function syncLinkedInCollector(): Promise<"registered" | "unregiste
         allFrames: false,
         persistAcrossSessions: true,
       },
-    ]);
+    ]).catch((error: Error) => {
+      // Registered meanwhile (another service-worker instance, or a sync from before a restart): that's the goal.
+      if (!/duplicate script id/i.test(error.message)) throw error;
+    });
     await injectIntoOpenTabs();
     return "registered";
   }
